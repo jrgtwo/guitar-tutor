@@ -32,6 +32,31 @@ export { Strings } from './components/fretboard/Strings';
 export { CapoBar } from './components/fretboard/CapoBar';
 export { NoteMarker } from './components/fretboard/NoteMarker';
 
+// Shared UI primitives (shadcn-style) — useful for consumers building their own controls
+export { Button, type ButtonProps } from './components/ui/button';
+export {
+  Select,
+  SelectGroup,
+  SelectValue,
+  SelectTrigger,
+  SelectContent,
+  SelectItem,
+  SelectLabel,
+} from './components/ui/select';
+export {
+  Dialog,
+  DialogTrigger,
+  DialogContent,
+  DialogHeader,
+  DialogFooter,
+  DialogTitle,
+  DialogDescription,
+  DialogClose,
+} from './components/ui/dialog';
+export { Switch } from './components/ui/switch';
+export { RadioGroup, RadioGroupItem } from './components/ui/radio-group';
+export { Label } from './components/ui/label';
+
 // Individual control components (for consumers wanting their own control surface)
 export { ModeSelect } from './components/controls/ModeSelect';
 export { KeySelect } from './components/controls/KeySelect';
@@ -100,3 +125,25 @@ export type {
   FretworkSettings,
   FretworkState,
 } from './types';
+
+// Metronome — class, hook, store, data, types
+export {
+  Metronome,
+  useMetronome,
+  useMetronomeStore,
+  DEFAULT_METRONOME_STATE,
+  TIME_SIGNATURES,
+  getTimeSignature,
+  DEFAULT_TIME_SIGNATURE_ID,
+  tickSubdivision,
+} from './metronome';
+export type {
+  TimeSignature,
+  MetronomeTickEvent,
+  MetronomeEvents,
+  MetronomeOptions,
+  MetronomeState,
+  MetronomeStoreState,
+  ClickSound,
+  UseMetronomeReturn,
+} from './metronome';

@@ -1,4 +1,6 @@
-import { TopBar, Fretboard, InfoCard, Legend } from '@fretwork/lib';
+import { Fretboard, InfoCard, Legend } from '@fretwork/lib';
+import { TopBar } from '@/components/TopBar';
+import { MetronomeExpanded } from '@/components/metronome/MetronomeExpanded';
 
 export default function App() {
   return (
@@ -19,6 +21,9 @@ export default function App() {
       <footer className="px-6 py-3 text-[10px] font-mono uppercase tracking-wider text-muted-foreground/60 text-right">
         Built for guitarists · v0.1
       </footer>
+
+      {/* Floating metronome panel — rendered when expanded mode is on. */}
+      <MetronomeExpanded />
     </div>
   );
 }
