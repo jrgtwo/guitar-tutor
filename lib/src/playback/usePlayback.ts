@@ -31,6 +31,7 @@ import { Voice } from './voices/Voice';
 import { ACOUSTIC_GUITAR_PRESET } from './voices/presets';
 import { findEffectivePreset, getEffectiveReverb, subscribeToOverrides } from './voices/preset-overrides';
 import { MasterBus } from './voices/MasterBus';
+import { resolveShapeAbsoluteCells } from './patterns/caged';
 import type { FretInstrumentId, VoiceFamily } from './voices/types';
 
 export interface UsePlaybackReturn {
@@ -137,6 +138,23 @@ export function usePlayback(): UsePlaybackReturn {
   const setStoreIsProgramming = usePlaybackStore((s) => s.setIsProgramming);
   const clearStoreCustom = usePlaybackStore((s) => s.clearCustomSequence);
   const setStoreVoiceFamily = usePlaybackStore((s) => s.setVoiceFamily);
+  const setFretShapeId = useFretworkStore((s) => s.setShapeId);
+
+  /** Set the playback pattern. CAGED entries also write the matching `shapeId`
+   *  to the fretwork store so the visual filter stays in sync — picking a CAGED
+   *  shape in the pattern dropdown updates the TopBar Position dropdown too. */
+  const setPatternId = useCallback(
+    (id: string) => {
+      setStorePatternId(id);
+      // Sync the fretwork shape filter when the user picks a CAGED-prefixed pattern.
+      // Non-CAGED patterns leave `shapeId` alone — the user might be viewing a
+      // shape and walking it with e.g. "Ascending pitch", which is valid.
+      if (id.startsWith('caged-')) {
+        setFretShapeId(id);
+      }
+    },
+    [setStorePatternId, setFretShapeId],
+  );
 
   // Resolve the pattern object from the id. Falls back to default if id is unknown
   // (which shouldn't happen, but keeps TS happy).
@@ -153,6 +171,7 @@ export function usePlayback(): UsePlaybackReturn {
   const fretType = useFretworkStore((s) => s.type);
   const fretTuning = useFretworkStore((s) => s.tuning);
   const fretCapo = useFretworkStore((s) => s.capo);
+  const fretShapeId = useFretworkStore((s) => s.shapeId);
 
   const resolveInput: ResolveInput | null = useMemo(() => {
     const tuning = getTuning(fretTuning);
@@ -172,10 +191,35 @@ export function usePlayback(): UsePlaybackReturn {
     }
 
     const grid = buildGrid(tuning, fretCapo, fretCount);
-    const highlights = computeHighlights(grid, effectiveKey, intervals, fretCapo);
+    const fullHighlights = computeHighlights(grid, effectiveKey, intervals, fretCapo);
+
+    // Build the "scoping" view of highlights for playback. When a CAGED shape is
+    // active, walk patterns should hear only the shape's cells — what you see at
+    // full prominence is what you hear. Ghost markers don't sound.
+    let scopedHighlights = fullHighlights;
+    if (fretShapeId && (fretMode === 'scales' || fretMode === 'arpeggios')) {
+      const shapeInput: ResolveInput = {
+        highlights: fullHighlights,
+        tuning,
+        key: effectiveKey,
+        capo: fretCapo,
+        mode: fretMode,
+        instrumentId: fretInstrumentId,
+        fretCount,
+        scaleType: fretMode === 'scales' ? fretType : undefined,
+        arpeggioType: fretMode === 'arpeggios' ? fretType : undefined,
+      };
+      const shapeCells = resolveShapeAbsoluteCells(fretShapeId as never, shapeInput);
+      if (shapeCells.length > 0) {
+        const shapeKeys = new Set(shapeCells.map((c) => `${c.stringIndex}:${c.fret}`));
+        scopedHighlights = fullHighlights.filter((h) =>
+          shapeKeys.has(`${h.stringIndex}:${h.fret}`),
+        );
+      }
+    }
 
     return {
-      highlights,
+      highlights: scopedHighlights,
       tuning,
       key: effectiveKey,
       capo: fretCapo,
@@ -183,9 +227,10 @@ export function usePlayback(): UsePlaybackReturn {
       instrumentId: fretInstrumentId,
       fretCount,
       scaleType: fretMode === 'scales' ? fretType : undefined,
+      arpeggioType: fretMode === 'arpeggios' ? fretType : undefined,
       customSequence,
     };
-  }, [fretInstrumentId, fretMode, fretKey, fretType, fretTuning, fretCapo, customSequence]);
+  }, [fretInstrumentId, fretMode, fretKey, fretType, fretTuning, fretCapo, fretShapeId, customSequence]);
 
   useEffect(() => {
     if (!playback || !resolveInput) return;
@@ -247,7 +292,7 @@ export function usePlayback(): UsePlaybackReturn {
     voiceFamily,
     setEnabled: setStoreEnabled,
     toggleEnabled: toggleStoreEnabled,
-    setPatternId: setStorePatternId,
+    setPatternId,
     startProgramming: () => setStoreIsProgramming(true),
     finishProgramming: () => setStoreIsProgramming(false),
     clearCustom: clearStoreCustom,

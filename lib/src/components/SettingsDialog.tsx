@@ -21,6 +21,7 @@ export function SettingsDialog() {
   const setHandedness = useFretworkStore((s) => s.setHandedness);
   const setColorByDegree = useFretworkStore((s) => s.setColorByDegree);
   const setHighlightRoot = useFretworkStore((s) => s.setHighlightRoot);
+  const setShowGhostMarkers = useFretworkStore((s) => s.setShowGhostMarkers);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -72,6 +73,20 @@ export function SettingsDialog() {
                 id="highlight-root"
                 checked={settings.highlightRoot}
                 onCheckedChange={setHighlightRoot}
+              />
+            </div>
+
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex flex-col leading-tight">
+                <Label htmlFor="ghost-markers" className="cursor-pointer">Show ghost markers</Label>
+                <span className="text-[10px] font-mono text-muted-foreground">
+                  When a CAGED shape is active, render the rest of the scale at low opacity instead of hiding it.
+                </span>
+              </div>
+              <Switch
+                id="ghost-markers"
+                checked={settings.showGhostMarkers}
+                onCheckedChange={setShowGhostMarkers}
               />
             </div>
           </section>

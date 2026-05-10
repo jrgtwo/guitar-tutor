@@ -3,6 +3,7 @@ import { InstrumentSelect } from '../components/controls/InstrumentSelect';
 import { ModeSelect } from '../components/controls/ModeSelect';
 import { KeySelect } from '../components/controls/KeySelect';
 import { TypeSelect } from '../components/controls/TypeSelect';
+import { ShapeSelect } from '../components/controls/ShapeSelect';
 import { TuningSelect } from '../components/controls/TuningSelect';
 import { CapoSelect } from '../components/controls/CapoSelect';
 import { LabelsSelect } from '../components/controls/LabelsSelect';
@@ -20,6 +21,7 @@ export function TopBar() {
         <ModeSelect />
         <KeySelect />
         <TypeSelect />
+        <ShapeSelect />
         <TuningSelect />
         <CapoSelect />
         <LabelsSelect />

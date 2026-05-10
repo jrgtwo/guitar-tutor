@@ -18,7 +18,8 @@ describe('url-state', () => {
       tuning: 'drop-d',
       capo: 5,
       labels: 'notes',
-      settings: { handedness: 'left', colorByDegree: false, highlightRoot: false },
+      shapeId: null,
+      settings: { handedness: 'left', colorByDegree: false, highlightRoot: false, showGhostMarkers: true },
     };
     const dec = decodeState(encodeState(state));
     expect(dec).toEqual(state);
@@ -33,7 +34,8 @@ describe('url-state', () => {
       tuning: 'bass-standard',
       capo: 0,
       labels: 'intervals',
-      settings: { handedness: 'right', colorByDegree: true, highlightRoot: true },
+      shapeId: null,
+      settings: { handedness: 'right', colorByDegree: true, highlightRoot: true, showGhostMarkers: true },
     };
     expect(decodeState(encodeState(state))).toEqual(state);
   });
@@ -47,9 +49,40 @@ describe('url-state', () => {
       tuning: 'ukulele-standard',
       capo: 0,
       labels: 'intervals',
-      settings: { handedness: 'right', colorByDegree: true, highlightRoot: true },
+      shapeId: null,
+      settings: { handedness: 'right', colorByDegree: true, highlightRoot: true, showGhostMarkers: true },
     };
     expect(decodeState(encodeState(state))).toEqual(state);
+  });
+
+  it('roundtrips a config with an active CAGED shape', () => {
+    const state: FretworkState = {
+      instrumentId: 'guitar',
+      mode: 'scales',
+      key: 'C',
+      type: 'major',
+      tuning: 'standard',
+      capo: 0,
+      labels: 'intervals',
+      shapeId: 'caged-c',
+      settings: { handedness: 'right', colorByDegree: true, highlightRoot: true, showGhostMarkers: true },
+    };
+    expect(decodeState(encodeState(state))).toEqual(state);
+  });
+
+  it('keeps shapeId in arpeggios mode', () => {
+    const params = new URLSearchParams({ mode: 'arpeggios', key: 'C', type: 'maj7', tuning: 'standard', shape: 'caged-c' });
+    expect(decodeState(params).shapeId).toBe('caged-c');
+  });
+
+  it('drops shapeId in notes mode', () => {
+    const params = new URLSearchParams({ mode: 'notes', key: 'C', type: 'C', tuning: 'standard', shape: 'caged-c' });
+    expect(decodeState(params).shapeId).toBeNull();
+  });
+
+  it('rejects an unknown shape value', () => {
+    const params = new URLSearchParams({ mode: 'scales', key: 'C', type: 'major', tuning: 'standard', shape: 'banana' });
+    expect(decodeState(params).shapeId).toBeNull();
   });
 
   it('omits the inst param for default-instrument (guitar) URLs', () => {

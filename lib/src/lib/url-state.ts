@@ -7,6 +7,7 @@ import { SCALES, DEFAULT_SCALE_ID } from './scales';
 import { ARPEGGIOS } from './arpeggios';
 import { TUNINGS, DEFAULT_TUNING_ID, CHROMATIC_KEYS } from './tunings';
 import { INSTRUMENTS, DEFAULT_INSTRUMENT_ID, getInstrument } from './instruments';
+import { CAGED_PATTERN_IDS } from '../playback/patterns/caged-shapes-data';
 
 const VALID_MODES: readonly Mode[] = ['scales', 'arpeggios', 'notes'];
 const VALID_LABELS: readonly LabelMode[] = ['notes', 'intervals', 'blank'];
@@ -17,6 +18,7 @@ const ARP_IDS = new Set(ARPEGGIOS.map((a) => a.id));
 const TUNING_IDS = new Set(TUNINGS.map((t) => t.id));
 const CHROMATIC_SET = new Set<string>(CHROMATIC_KEYS);
 const INSTRUMENT_IDS = new Set(INSTRUMENTS.map((i) => i.id));
+const CAGED_SHAPE_ID_SET = new Set<string>(CAGED_PATTERN_IDS);
 
 export const DEFAULT_STATE: FretworkState = {
   instrumentId: DEFAULT_INSTRUMENT_ID,
@@ -26,10 +28,12 @@ export const DEFAULT_STATE: FretworkState = {
   tuning: DEFAULT_TUNING_ID,
   capo: 0,
   labels: 'intervals',
+  shapeId: null,
   settings: {
     handedness: 'right',
     colorByDegree: true,
     highlightRoot: true,
+    showGhostMarkers: true,
   },
 };
 
@@ -58,12 +62,17 @@ export function encodeState(state: FretworkState): URLSearchParams {
   p.set('tuning', state.tuning);
   p.set('capo', String(state.capo));
   p.set('labels', state.labels);
+  // CAGED shape filter — only emit when set AND in a mode that supports it.
+  if (state.shapeId && (state.mode === 'scales' || state.mode === 'arpeggios')) {
+    p.set('shape', state.shapeId);
+  }
   // Settings: only emit non-default values to keep URLs short.
   const s = state.settings;
   const d = DEFAULT_STATE.settings;
   if (s.handedness !== d.handedness) p.set('hand', s.handedness);
   if (s.colorByDegree !== d.colorByDegree) p.set('color', s.colorByDegree ? '1' : '0');
   if (s.highlightRoot !== d.highlightRoot) p.set('root', s.highlightRoot ? '1' : '0');
+  if (s.showGhostMarkers !== d.showGhostMarkers) p.set('ghosts', s.showGhostMarkers ? '1' : '0');
   return p;
 }
 
@@ -109,6 +118,14 @@ export function decodeState(params: URLSearchParams): FretworkState {
 
   const colorByDegree = decodeFlag(params.get('color'), DEFAULT_STATE.settings.colorByDegree);
   const highlightRoot = decodeFlag(params.get('root'), DEFAULT_STATE.settings.highlightRoot);
+  const showGhostMarkers = decodeFlag(params.get('ghosts'), DEFAULT_STATE.settings.showGhostMarkers);
+
+  // Shape applies in scales and arpeggios modes AND must be a known CAGED id.
+  const shapeRaw = params.get('shape') ?? '';
+  const shapeId =
+    (mode === 'scales' || mode === 'arpeggios') && CAGED_SHAPE_ID_SET.has(shapeRaw)
+      ? shapeRaw
+      : null;
 
   return {
     instrumentId,
@@ -118,7 +135,8 @@ export function decodeState(params: URLSearchParams): FretworkState {
     tuning,
     capo,
     labels,
-    settings: { handedness, colorByDegree, highlightRoot },
+    shapeId,
+    settings: { handedness, colorByDegree, highlightRoot, showGhostMarkers },
   };
 }
 

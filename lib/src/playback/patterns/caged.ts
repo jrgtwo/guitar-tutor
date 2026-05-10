@@ -71,6 +71,32 @@ function shapeSetFor(scaleId: string | undefined): readonly CagedShape[] | null 
   return null;
 }
 
+/** Resolve the right shape set for the active mode + type. Arpeggios always use
+ *  the major shape set as a positioning template — actual cell content is
+ *  intersected with the active highlights to filter to arp-only pitch classes. */
+function shapeSetForInput(input: { mode: string; scaleType?: string; arpeggioType?: string }): readonly CagedShape[] | null {
+  if (input.mode === 'arpeggios') {
+    return input.arpeggioType ? MAJOR_CAGED_SHAPES : null;
+  }
+  return shapeSetFor(input.scaleType);
+}
+
+/** Public: which CAGED shape set applies to a given scale id (or null when CAGED
+ *  doesn't apply, e.g. blues). Used by UI to decide whether to surface the shape
+ *  selector at all. */
+export function getCagedShapeSet(scaleId: string | undefined): readonly CagedShape[] | null {
+  return shapeSetFor(scaleId);
+}
+
+/** Public: shape set for any (mode, type) — handles arpeggios as well. */
+export function getCagedShapeSetForInput(input: {
+  mode: string;
+  scaleType?: string;
+  arpeggioType?: string;
+}): readonly CagedShape[] | null {
+  return shapeSetForInput(input);
+}
+
 /** Pentatonic scales are major-shape-derived but only emit cells at degrees 1,2,3,5,6
  *  (which, in the parent major's degree space, is the major pentatonic — and that's
  *  also the minor pentatonic's note set when anchored at the parent major's tonic). */
@@ -81,7 +107,7 @@ function isPentatonic(scaleId: string | undefined): boolean {
 
 // ─── Anchor positioning ────────────────────────────────────────────────────────
 
-interface AbsoluteCell {
+export interface AbsoluteCell {
   readonly stringIndex: number;
   readonly fret: number;
   readonly degree: number;
@@ -167,8 +193,20 @@ function resolveShapeCells(
 }
 
 /** Resolve a shape end-to-end given a ResolveInput. Returns null when the shape
- *  isn't usable (wrong scale family, no valid anchor, empty after filter). */
+ *  isn't usable (wrong scale family, no valid anchor, empty after filter).
+ *
+ *  Two paths:
+ *   - **Scales mode**: anchor at parent major's tonic, emit shape.cells (offsets
+ *     applied to anchor fret), optionally filtered by pentatonic degree.
+ *   - **Arpeggios mode**: anchor at the arpeggio's root, compute the shape's
+ *     fret window from min/max offsets, emit cells from `input.highlights` that
+ *     fall inside the window. Highlights already encode the arpeggio's pitch
+ *     classes, so the window is the only thing the shape contributes to the
+ *     filter — no per-cell shape data needed for arpeggios. */
 function resolveShape(shape: CagedShape, input: ResolveInput): ResolvedShape | null {
+  if (input.mode === 'arpeggios') {
+    return resolveArpeggioShape(shape, input);
+  }
   const { tuning, key, capo, fretCount, scaleType } = input;
   const offset = parentMajorOffsetFor(scaleType);
   if (offset == null) return null;
@@ -183,6 +221,72 @@ function resolveShape(shape: CagedShape, input: ResolveInput): ResolvedShape | n
   if (anchorFret == null) return null;
 
   return resolveShapeCells(shape, anchorFret, capo, fretCount, isPentatonic(scaleType));
+}
+
+/** Arpeggio path: anchor at root pc, slice highlights by the shape's fret window. */
+function resolveArpeggioShape(shape: CagedShape, input: ResolveInput): ResolvedShape | null {
+  const { tuning, key, capo, fretCount, highlights, arpeggioType } = input;
+  if (!arpeggioType) return null;
+  const keyPC = pitchClass(key);
+
+  const openNote = tuning.strings[shape.anchorString];
+  if (!openNote) return null;
+  const openNotePC = pitchClass(openNote);
+
+  // Anchor at the arpeggio's root pitch class. Validity is still gauged by the
+  // major-shape's cell layout — that ensures the resulting box is recognisable,
+  // even though the arpeggio itself fills only some of those cells.
+  const anchorFret = findValidAnchorFret(shape, keyPC, openNotePC, capo, fretCount);
+  if (anchorFret == null) return null;
+
+  let minOff = Infinity;
+  let maxOff = -Infinity;
+  for (const c of shape.cells) {
+    if (c.offset < minOff) minOff = c.offset;
+    if (c.offset > maxOff) maxOff = c.offset;
+  }
+  const minFretWindow = Math.max(capo, anchorFret + minOff);
+  const maxFretWindow = Math.min(fretCount, anchorFret + maxOff);
+
+  // Filter the active highlights (which already encode the arpeggio's cells) to
+  // the box. This unifies arpeggio and scale rendering — the window comes from
+  // the shape, the actual cells come from the highlights.
+  const cells: AbsoluteCell[] = [];
+  let minFret = Infinity;
+  let maxFret = -Infinity;
+  for (const h of highlights) {
+    if (h.fret < minFretWindow || h.fret > maxFretWindow) continue;
+    cells.push({ stringIndex: h.stringIndex, fret: h.fret, degree: h.degreeNumber });
+    if (h.fret < minFret) minFret = h.fret;
+    if (h.fret > maxFret) maxFret = h.fret;
+  }
+  if (cells.length === 0) return null;
+  return { anchorFret, cells, minFret, maxFret };
+}
+
+/**
+ * Public wrapper: resolve a shape by id, returning the absolute cells (with
+ * `degree` retained) that make up that shape in the given context. Used by both
+ * the playback resolver (to walk only shape cells) and the fretboard renderer
+ * (to know which highlights to emphasize / ghost). Returns an empty array when
+ * the shape isn't applicable (wrong scale family, no valid anchor on this neck).
+ */
+export function resolveShapeAbsoluteCells(
+  shapeId: CagedShapeId,
+  input: ResolveInput,
+): readonly AbsoluteCell[] {
+  const set = shapeSetForInput(input);
+  if (!set) return [];
+  const shape = set.find((s) => s.id === shapeId);
+  if (!shape) return [];
+  const resolved = resolveShape(shape, input);
+  return resolved?.cells ?? [];
+}
+
+/** Public: per-key Position 1..5 numbering for each shape in the active state.
+ *  Surfaced for the TopBar shape selector and pattern dropdown labels. */
+export function getCagedPositionMap(input: ResolveInput): Map<CagedShapeId, number> {
+  return buildPositionMap(input);
 }
 
 // ─── Up-and-down sequence ──────────────────────────────────────────────────────
@@ -247,7 +351,7 @@ function buildUpAndDown(cells: readonly AbsoluteCell[]): PlayableCell[] {
  * so a fresh map per resolve call is acceptable.
  */
 function buildPositionMap(input: ResolveInput): Map<CagedShapeId, number> {
-  const set = shapeSetFor(input.scaleType);
+  const set = shapeSetForInput(input);
   if (!set) return new Map();
 
   const positions: Array<{ id: CagedShapeId; minFret: number }> = [];
@@ -281,8 +385,8 @@ function buildCagedPattern(letter: CagedLetter, id: CagedShapeId): PlaybackPatte
     applicableInstruments: ['guitar'],
     isApplicable: (input) => {
       if (input.instrumentId !== 'guitar') return false;
-      if (input.mode !== 'scales') return false;
-      const set = shapeSetFor(input.scaleType);
+      if (input.mode !== 'scales' && input.mode !== 'arpeggios') return false;
+      const set = shapeSetForInput(input);
       if (!set) return false;
       const shape = set.find((s) => s.id === id);
       if (!shape) return false;
@@ -290,7 +394,7 @@ function buildCagedPattern(letter: CagedLetter, id: CagedShapeId): PlaybackPatte
       return resolved != null && resolved.cells.length > 0;
     },
     resolve: (input) => {
-      const set = shapeSetFor(input.scaleType);
+      const set = shapeSetForInput(input);
       if (!set) return [];
       const shape = set.find((s) => s.id === id);
       if (!shape) return [];

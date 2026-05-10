@@ -19,6 +19,9 @@ import { NoteMarker } from './NoteMarker';
 import { VIEWBOX_H, VIEWBOX_W, NECK_X, NECK_LENGTH, TOP_PAD, STRING_AREA } from './layout';
 import { usePlaybackStore } from '../../playback/usePlaybackStore';
 import { usePlayback } from '../../playback/usePlayback';
+import { resolveShapeAbsoluteCells } from '../../playback/patterns/caged';
+import type { CagedShapeId } from '../../playback/patterns/caged-shapes-data';
+import type { ResolveInput } from '../../playback/types';
 
 export function Fretboard() {
   const instrumentId = useFretworkStore((s) => s.instrumentId);
@@ -28,6 +31,7 @@ export function Fretboard() {
   const tuningId = useFretworkStore((s) => s.tuning);
   const capo = useFretworkStore((s) => s.capo);
   const labels = useFretworkStore((s) => s.labels);
+  const shapeId = useFretworkStore((s) => s.shapeId);
   const settings = useFretworkStore((s) => s.settings);
 
   const instrument = getInstrument(instrumentId) ?? getInstrument(DEFAULT_INSTRUMENT_ID)!;
@@ -53,6 +57,27 @@ export function Fretboard() {
     [grid, effectiveKey, intervals, capo],
   );
   const openStrings = useMemo(() => effectiveOpenStrings(tuning, capo), [tuning, capo]);
+
+  // Active CAGED shape — when set, build a Set of (string,fret) keys for fast
+  // lookup so we can split highlights into "in-shape" (full prominence) and
+  // "out-of-shape" (ghosted or hidden, depending on the user's setting).
+  const inShapeKeys = useMemo<Set<string> | null>(() => {
+    if (!shapeId || (mode !== 'scales' && mode !== 'arpeggios')) return null;
+    const input: ResolveInput = {
+      highlights,
+      tuning,
+      key,
+      capo,
+      mode,
+      instrumentId,
+      fretCount,
+      scaleType: mode === 'scales' ? type : undefined,
+      arpeggioType: mode === 'arpeggios' ? type : undefined,
+    };
+    const cells = resolveShapeAbsoluteCells(shapeId as CagedShapeId, input);
+    if (cells.length === 0) return null;
+    return new Set(cells.map((c) => `${c.stringIndex}:${c.fret}`));
+  }, [shapeId, mode, highlights, tuning, key, capo, instrumentId, fretCount, type]);
 
   // Playback state — read directly from the store. We DON'T call usePlayback() here
   // because that's an opinionated hook that drives the singleton from fretwork-store
@@ -141,6 +166,12 @@ export function Fretboard() {
               }
             }
           }
+          // Shape filter: when a shape is active, decide whether this cell is
+          // in the shape (full prominence), or outside it (ghost or hide).
+          const inShape = inShapeKeys
+            ? inShapeKeys.has(`${h.stringIndex}:${h.fret}`)
+            : true;
+          if (!inShape && !settings.showGhostMarkers) return null;
           return (
             <NoteMarker
               key={`${h.stringIndex}-${h.fret}`}
@@ -152,6 +183,7 @@ export function Fretboard() {
               isPlayhead={isPlayhead}
               programmingIndex={isProgramming ? programmingIndex : undefined}
               onClick={isProgramming ? () => onCellClick({ stringIndex: h.stringIndex, fret: h.fret }) : undefined}
+              ghosted={!inShape}
             />
           );
         })}

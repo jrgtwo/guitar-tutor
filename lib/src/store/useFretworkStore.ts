@@ -23,9 +23,11 @@ interface FretworkActions {
   setTuning: (tuning: string) => void;
   setCapo: (capo: number) => void;
   setLabels: (labels: LabelMode) => void;
+  setShapeId: (id: string | null) => void;
   setHandedness: (handedness: Handedness) => void;
   setColorByDegree: (on: boolean) => void;
   setHighlightRoot: (on: boolean) => void;
+  setShowGhostMarkers: (on: boolean) => void;
   reset: () => void;
 }
 
@@ -67,7 +69,10 @@ export const useFretworkStore = create<Store>((set, get) => {
       const currentType = get().type;
       // Switching modes usually invalidates the type; reset to a sensible default.
       const nextType = isValidTypeFor(mode, currentType) ? currentType : defaultTypeForMode(mode);
-      set({ mode, type: nextType });
+      // CAGED shape applies to scales and arpeggios. Clear it when entering Notes
+      // mode so a hidden filter doesn't follow the user there.
+      const nextShapeId = mode === 'notes' ? null : get().shapeId;
+      set({ mode, type: nextType, shapeId: nextShapeId });
       persist();
     },
     setKey: (key) => {
@@ -96,9 +101,17 @@ export const useFretworkStore = create<Store>((set, get) => {
       set({ labels });
       persist();
     },
+    setShapeId: (shapeId) => {
+      // Meaningful in scales and arpeggios modes — silently ignored in notes mode.
+      const mode = get().mode;
+      if (mode !== 'scales' && mode !== 'arpeggios' && shapeId !== null) return;
+      set({ shapeId });
+      persist();
+    },
     setHandedness: (handedness) => updateSettings({ handedness }),
     setColorByDegree: (colorByDegree) => updateSettings({ colorByDegree }),
     setHighlightRoot: (highlightRoot) => updateSettings({ highlightRoot }),
+    setShowGhostMarkers: (showGhostMarkers) => updateSettings({ showGhostMarkers }),
 
     reset: () => {
       set(DEFAULT_STATE);

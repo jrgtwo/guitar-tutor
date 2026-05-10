@@ -62,6 +62,7 @@ export { InstrumentSelect } from './components/controls/InstrumentSelect';
 export { ModeSelect } from './components/controls/ModeSelect';
 export { KeySelect } from './components/controls/KeySelect';
 export { TypeSelect } from './components/controls/TypeSelect';
+export { ShapeSelect } from './components/controls/ShapeSelect';
 export { TuningSelect } from './components/controls/TuningSelect';
 export { CapoSelect } from './components/controls/CapoSelect';
 export { LabelsSelect } from './components/controls/LabelsSelect';
@@ -195,9 +196,14 @@ export {
   DEFAULT_PATTERN_ID,
   ASCENDING_PITCH_ID,
   STRING_BY_STRING_ID,
+  UP_AND_DOWN_ID,
   CUSTOM_PATTERN_ID,
   CAGED_PATTERN_IDS,
+  resolveShapeAbsoluteCells,
+  getCagedPositionMap,
+  getCagedShapeSet,
 } from './playback';
+export type { AbsoluteCell, CagedShape, CagedShapeId, CagedLetter } from './playback';
 export type {
   PlaybackPattern,
   PlaybackOptions,

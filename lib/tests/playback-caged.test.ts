@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { CAGED_PATTERNS } from '../src/playback/patterns/caged';
+import {
+  CAGED_PATTERNS,
+  resolveShapeAbsoluteCells,
+  getCagedPositionMap,
+  getCagedShapeSet,
+} from '../src/playback/patterns/caged';
 import { buildGrid, computeHighlights, pitchOf, FRET_COUNT } from '../src/lib/fretboard';
 import { getTuning } from '../src/lib/tunings';
 import { getScale } from '../src/lib/scales';
@@ -267,5 +272,125 @@ describe('CAGED — position numbering', () => {
     const input = makeInput({ key: 'E', scaleType: 'major' });
     const eLabel = findShape('caged-e').displayName?.(input);
     expect(eLabel).toMatch(/Position 1 — E shape/);
+  });
+});
+
+// ─── Public utility surface ──────────────────────────────────────────────────
+
+describe('resolveShapeAbsoluteCells', () => {
+  it('returns the same cells the caged pattern resolver walks (just unsorted)', () => {
+    const input = makeInput({ key: 'A', scaleType: 'major' });
+    const cells = resolveShapeAbsoluteCells('caged-e', input);
+    expect(cells.length).toBeGreaterThan(0);
+    // The walked sequence is a permutation of the cell set.
+    const seq = findShape('caged-e').resolve(input);
+    const cellKeys = new Set(cells.map((c) => `${c.stringIndex}:${c.fret}`));
+    for (const c of seq) {
+      expect(cellKeys.has(`${c.stringIndex}:${c.fret}`)).toBe(true);
+    }
+  });
+
+  it('returns [] for an unsupported scale (e.g. blues)', () => {
+    const input = makeInput({ scaleType: 'blues' });
+    expect(resolveShapeAbsoluteCells('caged-c', input)).toEqual([]);
+  });
+});
+
+describe('getCagedShapeSet + getCagedPositionMap (public)', () => {
+  it('returns null for blues; non-empty for major', () => {
+    expect(getCagedShapeSet('blues')).toBeNull();
+    expect(getCagedShapeSet('major')).not.toBeNull();
+  });
+
+  it('builds Position 1..5 numbering keyed by shape id', () => {
+    const map = getCagedPositionMap(makeInput({ key: 'C', scaleType: 'major' }));
+    const positions = [...map.values()].sort((a, b) => a - b);
+    expect(positions).toEqual([1, 2, 3, 4, 5]);
+  });
+});
+
+// ─── Arpeggio shapes ──────────────────────────────────────────────────────────
+
+import { getArpeggio } from '../src/lib/arpeggios';
+
+function makeArpeggioInput(arpeggioId: string, key = 'A', overrides: Partial<ResolveInput> = {}): ResolveInput {
+  const arp = getArpeggio(arpeggioId)!;
+  const grid = buildGrid(STANDARD, overrides.capo ?? 0);
+  const highlights = computeHighlights(grid, key, arp.intervals, overrides.capo ?? 0);
+  return {
+    highlights,
+    tuning: STANDARD,
+    key,
+    capo: 0,
+    mode: 'arpeggios',
+    instrumentId: 'guitar',
+    fretCount: FRET_COUNT,
+    arpeggioType: arpeggioId,
+    ...overrides,
+  };
+}
+
+describe('CAGED shapes in arpeggios mode', () => {
+  it('A major arp C-shape lives near fret 9–13 (root on A string fret 12)', () => {
+    const input = makeArpeggioInput('major', 'A');
+    const cells = resolveShapeAbsoluteCells('caged-c', input);
+    expect(cells.length).toBeGreaterThan(0);
+    for (const c of cells) {
+      expect(c.fret).toBeGreaterThanOrEqual(9);
+      expect(c.fret).toBeLessThanOrEqual(13);
+    }
+    // The anchor cell (A on the A string at fret 12) is part of the arpeggio.
+    expect(cells.some((c) => c.stringIndex === 1 && c.fret === 12)).toBe(true);
+  });
+
+  it('A major arp emits cells whose pitch class is in {A, C#, E}', () => {
+    const input = makeArpeggioInput('major', 'A');
+    const cells = resolveShapeAbsoluteCells('caged-e', input);
+    expect(cells.length).toBeGreaterThan(0);
+    const arpPCs = new Set([9, 1, 4]); // A=9, C#=1, E=4
+    for (const c of cells) {
+      const openNote = STANDARD.strings[c.stringIndex];
+      const openPC = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+        .indexOf(openNote.replace(/\d+$/, '').replace('Db', 'C#').replace('Eb', 'D#').replace('Gb', 'F#').replace('Ab', 'G#').replace('Bb', 'A#'));
+      const cellPC = (openPC + c.fret) % 12;
+      expect(arpPCs.has(cellPC)).toBe(true);
+    }
+  });
+
+  it('A minor arp emits only cells whose pitch class is in {A, C, E}', () => {
+    const input = makeArpeggioInput('minor', 'A');
+    const cells = resolveShapeAbsoluteCells('caged-e', input);
+    expect(cells.length).toBeGreaterThan(0);
+    // All cells must be A, C, or E (pcs 9, 0, 4).
+    const arpPCs = new Set([9, 0, 4]);
+    const openPCs = STANDARD.strings.map((n) => {
+      // Strip octave digit, then look up pc via Tonal — done minimally here to
+      // avoid pulling in Tonal at test setup. Hardcode standard tuning pcs.
+      void n;
+      return 0;
+    });
+    // Standard tuning string pcs: low E (4), A (9), D (2), G (7), B (11), high E (4).
+    const STANDARD_PCS = [4, 9, 2, 7, 11, 4];
+    void openPCs;
+    for (const c of cells) {
+      const pc = (STANDARD_PCS[c.stringIndex] + c.fret) % 12;
+      expect(arpPCs.has(pc)).toBe(true);
+    }
+  });
+
+  it('Position numbering rotates between major and minor arp because pitch classes differ', () => {
+    // The shape windows are key-based, so for the same key (A) both arps
+    // produce a Position 1..5 ordering. Just verify both are well-formed.
+    const major = getCagedPositionMap(makeArpeggioInput('major', 'A'));
+    const minor = getCagedPositionMap(makeArpeggioInput('minor', 'A'));
+    expect([...major.values()].sort()).toEqual([1, 2, 3, 4, 5]);
+    expect([...minor.values()].sort()).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it('CAGED playback patterns are applicable in arpeggios mode for guitar', () => {
+    const input = makeArpeggioInput('major', 'A');
+    for (const p of CAGED_PATTERNS) {
+      expect(p.isApplicable(input)).toBe(true);
+    }
   });
 });

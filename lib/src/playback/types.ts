@@ -27,6 +27,10 @@ export interface ResolveInput {
    *  CAGED uses this to pick the correct shape set and to compute the parent major's
    *  tonic for modes / pentatonics / blues. Undefined for arpeggios and notes. */
   readonly scaleType?: string;
+  /** When mode is 'arpeggios', the arpeggio id (e.g. 'major', 'minor', 'maj7').
+   *  CAGED uses this together with `key` to filter the shape's fret window to only
+   *  cells that are part of the arpeggio. Undefined for scales and notes. */
+  readonly arpeggioType?: string;
   /** Custom-pattern-only: the user-recorded sequence. Other patterns ignore this. */
   readonly customSequence?: readonly PlayableCell[];
 }

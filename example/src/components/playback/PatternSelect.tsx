@@ -57,6 +57,7 @@ export function PatternSelect() {
       instrumentId: fretInstrumentId,
       fretCount,
       scaleType: fretMode === 'scales' ? fretType : undefined,
+      arpeggioType: fretMode === 'arpeggios' ? fretType : undefined,
       customSequence: m.customSequence,
     };
   }, [fretInstrumentId, fretMode, fretKey, fretType, fretTuning, fretCapo, m.customSequence]);

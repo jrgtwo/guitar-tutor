@@ -17,6 +17,10 @@ interface Props {
   programmingIndex?: number;
   /** Click handler — only attached when the renderer is in programming mode. */
   onClick?: () => void;
+  /** When true, render this marker translucently — used to "ghost" notes that are
+   *  in the active scale but outside the selected CAGED shape. The fretboard skips
+   *  rendering ghosted markers entirely when the user has turned ghost markers off. */
+  ghosted?: boolean;
 }
 
 const CATEGORY_TO_VAR: Record<Highlight['category'], string> = {
@@ -46,6 +50,7 @@ export function NoteMarker({
   isPlayhead,
   programmingIndex,
   onClick,
+  ghosted,
 }: Props) {
   const { stringIndex, fret } = highlight;
   const cx =
@@ -76,6 +81,7 @@ export function NoteMarker({
     'fb-marker',
     isPlayhead ? 'fb-playhead' : '',
     onClick ? 'fb-clickable' : '',
+    ghosted ? 'fb-ghosted' : '',
   ]
     .filter(Boolean)
     .join(' ');
@@ -83,7 +89,7 @@ export function NoteMarker({
   return (
     <g
       className={groupClass}
-      style={{ transformOrigin: `${cx}px ${cy}px` }}
+      style={{ transformOrigin: `${cx}px ${cy}px`, opacity: ghosted ? 0.22 : undefined }}
       onClick={onClick}
     >
       <title>{`${highlight.noteName} · ${highlight.intervalLabel} · string ${stringIndex + 1}, fret ${fret}`}</title>

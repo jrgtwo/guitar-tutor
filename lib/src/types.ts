@@ -81,6 +81,10 @@ export interface FretworkSettings {
   readonly handedness: Handedness;
   readonly colorByDegree: boolean;
   readonly highlightRoot: boolean;
+  /** When true, notes that are part of the full scale but outside the active CAGED
+   *  shape render at low opacity instead of being hidden. Same flag also governs
+   *  the planned ghost markers in Chord mode. Default true. */
+  readonly showGhostMarkers: boolean;
 }
 
 export interface FretworkState {
@@ -96,5 +100,8 @@ export interface FretworkState {
   /** Capo position, 0 = no capo, 1..(instrument.fretCount). */
   readonly capo: number;
   readonly labels: LabelMode;
+  /** Active CAGED shape id (`'caged-c'` … `'caged-d'`) or null for the full scale.
+   *  Only meaningful when `mode === 'scales'`; cleared automatically on mode change. */
+  readonly shapeId: string | null;
   readonly settings: FretworkSettings;
 }

@@ -1,4 +1,12 @@
 export { Playback } from './Playback';
+export {
+  CAGED_PATTERNS,
+  resolveShapeAbsoluteCells,
+  getCagedPositionMap,
+  getCagedShapeSet,
+} from './patterns/caged';
+export type { AbsoluteCell } from './patterns/caged';
+export type { CagedShape, CagedShapeId, CagedLetter } from './patterns/caged-shapes-data';
 export { usePlayback } from './usePlayback';
 export type { UsePlaybackReturn } from './usePlayback';
 export { usePlaybackStore, DEFAULT_PLAYBACK_STATE } from './usePlaybackStore';
@@ -62,6 +70,7 @@ export {
   DEFAULT_PATTERN_ID,
   ASCENDING_PITCH_ID,
   STRING_BY_STRING_ID,
+  UP_AND_DOWN_ID,
   CUSTOM_PATTERN_ID,
   CAGED_PATTERN_IDS,
 } from './patterns';

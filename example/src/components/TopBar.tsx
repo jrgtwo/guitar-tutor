@@ -9,6 +9,7 @@ import {
   ModeSelect,
   KeySelect,
   TypeSelect,
+  ShapeSelect,
   TuningSelect,
   CapoSelect,
   LabelsSelect,
@@ -28,6 +29,7 @@ export function TopBar() {
         <ModeSelect />
         <KeySelect />
         <TypeSelect />
+        <ShapeSelect />
         <TuningSelect />
         <CapoSelect />
         <LabelsSelect />
