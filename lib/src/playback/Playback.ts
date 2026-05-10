@@ -117,6 +117,8 @@ export class Playback {
       prev.key !== input.key ||
       prev.capo !== input.capo ||
       prev.mode !== input.mode ||
+      prev.scaleType !== input.scaleType ||
+      prev.fretCount !== input.fretCount ||
       prev.customSequence !== input.customSequence
     ) {
       this._invalidateCache();

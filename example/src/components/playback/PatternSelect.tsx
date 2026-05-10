@@ -55,6 +55,8 @@ export function PatternSelect() {
       capo: fretCapo,
       mode: fretMode,
       instrumentId: fretInstrumentId,
+      fretCount,
+      scaleType: fretMode === 'scales' ? fretType : undefined,
       customSequence: m.customSequence,
     };
   }, [fretInstrumentId, fretMode, fretKey, fretType, fretTuning, fretCapo, m.customSequence]);
@@ -82,6 +84,7 @@ export function PatternSelect() {
             <SelectLabel>{group}</SelectLabel>
             {patterns.map((p) => {
               const applicable = !resolveInput || p.isApplicable(resolveInput);
+              const label = resolveInput && p.displayName ? p.displayName(resolveInput) : p.name;
               return (
                 <SelectItem
                   key={p.id}
@@ -89,7 +92,7 @@ export function PatternSelect() {
                   disabled={!applicable}
                   className="font-mono uppercase tracking-wider text-xs"
                 >
-                  {p.name}
+                  {label}
                 </SelectItem>
               );
             })}

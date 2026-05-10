@@ -1,75 +1,236 @@
 /**
- * CAGED shape definitions. Each shape anchors at a specific occurrence of the root
- * pitch class on a specific string, then filters visible highlights to a fret window
- * relative to that anchor. The resulting cells form the playable "box" for that shape
- * in the active key.
+ * CAGED shape definitions — per-cell offset model.
  *
- * The anchor + window approach is a pragmatic interpretation of the CAGED system. It
- * produces five distinct positions up the neck for any given key, each with its own
- * recognizable region. It's not a strict per-string fingering chart (those are more
- * nuanced), but it captures the practical use of "switch position to play this shape".
+ * Each shape is a hand-authored list of cells expressed as `(stringIndex, offset, degree)`
+ * where `offset` is the fret offset relative to the shape's anchor root. The shape's
+ * anchor is a specific string + occurrence of the scale tonic; positioning the shape
+ * means resolving `anchorFret = the chosen occurrence of the root pitch class on the
+ * anchor string` and then emitting `(stringIndex, anchorFret + offset)` for every cell.
  *
- * Order in this array determines display order in the dropdown — sorted up the neck.
+ * The major shapes here are derived from the standard 5-position CAGED scale boxes
+ * (Jens Larsen, MusicianPoster, etc. — see SPEC.md). Harmonic and melodic minor shapes
+ * are derived from the major shapes by lowering specific scale degrees:
+ *   - Harmonic minor = major with ♭3 and ♭6  → cells at degrees 3 and 6 shifted -1 fret.
+ *   - Melodic minor  = major with ♭3 only    → cells at degree 3 shifted -1 fret.
+ * Modes of the major scale and the relative-minor pentatonic share their parent's shape
+ * positions; the resolver finds the parent major's tonic and uses major shapes anchored
+ * there.
+ *
+ * Display order in this array determines the order shapes are checked when sorting by
+ * fret position for "Position N" labelling.
  */
-export interface CagedShapeDef {
-  readonly id: string;
-  readonly name: string;
-  /**
-   * Which string the root must fall on for this shape. 0 = low E, 5 = high E.
-   * In standard tuning: E=0, A=1, D=2, G=3, B=4, e=5.
-   */
-  readonly anchorString: number;
-  /**
-   * Which occurrence (0-based) of the root on the anchor string to use as this shape's
-   * anchor fret. 0 = the lowest fret at or above capo where the root pitch class falls
-   * on the anchor string. 1 = the next one up (one octave higher), etc.
-   */
-  readonly anchorOccurrence: number;
-  /** Fret offset window relative to the anchor fret. Inclusive on both ends. */
-  readonly windowOffsets: readonly [number, number];
+export type CagedShapeId = 'caged-c' | 'caged-a' | 'caged-g' | 'caged-e' | 'caged-d';
+export type CagedLetter = 'C' | 'A' | 'G' | 'E' | 'D';
+
+export interface CagedCell {
+  /** 0 = low E, 5 = high E in standard 6-string layout. */
+  readonly stringIndex: number;
+  /** Fret offset relative to the shape's anchor root. */
+  readonly offset: number;
+  /** Scale degree (1..7) this cell represents in the parent major scale. Used to
+   *  filter cells when deriving pentatonics, and to apply lowered-degree shifts when
+   *  deriving harmonic/melodic minor. */
+  readonly degree: 1 | 2 | 3 | 4 | 5 | 6 | 7;
 }
 
-export const CAGED_SHAPES: readonly CagedShapeDef[] = [
-  // E shape — anchor on low E, window root..root+4
-  {
-    id: 'caged-e',
-    name: 'CAGED — E shape',
-    anchorString: 0,
-    anchorOccurrence: 0,
-    windowOffsets: [0, 4],
-  },
-  // D shape — anchor on D string, window root-1..root+3
-  {
-    id: 'caged-d',
-    name: 'CAGED — D shape',
-    anchorString: 2,
-    anchorOccurrence: 0,
-    windowOffsets: [-1, 3],
-  },
-  // C shape — anchor on B string, window root-2..root+2
-  {
-    id: 'caged-c',
-    name: 'CAGED — C shape',
-    anchorString: 4,
-    anchorOccurrence: 0,
-    windowOffsets: [-2, 2],
-  },
-  // A shape — anchor on A string, second occurrence (barred A position), window root..root+4
-  {
-    id: 'caged-a',
-    name: 'CAGED — A shape',
-    anchorString: 1,
-    anchorOccurrence: 1,
-    windowOffsets: [0, 4],
-  },
-  // G shape — anchor on low E, second occurrence (upper-neck position), window root-4..root
-  {
-    id: 'caged-g',
-    name: 'CAGED — G shape',
-    anchorString: 0,
-    anchorOccurrence: 1,
-    windowOffsets: [-4, 0],
-  },
+export interface CagedShape {
+  readonly id: CagedShapeId;
+  readonly letter: CagedLetter;
+  /** Which string carries the shape's primary anchor root. 0 = low E. */
+  readonly anchorString: number;
+  /** Cells that make up the shape. */
+  readonly cells: readonly CagedCell[];
+}
+
+// ─── Major-scale CAGED shapes ──────────────────────────────────────────────────
+// All offsets are relative to the shape's anchor root. Verified by hand against
+// the C-major fretboard (anchor frets: C-shape 3 on A, A-shape 3 on A, G-shape 8
+// on low E, E-shape 8 on low E, D-shape 10 on D).
+
+export const C_SHAPE_MAJOR: CagedShape = {
+  id: 'caged-c',
+  letter: 'C',
+  anchorString: 1, // A string
+  cells: [
+    // low E: E (3), F (4), G (5)
+    { stringIndex: 0, offset: -3, degree: 3 },
+    { stringIndex: 0, offset: -2, degree: 4 },
+    { stringIndex: 0, offset: 0, degree: 5 },
+    // A: A (6), B (7), C (1)
+    { stringIndex: 1, offset: -3, degree: 6 },
+    { stringIndex: 1, offset: -1, degree: 7 },
+    { stringIndex: 1, offset: 0, degree: 1 },
+    // D: D (2), E (3), F (4)
+    { stringIndex: 2, offset: -3, degree: 2 },
+    { stringIndex: 2, offset: -1, degree: 3 },
+    { stringIndex: 2, offset: 0, degree: 4 },
+    // G: G (5), A (6), B (7)
+    { stringIndex: 3, offset: -3, degree: 5 },
+    { stringIndex: 3, offset: -1, degree: 6 },
+    { stringIndex: 3, offset: 1, degree: 7 },
+    // B: B (7), C (1), D (2)
+    { stringIndex: 4, offset: -3, degree: 7 },
+    { stringIndex: 4, offset: -2, degree: 1 },
+    { stringIndex: 4, offset: 0, degree: 2 },
+    // high E: E (3), F (4), G (5)
+    { stringIndex: 5, offset: -3, degree: 3 },
+    { stringIndex: 5, offset: -2, degree: 4 },
+    { stringIndex: 5, offset: 0, degree: 5 },
+  ],
+};
+
+export const A_SHAPE_MAJOR: CagedShape = {
+  id: 'caged-a',
+  letter: 'A',
+  anchorString: 1, // A string
+  cells: [
+    // low E: G (5), A (6)
+    { stringIndex: 0, offset: 0, degree: 5 },
+    { stringIndex: 0, offset: 2, degree: 6 },
+    // A: B (7), C (1), D (2)
+    { stringIndex: 1, offset: -1, degree: 7 },
+    { stringIndex: 1, offset: 0, degree: 1 },
+    { stringIndex: 1, offset: 2, degree: 2 },
+    // D: E (3), F (4), G (5)
+    { stringIndex: 2, offset: -1, degree: 3 },
+    { stringIndex: 2, offset: 0, degree: 4 },
+    { stringIndex: 2, offset: 2, degree: 5 },
+    // G: A (6), B (7), C (1)
+    { stringIndex: 3, offset: -1, degree: 6 },
+    { stringIndex: 3, offset: 1, degree: 7 },
+    { stringIndex: 3, offset: 2, degree: 1 },
+    // B: D (2), E (3), F (4)
+    { stringIndex: 4, offset: 0, degree: 2 },
+    { stringIndex: 4, offset: 2, degree: 3 },
+    { stringIndex: 4, offset: 3, degree: 4 },
+    // high E: G (5), A (6)
+    { stringIndex: 5, offset: 0, degree: 5 },
+    { stringIndex: 5, offset: 2, degree: 6 },
+  ],
+};
+
+export const G_SHAPE_MAJOR: CagedShape = {
+  id: 'caged-g',
+  letter: 'G',
+  anchorString: 0, // low E string
+  cells: [
+    // low E: A (6), B (7), C (1)
+    { stringIndex: 0, offset: -3, degree: 6 },
+    { stringIndex: 0, offset: -1, degree: 7 },
+    { stringIndex: 0, offset: 0, degree: 1 },
+    // A: D (2), E (3), F (4)
+    { stringIndex: 1, offset: -3, degree: 2 },
+    { stringIndex: 1, offset: -1, degree: 3 },
+    { stringIndex: 1, offset: 0, degree: 4 },
+    // D: G (5), A (6), B (7)
+    { stringIndex: 2, offset: -3, degree: 5 },
+    { stringIndex: 2, offset: -1, degree: 6 },
+    { stringIndex: 2, offset: 1, degree: 7 },
+    // G: C (1), D (2), E (3)
+    { stringIndex: 3, offset: -3, degree: 1 },
+    { stringIndex: 3, offset: -1, degree: 2 },
+    { stringIndex: 3, offset: 1, degree: 3 },
+    // B: E (3), F (4), G (5)
+    { stringIndex: 4, offset: -3, degree: 3 },
+    { stringIndex: 4, offset: -2, degree: 4 },
+    { stringIndex: 4, offset: 0, degree: 5 },
+    // high E: A (6), B (7), C (1)
+    { stringIndex: 5, offset: -3, degree: 6 },
+    { stringIndex: 5, offset: -1, degree: 7 },
+    { stringIndex: 5, offset: 0, degree: 1 },
+  ],
+};
+
+export const E_SHAPE_MAJOR: CagedShape = {
+  id: 'caged-e',
+  letter: 'E',
+  anchorString: 0, // low E string
+  cells: [
+    // low E: C (1), D (2)
+    { stringIndex: 0, offset: 0, degree: 1 },
+    { stringIndex: 0, offset: 2, degree: 2 },
+    // A: E (3), F (4), G (5)
+    { stringIndex: 1, offset: -1, degree: 3 },
+    { stringIndex: 1, offset: 0, degree: 4 },
+    { stringIndex: 1, offset: 2, degree: 5 },
+    // D: A (6), B (7), C (1)
+    { stringIndex: 2, offset: -1, degree: 6 },
+    { stringIndex: 2, offset: 1, degree: 7 },
+    { stringIndex: 2, offset: 2, degree: 1 },
+    // G: D (2), E (3), F (4)
+    { stringIndex: 3, offset: -1, degree: 2 },
+    { stringIndex: 3, offset: 1, degree: 3 },
+    { stringIndex: 3, offset: 2, degree: 4 },
+    // B: G (5), A (6)
+    { stringIndex: 4, offset: 0, degree: 5 },
+    { stringIndex: 4, offset: 2, degree: 6 },
+    // high E: B (7), C (1), D (2)
+    { stringIndex: 5, offset: -1, degree: 7 },
+    { stringIndex: 5, offset: 0, degree: 1 },
+    { stringIndex: 5, offset: 2, degree: 2 },
+  ],
+};
+
+export const D_SHAPE_MAJOR: CagedShape = {
+  id: 'caged-d',
+  letter: 'D',
+  anchorString: 2, // D string
+  cells: [
+    // low E: D (2), E (3)
+    { stringIndex: 0, offset: 0, degree: 2 },
+    { stringIndex: 0, offset: 2, degree: 3 },
+    // A: G (5), A (6)
+    { stringIndex: 1, offset: 0, degree: 5 },
+    { stringIndex: 1, offset: 2, degree: 6 },
+    // D: B (7), C (1), D (2)
+    { stringIndex: 2, offset: -1, degree: 7 },
+    { stringIndex: 2, offset: 0, degree: 1 },
+    { stringIndex: 2, offset: 2, degree: 2 },
+    // G: E (3), F (4), G (5)
+    { stringIndex: 3, offset: -1, degree: 3 },
+    { stringIndex: 3, offset: 0, degree: 4 },
+    { stringIndex: 3, offset: 2, degree: 5 },
+    // B: A (6), B (7), C (1)
+    { stringIndex: 4, offset: 0, degree: 6 },
+    { stringIndex: 4, offset: 2, degree: 7 },
+    { stringIndex: 4, offset: 3, degree: 1 },
+    // high E: D (2), E (3), F (4)
+    { stringIndex: 5, offset: 0, degree: 2 },
+    { stringIndex: 5, offset: 2, degree: 3 },
+    { stringIndex: 5, offset: 3, degree: 4 },
+  ],
+};
+
+/** Major-scale shapes in conventional CAGED order. */
+export const MAJOR_CAGED_SHAPES: readonly CagedShape[] = [
+  C_SHAPE_MAJOR,
+  A_SHAPE_MAJOR,
+  G_SHAPE_MAJOR,
+  E_SHAPE_MAJOR,
+  D_SHAPE_MAJOR,
 ];
 
-export const CAGED_PATTERN_IDS: readonly string[] = CAGED_SHAPES.map((s) => s.id);
+// ─── Harmonic and melodic minor shapes (derived) ───────────────────────────────
+// Harmonic minor = major with ♭3 and ♭6.
+// Melodic minor (jazz)  = major with ♭3 only.
+// Both share the major shapes' anchors and string layout — only specific cells move.
+
+function shiftDegree(shape: CagedShape, degrees: ReadonlySet<number>): CagedShape {
+  return {
+    ...shape,
+    cells: shape.cells.map((c) =>
+      degrees.has(c.degree) ? { ...c, offset: c.offset - 1 } : c,
+    ),
+  };
+}
+
+const HM_DEGREES = new Set([3, 6]);
+const MM_DEGREES = new Set([3]);
+
+export const HARMONIC_MINOR_CAGED_SHAPES: readonly CagedShape[] =
+  MAJOR_CAGED_SHAPES.map((s) => shiftDegree(s, HM_DEGREES));
+
+export const MELODIC_MINOR_CAGED_SHAPES: readonly CagedShape[] =
+  MAJOR_CAGED_SHAPES.map((s) => shiftDegree(s, MM_DEGREES));
+
+export const CAGED_PATTERN_IDS: readonly string[] = MAJOR_CAGED_SHAPES.map((s) => s.id);

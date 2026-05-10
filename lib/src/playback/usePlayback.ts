@@ -170,6 +170,8 @@ export function usePlayback(): UsePlaybackReturn {
       capo: fretCapo,
       mode: fretMode,
       instrumentId: fretInstrumentId,
+      fretCount,
+      scaleType: fretMode === 'scales' ? fretType : undefined,
       customSequence,
     };
   }, [fretInstrumentId, fretMode, fretKey, fretType, fretTuning, fretCapo, customSequence]);

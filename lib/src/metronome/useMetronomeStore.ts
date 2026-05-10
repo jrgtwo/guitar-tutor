@@ -17,6 +17,10 @@ export interface MetronomeStoreState {
   accents: readonly number[];
   /** When false, accent beats sound the same as regular beats. */
   accentEnabled: boolean;
+  /** When true, the click sound is silenced — beat events still fire so the visual
+   *  beat indicators and note playback continue. Use case: a player who only wants
+   *  the lights or the plucked-tone playback to keep time. */
+  clickMuted: boolean;
   volume: number;
 
   // UI-only / runtime
@@ -32,6 +36,8 @@ export interface MetronomeStoreState {
   setAccents: (accents: readonly number[]) => void;
   setAccentEnabled: (enabled: boolean) => void;
   toggleAccentEnabled: () => void;
+  setClickMuted: (muted: boolean) => void;
+  toggleClickMuted: () => void;
   setVolume: (v: number) => void;
   setRunning: (running: boolean) => void;
   setCurrentBeat: (beat: number) => void;
@@ -46,6 +52,7 @@ export const DEFAULT_METRONOME_STATE = {
   timeSignatureId: DEFAULT_TIME_SIGNATURE_ID,
   accents: [] as readonly number[],
   accentEnabled: true,
+  clickMuted: false,
   volume: 0.7,
   isRunning: false,
   currentBeat: -1,
@@ -66,6 +73,8 @@ export const useMetronomeStore = create<MetronomeStoreState>((set) => ({
   setAccents: (accents) => set({ accents: [...accents] }),
   setAccentEnabled: (accentEnabled) => set({ accentEnabled }),
   toggleAccentEnabled: () => set((s) => ({ accentEnabled: !s.accentEnabled })),
+  setClickMuted: (clickMuted) => set({ clickMuted }),
+  toggleClickMuted: () => set((s) => ({ clickMuted: !s.clickMuted })),
   setVolume: (v) => set({ volume: Math.max(0, Math.min(1, v)) }),
   setRunning: (isRunning) => set((s) => ({
     isRunning,

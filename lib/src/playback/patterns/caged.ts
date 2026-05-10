@@ -1,81 +1,316 @@
+/**
+ * CAGED playback patterns — five hand-authored scale boxes positioned per-key.
+ *
+ * For each shape (C/A/G/E/D), the resolver:
+ *   1. Determines the shape's anchor pitch class (the tonic of the parent major for
+ *      modes/pentatonics, or the scale's own tonic for major / harmonic minor /
+ *      melodic minor).
+ *   2. Finds the lowest occurrence of that pitch class on the shape's anchor string
+ *      such that every cell of the shape lands within the playable range
+ *      `[capo, fretCount]`.
+ *   3. Emits absolute `(stringIndex, fret)` cells, optionally filtered by degree for
+ *      pentatonics.
+ *   4. Builds an "up-and-down" sequence: ascending string-by-string (each string's
+ *      cells in fret-ascending order), then descending string-by-string (each string's
+ *      cells in fret-descending order). The apex note isn't repeated.
+ *
+ * Shape names in the dropdown are computed per-key as `Position N — X shape` where
+ * the position number reflects how the box ranks against the other 4 shapes by
+ * lowest fret in the active key.
+ */
 import type { PlaybackPattern, PlayableCell, ResolveInput } from '../types';
-import { FRET_COUNT, pitchOf } from '../../lib/fretboard';
+import type { CagedShape, CagedShapeId, CagedLetter } from './caged-shapes-data';
+import {
+  MAJOR_CAGED_SHAPES,
+  HARMONIC_MINOR_CAGED_SHAPES,
+  MELODIC_MINOR_CAGED_SHAPES,
+} from './caged-shapes-data';
 import { pitchClass } from '../../lib/theory';
-import { CAGED_SHAPES, type CagedShapeDef } from './caged-shapes-data';
+
+// ─── Scale-family helpers ──────────────────────────────────────────────────────
 
 /**
- * Find the absolute fret where the Nth occurrence of the root pitch class falls on
- * the given string at or above `minFret` (typically the capo). Returns null if there
- * is no Nth occurrence within the playable neck range.
+ * Pitch-class offset (semitones) from the active scale's tonic to the parent major's
+ * tonic, by scale id. For modes of the major scale, the parent major's tonic is the
+ * note a specific number of semitones below the mode's root (e.g. D Dorian → C major,
+ * which is 2 semitones below D). For relative minor / minor pentatonic, the parent
+ * major is 3 semitones above (relative-major relationship).
+ *
+ * Scales not listed are unsupported by CAGED and the pattern will return empty.
  */
-function findRootFret(
+function parentMajorOffsetFor(scaleId: string | undefined): number | null {
+  switch (scaleId) {
+    case 'major':
+    case 'major-pentatonic':
+    case 'harmonic-minor':
+    case 'melodic-minor':
+      return 0;
+    case 'dorian':
+      return -2; // dorian is the 2nd of parent major
+    case 'phrygian':
+      return -4; // 3rd of parent
+    case 'lydian':
+      return -5; // 4th
+    case 'mixolydian':
+      return -7; // 5th
+    case 'minor':
+    case 'minor-pentatonic':
+      return +3; // relative major is 3 semitones up from the minor tonic
+    case 'locrian':
+      return +1; // locrian is the 7th of parent; parent is a half-step up
+    default:
+      return null;
+  }
+}
+
+function shapeSetFor(scaleId: string | undefined): readonly CagedShape[] | null {
+  if (!scaleId) return null;
+  if (scaleId === 'harmonic-minor') return HARMONIC_MINOR_CAGED_SHAPES;
+  if (scaleId === 'melodic-minor') return MELODIC_MINOR_CAGED_SHAPES;
+  if (parentMajorOffsetFor(scaleId) != null) return MAJOR_CAGED_SHAPES;
+  return null;
+}
+
+/** Pentatonic scales are major-shape-derived but only emit cells at degrees 1,2,3,5,6
+ *  (which, in the parent major's degree space, is the major pentatonic — and that's
+ *  also the minor pentatonic's note set when anchored at the parent major's tonic). */
+const PENTATONIC_DEGREES: ReadonlySet<number> = new Set([1, 2, 3, 5, 6]);
+function isPentatonic(scaleId: string | undefined): boolean {
+  return scaleId === 'major-pentatonic' || scaleId === 'minor-pentatonic';
+}
+
+// ─── Anchor positioning ────────────────────────────────────────────────────────
+
+interface AbsoluteCell {
+  readonly stringIndex: number;
+  readonly fret: number;
+  readonly degree: number;
+}
+
+interface ResolvedShape {
+  readonly anchorFret: number;
+  readonly cells: readonly AbsoluteCell[];
+  /** Lowest fret occupied by any cell — used for sorting shapes into Position N order. */
+  readonly minFret: number;
+  /** Highest fret occupied by any cell. */
+  readonly maxFret: number;
+}
+
+/** Minimum number of cells that must land in the playable range for an anchor
+ *  occurrence to be considered usable. Shapes have ~14–18 cells; this threshold is
+ *  set so the open-position E-shape for E major (4 cells dropped at the nut) still
+ *  qualifies, while degenerate fragments (e.g. G-shape for E major at fret 0, with
+ *  most of the box hanging off the bottom) are rejected in favor of the octave-up
+ *  occurrence. */
+const MIN_CELLS_FOR_VALID_ANCHOR = 8;
+
+/**
+ * Find the lowest fret on `anchorString` where the root pitch class lands such that
+ * the shape has at least `MIN_CELLS_FOR_VALID_ANCHOR` cells inside `[capo, fretCount]`.
+ * Cells that fall outside that range are dropped by `resolveShapeCells`; this function
+ * just decides which anchor produces a recognizable box.
+ *
+ * Walking from `capo` upward means we always pick the lowest neck position where the
+ * shape is playable.
+ */
+function findValidAnchorFret(
+  shape: CagedShape,
   rootPC: number,
   openNotePC: number,
-  occurrence: number,
-  minFret: number,
+  capo: number,
+  fretCount: number,
 ): number | null {
-  let count = 0;
-  for (let f = minFret; f <= FRET_COUNT; f++) {
+  let maxOff = -Infinity;
+  for (const c of shape.cells) {
+    if (c.offset > maxOff) maxOff = c.offset;
+  }
+  for (let f = capo; f <= fretCount; f++) {
     const pc = (openNotePC + f) % 12;
-    if (pc === rootPC) {
-      if (count === occurrence) return f;
-      count++;
+    if (pc !== rootPC) continue;
+    // Anchor cell must itself be reachable (root note in playable range).
+    if (f + maxOff > fretCount) continue;
+    // Count cells that land in the playable range.
+    let fits = 0;
+    for (const c of shape.cells) {
+      const fret = f + c.offset;
+      if (fret >= capo && fret <= fretCount) fits++;
     }
+    if (fits >= MIN_CELLS_FOR_VALID_ANCHOR) return f;
   }
   return null;
 }
 
-/** Generic CAGED resolution: find anchor, build absolute window, filter highlights. */
-function resolveCagedShape(shape: CagedShapeDef, input: ResolveInput): readonly PlayableCell[] {
-  const { highlights, tuning, key, capo } = input;
-  if (highlights.length === 0) return [];
-
-  const rootPC = pitchClass(key);
-  const anchorOpenNote = tuning.strings[shape.anchorString];
-  if (!anchorOpenNote) return [];
-  const anchorOpenPC = pitchClass(anchorOpenNote);
-
-  const anchorFret = findRootFret(rootPC, anchorOpenPC, shape.anchorOccurrence, capo);
-  if (anchorFret == null) return [];
-
-  const [lo, hi] = shape.windowOffsets;
-  const windowLow = anchorFret + lo;
-  const windowHigh = anchorFret + hi;
-
-  // Filter highlights to those whose fret is within the window (across all strings).
-  // Open-string positions (fret 0) only count when the window includes 0.
-  const inWindow = highlights.filter(
-    (h) => h.fret >= Math.max(0, windowLow) && h.fret <= windowHigh,
-  );
-
-  const cells: PlayableCell[] = inWindow.map((h) => ({
-    stringIndex: h.stringIndex,
-    fret: h.fret,
-  }));
-  return cells.sort((a, b) => pitchOf(a, tuning) - pitchOf(b, tuning));
+/** Build the absolute cells for a shape positioned at the given anchor fret. Drops
+ *  cells that fall outside `[capo, fretCount]` (e.g. open-position shapes whose
+ *  lower offsets land behind the nut). Applies the pentatonic-degree filter when
+ *  requested. Returns null if no cells survive. */
+function resolveShapeCells(
+  shape: CagedShape,
+  anchorFret: number,
+  capo: number,
+  fretCount: number,
+  pentatonic: boolean,
+): ResolvedShape | null {
+  const cells: AbsoluteCell[] = [];
+  let minFret = Infinity;
+  let maxFret = -Infinity;
+  for (const c of shape.cells) {
+    if (pentatonic && !PENTATONIC_DEGREES.has(c.degree)) continue;
+    const fret = anchorFret + c.offset;
+    if (fret < capo || fret > fretCount) continue;
+    cells.push({ stringIndex: c.stringIndex, fret, degree: c.degree });
+    if (fret < minFret) minFret = fret;
+    if (fret > maxFret) maxFret = fret;
+  }
+  if (cells.length === 0) return null;
+  return { anchorFret, cells, minFret, maxFret };
 }
 
-/** Build a PlaybackPattern from a CAGED shape definition. */
-function buildCagedPattern(shape: CagedShapeDef): PlaybackPattern {
+/** Resolve a shape end-to-end given a ResolveInput. Returns null when the shape
+ *  isn't usable (wrong scale family, no valid anchor, empty after filter). */
+function resolveShape(shape: CagedShape, input: ResolveInput): ResolvedShape | null {
+  const { tuning, key, capo, fretCount, scaleType } = input;
+  const offset = parentMajorOffsetFor(scaleType);
+  if (offset == null) return null;
+  const keyPC = pitchClass(key);
+  const anchorPC = (((keyPC + offset) % 12) + 12) % 12;
+
+  const openNote = tuning.strings[shape.anchorString];
+  if (!openNote) return null;
+  const openNotePC = pitchClass(openNote);
+
+  const anchorFret = findValidAnchorFret(shape, anchorPC, openNotePC, capo, fretCount);
+  if (anchorFret == null) return null;
+
+  return resolveShapeCells(shape, anchorFret, capo, fretCount, isPentatonic(scaleType));
+}
+
+// ─── Up-and-down sequence ──────────────────────────────────────────────────────
+
+/** Build the playback order: ascending string-by-string (low → high, each string's
+ *  cells in fret-ascending order), then descending string-by-string (high → low,
+ *  each string's cells in fret-descending order). The apex (last note of asc =
+ *  first note of desc) is played only once. */
+function buildUpAndDown(cells: readonly AbsoluteCell[]): PlayableCell[] {
+  if (cells.length === 0) return [];
+
+  const byString = new Map<number, AbsoluteCell[]>();
+  for (const c of cells) {
+    const arr = byString.get(c.stringIndex);
+    if (arr) arr.push(c);
+    else byString.set(c.stringIndex, [c]);
+  }
+  for (const arr of byString.values()) {
+    arr.sort((a, b) => a.fret - b.fret);
+  }
+
+  const stringIndices = [...byString.keys()].sort((a, b) => a - b);
+
+  const asc: PlayableCell[] = [];
+  for (const i of stringIndices) {
+    for (const c of byString.get(i)!) {
+      asc.push({ stringIndex: c.stringIndex, fret: c.fret });
+    }
+  }
+
+  const desc: PlayableCell[] = [];
+  for (let k = stringIndices.length - 1; k >= 0; k--) {
+    const i = stringIndices[k];
+    const list = byString.get(i)!;
+    for (let j = list.length - 1; j >= 0; j--) {
+      const c = list[j];
+      desc.push({ stringIndex: c.stringIndex, fret: c.fret });
+    }
+  }
+
+  // Drop the apex from desc to avoid playing it twice.
+  if (desc.length > 0) {
+    const apex = asc[asc.length - 1];
+    if (
+      desc[0].stringIndex === apex.stringIndex &&
+      desc[0].fret === apex.fret
+    ) {
+      desc.shift();
+    }
+  }
+
+  return [...asc, ...desc];
+}
+
+// ─── Per-key Position numbering ────────────────────────────────────────────────
+
+/**
+ * Compute Position 1..5 for each shape in the active key, sorted by lowest fret of
+ * the resolved box. Shapes that don't resolve in the current state get position null.
+ *
+ * Cached on the input identity — Playback re-resolves when the input changes anyway,
+ * so a fresh map per resolve call is acceptable.
+ */
+function buildPositionMap(input: ResolveInput): Map<CagedShapeId, number> {
+  const set = shapeSetFor(input.scaleType);
+  if (!set) return new Map();
+
+  const positions: Array<{ id: CagedShapeId; minFret: number }> = [];
+  for (const shape of set) {
+    const resolved = resolveShape(shape, input);
+    if (resolved) positions.push({ id: shape.id, minFret: resolved.minFret });
+  }
+  positions.sort((a, b) => a.minFret - b.minFret);
+
+  const map = new Map<CagedShapeId, number>();
+  positions.forEach((p, i) => {
+    map.set(p.id, i + 1);
+  });
+  return map;
+}
+
+// ─── Pattern construction ─────────────────────────────────────────────────────
+
+/** Pretty name for the dropdown — `Position N — X shape`, or just `X shape` if the
+ *  position number can't be computed (shape not currently applicable). */
+function displayName(letter: CagedLetter, position: number | null): string {
+  if (position == null) return `${letter} shape`;
+  return `Position ${position} — ${letter} shape`;
+}
+
+function buildCagedPattern(letter: CagedLetter, id: CagedShapeId): PlaybackPattern {
   return {
-    id: shape.id,
-    name: shape.name,
+    id,
+    name: `${letter} shape`,
     group: 'CAGED',
     applicableInstruments: ['guitar'],
     isApplicable: (input) => {
-      // CAGED is a guitar-only concept (the C, A, G, E, D shapes are based on the open
-      // guitar chord forms). Hide on bass / ukulele / future instruments.
       if (input.instrumentId !== 'guitar') return false;
-      // CAGED is a scales-mode concept. Don't offer it for arpeggios or single notes.
       if (input.mode !== 'scales') return false;
-      // It's also only applicable if we can actually resolve a non-empty sequence —
-      // i.e. the anchor exists in the playable range and the window contains highlights.
-      return resolveCagedShape(shape, input).length > 0;
+      const set = shapeSetFor(input.scaleType);
+      if (!set) return false;
+      const shape = set.find((s) => s.id === id);
+      if (!shape) return false;
+      const resolved = resolveShape(shape, input);
+      return resolved != null && resolved.cells.length > 0;
     },
-    resolve: (input) => resolveCagedShape(shape, input),
+    resolve: (input) => {
+      const set = shapeSetFor(input.scaleType);
+      if (!set) return [];
+      const shape = set.find((s) => s.id === id);
+      if (!shape) return [];
+      const resolved = resolveShape(shape, input);
+      if (!resolved) return [];
+      return buildUpAndDown(resolved.cells);
+    },
+    displayName: (input) => {
+      const map = buildPositionMap(input);
+      return displayName(letter, map.get(id) ?? null);
+    },
   };
 }
 
-export const CAGED_PATTERNS: readonly PlaybackPattern[] = CAGED_SHAPES.map(buildCagedPattern);
+export const CAGED_PATTERNS: readonly PlaybackPattern[] = [
+  buildCagedPattern('C', 'caged-c'),
+  buildCagedPattern('A', 'caged-a'),
+  buildCagedPattern('G', 'caged-g'),
+  buildCagedPattern('E', 'caged-e'),
+  buildCagedPattern('D', 'caged-d'),
+];
 
 export { CAGED_PATTERN_IDS } from './caged-shapes-data';

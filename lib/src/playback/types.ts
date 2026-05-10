@@ -19,6 +19,14 @@ export interface ResolveInput {
   /** Active instrument id (e.g. 'guitar', 'bass', 'ukulele'). Patterns can use this
    * via `applicableInstruments` to hide themselves on inappropriate instruments. */
   readonly instrumentId: string;
+  /** Active fret count for the instrument. Used by patterns that need to know the
+   *  upper bound of the playable range (e.g. CAGED, which positions a shape at the
+   *  lowest valid fret occurrence). */
+  readonly fretCount: number;
+  /** When mode is 'scales', the scale id (e.g. 'major', 'dorian', 'harmonic-minor').
+   *  CAGED uses this to pick the correct shape set and to compute the parent major's
+   *  tonic for modes / pentatonics / blues. Undefined for arpeggios and notes. */
+  readonly scaleType?: string;
   /** Custom-pattern-only: the user-recorded sequence. Other patterns ignore this. */
   readonly customSequence?: readonly PlayableCell[];
 }
@@ -47,6 +55,10 @@ export interface PlaybackPattern {
   isApplicable(input: ResolveInput): boolean;
   /** Generate the playable sequence. May return `[]` if not applicable. */
   resolve(input: ResolveInput): readonly PlayableCell[];
+  /** Optional context-aware display name. CAGED uses this to surface "Position N — X
+   * shape" labels that depend on the active key. When omitted, consumers fall back
+   * to `name`. */
+  displayName?(input: ResolveInput): string;
 }
 
 /**

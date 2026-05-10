@@ -21,6 +21,7 @@ import {
 import { BeatDot } from './BeatDot';
 import { ExpandedDragHandle } from './ExpandedDragHandle';
 import { useDraggable } from './useDraggable';
+import { useBeatFlash } from './useBeatFlash';
 import { PlaybackControls } from '../playback/PlaybackControls';
 
 const PANEL_WIDTH = 320;
@@ -32,6 +33,9 @@ export function MetronomeExpanded() {
   const setPosition = useMetronomeStore((s) => s.setExpandedPosition);
 
   const m = useMetronome();
+  // Pulse the row of dots in lockstep with the compact view: the active beat lights
+  // up briefly then fades back to dim before the next beat fires.
+  const flashing = useBeatFlash(m.currentBeat, m.isRunning);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [panelHeight, setPanelHeight] = useState(160);
 
@@ -82,7 +86,7 @@ export function MetronomeExpanded() {
           {beats.map((b) => (
             <BeatDot
               key={b}
-              active={m.isRunning && m.currentBeat === b}
+              active={flashing && m.currentBeat === b}
               isAccent={m.accents.includes(b)}
               size="md"
               dimmed={!m.isRunning}
@@ -145,6 +149,24 @@ export function MetronomeExpanded() {
             id="metronome-accent"
             checked={m.accentEnabled}
             onCheckedChange={m.setAccentEnabled}
+          />
+        </div>
+
+        {/* Tick-sound toggle. Off = silent metronome — beat dots and note playback
+         *  still drive the timing, but the click is muted. */}
+        <div className="flex items-center justify-between">
+          <div className="flex flex-col leading-tight">
+            <Label htmlFor="metronome-click" className="cursor-pointer">Tick sound</Label>
+            <span className="text-[10px] font-mono text-muted-foreground">
+              {m.clickMuted
+                ? 'Silent — keep time with the lights or note playback'
+                : 'Click on every beat'}
+            </span>
+          </div>
+          <Switch
+            id="metronome-click"
+            checked={!m.clickMuted}
+            onCheckedChange={(on) => m.setClickMuted(!on)}
           />
         </div>
 

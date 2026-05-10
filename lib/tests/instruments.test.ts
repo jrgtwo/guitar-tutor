@@ -103,6 +103,8 @@ describe('ascendingPitchPattern with reentrant ukulele', () => {
       capo: 0,
       mode: 'scales',
       instrumentId: 'ukulele',
+      fretCount: uke.fretCount,
+      scaleType: 'major',
     };
     const seq = ascendingPitchPattern.resolve(input);
     expect(seq.length).toBeGreaterThan(0);
@@ -137,6 +139,8 @@ describe('CAGED applicability per instrument', () => {
       capo: 0,
       mode: 'scales',
       instrumentId,
+      fretCount: inst.fretCount,
+      scaleType: 'major',
     };
   }
 

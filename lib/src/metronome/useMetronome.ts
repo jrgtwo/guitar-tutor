@@ -33,6 +33,7 @@ export interface UseMetronomeReturn {
   timeSignature: TimeSignature;
   accents: readonly number[];
   accentEnabled: boolean;
+  clickMuted: boolean;
   volume: number;
   start: () => Promise<void>;
   stop: () => void;
@@ -42,6 +43,8 @@ export interface UseMetronomeReturn {
   setAccents: (accents: readonly number[]) => void;
   setAccentEnabled: (enabled: boolean) => void;
   toggleAccentEnabled: () => void;
+  setClickMuted: (muted: boolean) => void;
+  toggleClickMuted: () => void;
   setVolume: (v: number) => void;
   /** The shared Metronome instance, for advanced usage (e.g. sample override). */
   metronome: Metronome | null;
@@ -72,6 +75,7 @@ function ensureSharedMetronome(): Metronome | null {
     timeSignature: initial.timeSignatureId,
     accents,
     accentEnabled: initial.accentEnabled,
+    muted: initial.clickMuted,
     volume: initial.volume,
   });
 
@@ -113,6 +117,7 @@ function ensureSharedMetronome(): Metronome | null {
       m.setAccents(next);
     }
     if (state.accentEnabled !== prev.accentEnabled) m.setAccentEnabled(state.accentEnabled);
+    if (state.clickMuted !== prev.clickMuted) m.setMuted(state.clickMuted);
     if (state.volume !== prev.volume) m.setVolume(state.volume);
   });
 
@@ -131,6 +136,7 @@ export function useMetronome(options: UseMetronomeOptions = {}): UseMetronomeRet
   const timeSignatureId = useMetronomeStore((s) => s.timeSignatureId);
   const storeAccents = useMetronomeStore((s) => s.accents);
   const accentEnabled = useMetronomeStore((s) => s.accentEnabled);
+  const clickMuted = useMetronomeStore((s) => s.clickMuted);
   const volume = useMetronomeStore((s) => s.volume);
   const isRunning = useMetronomeStore((s) => s.isRunning);
   const currentBeat = useMetronomeStore((s) => s.currentBeat);
@@ -141,6 +147,8 @@ export function useMetronome(options: UseMetronomeOptions = {}): UseMetronomeRet
   const setStoreAccents = useMetronomeStore((s) => s.setAccents);
   const setStoreAccentEnabled = useMetronomeStore((s) => s.setAccentEnabled);
   const toggleStoreAccentEnabled = useMetronomeStore((s) => s.toggleAccentEnabled);
+  const setStoreClickMuted = useMetronomeStore((s) => s.setClickMuted);
+  const toggleStoreClickMuted = useMetronomeStore((s) => s.toggleClickMuted);
   const setStoreVolume = useMetronomeStore((s) => s.setVolume);
 
   // Resolve TimeSignature object once per id change.
@@ -200,6 +208,7 @@ export function useMetronome(options: UseMetronomeOptions = {}): UseMetronomeRet
     timeSignature,
     accents: effectiveAccents,
     accentEnabled,
+    clickMuted,
     volume,
     start,
     stop,
@@ -209,6 +218,8 @@ export function useMetronome(options: UseMetronomeOptions = {}): UseMetronomeRet
     setAccents: setStoreAccents,
     setAccentEnabled: setStoreAccentEnabled,
     toggleAccentEnabled: toggleStoreAccentEnabled,
+    setClickMuted: setStoreClickMuted,
+    toggleClickMuted: toggleStoreClickMuted,
     setVolume: setStoreVolume,
     metronome,
   };

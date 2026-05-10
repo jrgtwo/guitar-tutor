@@ -1,8 +1,12 @@
 /**
- * Compact metronome control — sits in the TopBar, always visible.
- * Layout: [METRO ▶] [120 BPM ↕] [4/4 ▼] [● beat 1/4] [↗ expand]
+ * Compact metronome control — sits in the TopBar, always visible. Trimmed to the
+ * essentials: play, BPM, time signature, beat indicator. Patterns / accent toggle /
+ * note playback live in the expanded panel; the trailing "More" button is the entry
+ * point and its tooltip advertises what's inside.
+ *
+ * Layout: [METRO ▶] [120 BPM ↕] [4/4 ▼] [● 1/4]    [⛶ More]
  */
-import { Play, Square, Maximize2, Music2 } from 'lucide-react';
+import { Play, Square, Maximize2 } from 'lucide-react';
 import {
   Button,
   Select,
@@ -13,19 +17,22 @@ import {
   TIME_SIGNATURES,
   useMetronome,
   useMetronomeStore,
-  usePlayback,
 } from '@fretwork/lib';
 import { BeatDot } from './BeatDot';
+import { useBeatFlash } from './useBeatFlash';
 
 export function MetronomeCompact() {
   const m = useMetronome();
-  const playback = usePlayback();
   const toggleExpanded = useMetronomeStore((s) => s.toggleExpanded);
   const expandedOpen = useMetronomeStore((s) => s.expandedOpen);
 
   const handlePlayClick = () => {
     void m.toggle();
   };
+
+  // Single-dot flash: snap to bright on each new beat, fade back to dim shortly after.
+  // Without this the dot would just stay lit while the metronome runs.
+  const flashing = useBeatFlash(m.currentBeat, m.isRunning);
 
   return (
     <div className="flex flex-col gap-1">
@@ -93,27 +100,10 @@ export function MetronomeCompact() {
           </SelectContent>
         </Select>
 
-        {/* Accent on/off toggle — small pill button. Active = accent audible. */}
-        <button
-          type="button"
-          onClick={m.toggleAccentEnabled}
-          aria-pressed={m.accentEnabled}
-          aria-label={`Accent ${m.accentEnabled ? 'on' : 'off'} — click to toggle`}
-          title={m.accentEnabled ? 'Accent on (downbeat sounds different)' : 'Accent off (all beats sound the same)'}
-          className={
-            'h-9 px-2.5 rounded-md font-mono uppercase tracking-wider text-xs transition-colors border ' +
-            (m.accentEnabled
-              ? 'bg-degree-root/20 border-degree-root/50 text-degree-root'
-              : 'bg-card border-input text-muted-foreground hover:text-foreground')
-          }
-        >
-          ACC
-        </button>
-
-        {/* Beat indicator: single dot + n/N readout */}
+        {/* Beat indicator: single dot + n/N readout. Dot pulses bright on each tick. */}
         <div className="flex items-center gap-2 px-2 h-9 rounded-md bg-card/40 border border-border/30">
           <BeatDot
-            active={m.isRunning && m.currentBeat >= 0}
+            active={flashing}
             isAccent={m.accents.includes(Math.max(0, m.currentBeat))}
             size="sm"
             dimmed={!m.isRunning}
@@ -124,36 +114,29 @@ export function MetronomeCompact() {
           </span>
         </div>
 
-        {/* Note-playback toggle — small icon button. Active = notes play with the click. */}
-        <button
-          type="button"
-          onClick={playback.toggleEnabled}
-          aria-pressed={playback.enabled}
-          aria-label={`Note playback ${playback.enabled ? 'on' : 'off'}`}
-          title={
-            playback.enabled
-              ? 'Note playback on (plays scale tones to the beat)'
-              : 'Note playback off (click only)'
-          }
-          className={
-            'h-9 w-9 rounded-md flex items-center justify-center transition-colors border ' +
-            (playback.enabled
-              ? 'bg-degree-root/20 border-degree-root/50 text-degree-root'
-              : 'bg-card border-input text-muted-foreground hover:text-foreground')
-          }
-        >
-          <Music2 className="h-4 w-4" />
-        </button>
-
-        {/* Expand toggle */}
+        {/* Expand toggle. Heavier styling + descriptive tooltip so it reads as the
+         *  doorway to the rest of the metronome's features rather than a generic
+         *  fullscreen affordance. */}
         <Button
           size="icon"
-          variant="ghost"
-          className="h-9 w-9"
+          variant="outline"
+          className={
+            'h-9 w-10 border-border/60 hover:bg-accent ' +
+            (expandedOpen ? 'bg-accent text-accent-foreground' : '')
+          }
           onClick={toggleExpanded}
-          aria-label={expandedOpen ? 'Hide expanded metronome panel' : 'Open expanded metronome panel'}
+          aria-label={
+            expandedOpen
+              ? 'Hide expanded metronome panel'
+              : 'More: patterns, accent, note playback'
+          }
+          title={
+            expandedOpen
+              ? 'Hide more controls'
+              : 'More: patterns, accent, note playback'
+          }
         >
-          <Maximize2 className="h-4 w-4" />
+          <Maximize2 className="h-5 w-5" />
         </Button>
       </div>
     </div>

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { ascendingPitchPattern } from '../src/playback/patterns/ascending-pitch';
 import { stringByStringPattern } from '../src/playback/patterns/string-by-string';
-import { buildGrid, computeHighlights } from '../src/lib/fretboard';
+import { buildGrid, computeHighlights, FRET_COUNT } from '../src/lib/fretboard';
 import { getTuning } from '../src/lib/tunings';
 import { getScale } from '../src/lib/scales';
 import type { ResolveInput } from '../src/playback/types';
@@ -19,6 +19,8 @@ function makeInput(overrides: Partial<ResolveInput> = {}): ResolveInput {
     capo: 0,
     mode: 'scales',
     instrumentId: 'guitar',
+    fretCount: FRET_COUNT,
+    scaleType: 'major',
     ...overrides,
   };
 }
