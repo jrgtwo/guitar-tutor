@@ -24,7 +24,12 @@ export {
   findEffectivePreset,
   getEffectiveReverb,
   subscribeToOverrides,
+  seedCommittedPresets,
+  committedPresetsLoaded,
+  getPresetSource,
+  getReverbSource,
 } from './preset-overrides';
+export type { PresetSource } from './preset-overrides';
 export type { PresetOverridesData } from './preset-overrides';
 export type {
   FretInstrumentId,

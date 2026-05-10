@@ -22,6 +22,9 @@ import {
   saveOverrides,
   clearPresetOverride,
   clearAllOverrides,
+  getPresetSource,
+  subscribeToOverrides,
+  type PresetSource,
   type AutoWahParams,
   type BodyFilterEnvelope,
   type BodyFilterParams,
@@ -70,9 +73,18 @@ export function SoundLab() {
    *  (a debounce timer is still counting down) | 'saved' (just flushed). */
   const [saveStatus, setSaveStatus] = useState<'idle' | 'pending' | 'saved'>('idle');
 
-  /** Build the override blob from the current preset/reverb state and write it
-   *  to localStorage. Runs both for auto-save (debounced) and the explicit
-   *  Save button (immediate). */
+  // Tick a counter whenever the overrides change (localStorage write, custom
+  // event, or seedCommittedPresets resolving). Forces the source-indicator pill
+  // to re-evaluate `getPresetSource` for the active preset.
+  const [, forceSourceTick] = useState(0);
+  useEffect(() => {
+    return subscribeToOverrides(() => forceSourceTick((n) => n + 1));
+  }, []);
+
+  /** Build the override blob from the current preset/reverb state, persist it
+   *  to localStorage, and (in dev) POST it to `/api/lab-presets` so the Vite
+   *  plugin reconciles `example/public/presets/`. The POST silently 404s in
+   *  production builds — localStorage stays the source of truth there. */
   const flushSave = (next: { presets: VoicePreset[]; reverb: ReverbSettings }) => {
     const presetMap: Record<string, VoicePreset> = {};
     // Only store presets that differ from shipped defaults — reduces storage bloat
@@ -83,13 +95,21 @@ export function SoundLab() {
         presetMap[preset.id] = preset;
       }
     }
-    saveOverrides({
-      schemaVersion: 1,
-      presets: presetMap,
-      reverb:
-        JSON.stringify(next.reverb) === JSON.stringify(DEFAULT_REVERB_SETTINGS)
-          ? undefined
-          : next.reverb,
+    const reverb =
+      JSON.stringify(next.reverb) === JSON.stringify(DEFAULT_REVERB_SETTINGS)
+        ? undefined
+        : next.reverb;
+    saveOverrides({ schemaVersion: 1, presets: presetMap, reverb });
+
+    // Best-effort write to the on-disk preset directory. Failures are silent —
+    // localStorage already holds the changes, so the lab and main app keep
+    // working even if the dev endpoint isn't available.
+    fetch('/api/lab-presets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ schemaVersion: 1, presets: presetMap, reverb }),
+    }).catch(() => {
+      /* ignore — production builds, network errors, etc. */
     });
   };
 
@@ -304,6 +324,7 @@ export function SoundLab() {
               <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/70">
                 {activePreset.instrumentId} · {activePreset.family}
               </span>
+              <SourceIndicator source={getPresetSource(activeId)} />
             </div>
             <div className="flex items-center gap-1 flex-wrap">
               <SaveStatusPill status={saveStatus} />
@@ -528,6 +549,27 @@ export function SoundLab() {
 }
 
 // ─── Section + helpers ────────────────────────────────────────────────────────
+
+function SourceIndicator({ source }: { source: PresetSource }) {
+  // Three-state pill showing where the active preset's values come from. The
+  // priority chain is localStorage → committed file → shipped baseline; this
+  // tells the user which layer is winning.
+  const tone =
+    source === 'localStorage'
+      ? { dot: 'bg-degree-root', label: 'Local tweaks', tip: 'Your localStorage override is active. Click Reset preset to drop it and fall through to the committed file.' }
+      : source === 'committed'
+        ? { dot: 'bg-degree-fifth', label: 'Committed', tip: 'Coming from public/presets/<id>.json — what anonymous users will see on the deployed site.' }
+        : { dot: 'bg-foreground/30', label: 'Shipped', tip: 'No localStorage tweaks and no committed file. Coming from presets.ts.' };
+  return (
+    <span
+      title={tone.tip}
+      className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md border border-border/40 bg-card/40 text-[10px] font-mono uppercase tracking-wider text-muted-foreground"
+    >
+      <span className={`h-1.5 w-1.5 rounded-full ${tone.dot}`} aria-hidden="true" />
+      {tone.label}
+    </span>
+  );
+}
 
 function SaveStatusPill({ status }: { status: 'idle' | 'pending' | 'saved' }) {
   const text =

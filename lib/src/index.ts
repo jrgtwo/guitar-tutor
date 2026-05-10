@@ -191,7 +191,14 @@ export {
   findEffectivePreset,
   getEffectiveReverb,
   subscribeToOverrides,
+  seedCommittedPresets,
+  committedPresetsLoaded,
+  getPresetSource,
+  getReverbSource,
   PLAYBACK_PATTERNS,
+} from './playback';
+export type { PresetSource } from './playback';
+export {
   getPlaybackPattern,
   DEFAULT_PATTERN_ID,
   ASCENDING_PITCH_ID,

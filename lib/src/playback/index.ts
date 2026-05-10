@@ -38,8 +38,13 @@ export {
   findEffectivePreset,
   getEffectiveReverb,
   subscribeToOverrides,
+  seedCommittedPresets,
+  committedPresetsLoaded,
+  getPresetSource,
+  getReverbSource,
   _resetMasterBusForTests,
 } from './voices';
+export type { PresetSource } from './voices';
 export type {
   FretInstrumentId,
   VoiceFamily,
