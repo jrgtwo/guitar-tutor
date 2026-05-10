@@ -5,6 +5,7 @@
  */
 import {
   Button,
+  InstrumentSelect,
   ModeSelect,
   KeySelect,
   TypeSelect,
@@ -23,6 +24,7 @@ export function TopBar() {
       </div>
 
       <div className="flex flex-wrap items-end gap-3 flex-1 min-w-0">
+        <InstrumentSelect />
         <ModeSelect />
         <KeySelect />
         <TypeSelect />

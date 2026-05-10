@@ -1,6 +1,5 @@
 import {
   fretX,
-  FRET_COUNT,
   SINGLE_INLAY_FRETS,
   DOUBLE_INLAY_FRETS,
 } from '../../lib/fretboard';
@@ -8,16 +7,27 @@ import {
   NECK_LENGTH,
   NECK_X,
   STRING_AREA,
-  STRING_SPACING,
   TOP_PAD,
+  getStringSpacing,
 } from './layout';
 
-const HIGHLIGHTED_FRETS = new Set([3, 5, 7, 9, 12, 15, 17, 19, 21]);
+const HIGHLIGHTED_FRET_NUMBERS = new Set([3, 5, 7, 9, 12, 15, 17, 19, 21]);
 
-export function FretLines() {
+interface Props {
+  fretCount: number;
+  stringCount: number;
+}
+
+/**
+ * Renders fret lines, inlay dots, and the highlighted-fret number labels above the
+ * neck. The fret count + string count come from the active instrument; both inlay
+ * positions and fret-number labels are clipped to the active fret count.
+ */
+export function FretLines({ fretCount, stringCount }: Props) {
   const top = TOP_PAD;
   const bottom = TOP_PAD + STRING_AREA;
   const inlayY = top + STRING_AREA / 2;
+  const stringSpacing = getStringSpacing(stringCount);
 
   const fretLines: React.ReactElement[] = [];
   // Nut: thick double line at fret 0 (NECK_X)
@@ -33,8 +43,8 @@ export function FretLines() {
     />,
   );
 
-  for (let f = 1; f <= FRET_COUNT; f++) {
-    const x = NECK_X + fretX(f, NECK_LENGTH);
+  for (let f = 1; f <= fretCount; f++) {
+    const x = NECK_X + fretX(f, NECK_LENGTH, fretCount);
     fretLines.push(
       <line
         key={`fret-${f}`}
@@ -49,10 +59,11 @@ export function FretLines() {
     );
   }
 
-  // Inlay dots — placed at the midpoint between fret (n-1) and fret n.
+  // Inlay dots — placed at the midpoint between fret (n-1) and fret n. Cap to fretCount.
   const inlays: React.ReactElement[] = [];
   for (const f of SINGLE_INLAY_FRETS) {
-    const x = NECK_X + (fretX(f - 1, NECK_LENGTH) + fretX(f, NECK_LENGTH)) / 2;
+    if (f > fretCount) continue;
+    const x = NECK_X + (fretX(f - 1, NECK_LENGTH, fretCount) + fretX(f, NECK_LENGTH, fretCount)) / 2;
     inlays.push(
       <circle
         key={`inlay-${f}`}
@@ -65,19 +76,20 @@ export function FretLines() {
     );
   }
   for (const f of DOUBLE_INLAY_FRETS) {
-    const x = NECK_X + (fretX(f - 1, NECK_LENGTH) + fretX(f, NECK_LENGTH)) / 2;
-    const offset = STRING_SPACING * 1.4;
+    if (f > fretCount) continue;
+    const x = NECK_X + (fretX(f - 1, NECK_LENGTH, fretCount) + fretX(f, NECK_LENGTH, fretCount)) / 2;
+    const offset = stringSpacing * 1.4;
     inlays.push(
       <circle key={`inlay-${f}-top`} cx={x} cy={inlayY - offset} r={5} fill="hsl(var(--pearl))" opacity={0.18} />,
       <circle key={`inlay-${f}-bot`} cx={x} cy={inlayY + offset} r={5} fill="hsl(var(--pearl))" opacity={0.18} />,
     );
   }
 
-  // Fret numbers above the neck.
+  // Fret numbers above the neck — only highlight the conventional positions, capped.
   const fretNumbers: React.ReactElement[] = [];
-  for (let f = 1; f <= FRET_COUNT; f++) {
-    if (!HIGHLIGHTED_FRETS.has(f)) continue;
-    const x = NECK_X + (fretX(f - 1, NECK_LENGTH) + fretX(f, NECK_LENGTH)) / 2;
+  for (let f = 1; f <= fretCount; f++) {
+    if (!HIGHLIGHTED_FRET_NUMBERS.has(f)) continue;
+    const x = NECK_X + (fretX(f - 1, NECK_LENGTH, fretCount) + fretX(f, NECK_LENGTH, fretCount)) / 2;
     fretNumbers.push(
       <text
         key={`fn-${f}`}

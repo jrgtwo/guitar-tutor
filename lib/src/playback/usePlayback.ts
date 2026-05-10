@@ -22,6 +22,7 @@ import { usePlaybackStore } from './usePlaybackStore';
 import { useFretworkStore } from '../store/useFretworkStore';
 import { useMetronome } from '../metronome/useMetronome';
 import { getTuning } from '../lib/tunings';
+import { getInstrument } from '../lib/instruments';
 import { getScale } from '../lib/scales';
 import { getArpeggio } from '../lib/arpeggios';
 import { buildGrid, computeHighlights } from '../lib/fretboard';
@@ -135,6 +136,7 @@ export function usePlayback(): UsePlaybackReturn {
   // ─── Push fretboard state → Playback's resolveInput ────────────────────────────
   // This is the bridge between fretboard state and the playback module. We compute the
   // current highlights here (same code path the renderer uses) and feed them in.
+  const fretInstrumentId = useFretworkStore((s) => s.instrumentId);
   const fretMode = useFretworkStore((s) => s.mode);
   const fretKey = useFretworkStore((s) => s.key);
   const fretType = useFretworkStore((s) => s.type);
@@ -144,6 +146,8 @@ export function usePlayback(): UsePlaybackReturn {
   const resolveInput: ResolveInput | null = useMemo(() => {
     const tuning = getTuning(fretTuning);
     if (!tuning) return null;
+    const instrument = getInstrument(fretInstrumentId);
+    const fretCount = instrument?.fretCount ?? 22;
 
     let intervals: IntervalSet;
     let effectiveKey = fretKey;
@@ -156,7 +160,7 @@ export function usePlayback(): UsePlaybackReturn {
       effectiveKey = fretType;
     }
 
-    const grid = buildGrid(tuning, fretCapo);
+    const grid = buildGrid(tuning, fretCapo, fretCount);
     const highlights = computeHighlights(grid, effectiveKey, intervals, fretCapo);
 
     return {
@@ -165,9 +169,10 @@ export function usePlayback(): UsePlaybackReturn {
       key: effectiveKey,
       capo: fretCapo,
       mode: fretMode,
+      instrumentId: fretInstrumentId,
       customSequence,
     };
-  }, [fretMode, fretKey, fretType, fretTuning, fretCapo, customSequence]);
+  }, [fretInstrumentId, fretMode, fretKey, fretType, fretTuning, fretCapo, customSequence]);
 
   useEffect(() => {
     if (!playback || !resolveInput) return;

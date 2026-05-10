@@ -32,9 +32,23 @@ export interface ArpeggioDef {
 export interface TuningDef {
   readonly id: string;
   readonly name: string;
-  /** Open-string pitches in scientific notation, low to high. e.g. ["E2","A2","D3","G3","B3","E4"]. */
+  /** Which instrument this tuning belongs to (e.g. 'guitar', 'bass', 'ukulele'). */
+  readonly instrumentId: string;
+  /**
+   * Open-string pitches in scientific notation, in **physical bottom-to-top order**
+   * (i.e. the order strings appear in standard tablature, with index 0 being the
+   * string drawn at the bottom of the fretboard). For non-reentrant instruments
+   * this also happens to be lowest-pitch-first; for reentrant instruments
+   * (e.g. ukulele standard tuning ['G4','C4','E4','A4']) this is NOT the case —
+   * the high-G drone string sits at the bottom physically despite being higher in
+   * pitch than the C and E strings above it. See lib/instruments.ts.
+   */
   readonly strings: readonly string[];
 }
+
+/** Re-export of InstrumentDef for the public types surface. */
+export type { InstrumentDef } from './lib/instruments';
+export type InstrumentId = string;
 
 /** A specific cell on the fretboard grid (one string × one fret position). */
 export interface NoteCell {
@@ -70,14 +84,16 @@ export interface FretworkSettings {
 }
 
 export interface FretworkState {
+  /** Active instrument id (e.g. 'guitar', 'bass', 'ukulele'). */
+  readonly instrumentId: string;
   readonly mode: Mode;
   /** Root note (e.g. "A", "Bb", "F#"). Tonic only — no octave. */
   readonly key: string;
   /** Scale id, arpeggio id, or note name (e.g. "C") depending on mode. */
   readonly type: string;
-  /** Tuning id from the tunings table. */
+  /** Tuning id from the tunings table. Must belong to the active instrument. */
   readonly tuning: string;
-  /** Capo position, 0 = no capo, 1–11 = fret. */
+  /** Capo position, 0 = no capo, 1..(instrument.fretCount). */
   readonly capo: number;
   readonly labels: LabelMode;
   readonly settings: FretworkSettings;

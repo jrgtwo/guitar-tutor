@@ -1,19 +1,21 @@
-import { STRING_COUNT } from '../../lib/fretboard';
 import { HEADSTOCK_WIDTH, stringY, TOP_PAD, STRING_AREA } from './layout';
 
 interface Props {
-  /** Effective open-string pitches (capo-aware) low-to-high. */
+  /** Effective open-string pitches (capo-aware), in physical bottom-to-top order. */
   openStrings: readonly string[];
 }
 
 /**
  * Left-side strip showing each string's open pitch (e.g. "E2"). Capo-aware via
  * `openStrings`. Visually rendered as a darker wood block to read as the headstock.
+ *
+ * Iterates `openStrings` directly so the same component works for any string count.
  */
 export function Headstock({ openStrings }: Props) {
+  const stringCount = openStrings.length;
   const labels: React.ReactElement[] = [];
-  for (let i = 0; i < STRING_COUNT; i++) {
-    const y = stringY(i);
+  for (let i = 0; i < stringCount; i++) {
+    const y = stringY(i, stringCount);
     labels.push(
       <text
         key={`open-${i}`}

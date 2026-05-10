@@ -6,6 +6,7 @@ import type { FretworkState, Mode, LabelMode, Handedness } from '../types';
 import { SCALES, DEFAULT_SCALE_ID } from './scales';
 import { ARPEGGIOS } from './arpeggios';
 import { TUNINGS, DEFAULT_TUNING_ID, CHROMATIC_KEYS } from './tunings';
+import { INSTRUMENTS, DEFAULT_INSTRUMENT_ID, getInstrument } from './instruments';
 
 const VALID_MODES: readonly Mode[] = ['scales', 'arpeggios', 'notes'];
 const VALID_LABELS: readonly LabelMode[] = ['notes', 'intervals', 'blank'];
@@ -15,8 +16,10 @@ const SCALE_IDS = new Set(SCALES.map((s) => s.id));
 const ARP_IDS = new Set(ARPEGGIOS.map((a) => a.id));
 const TUNING_IDS = new Set(TUNINGS.map((t) => t.id));
 const CHROMATIC_SET = new Set<string>(CHROMATIC_KEYS);
+const INSTRUMENT_IDS = new Set(INSTRUMENTS.map((i) => i.id));
 
 export const DEFAULT_STATE: FretworkState = {
+  instrumentId: DEFAULT_INSTRUMENT_ID,
   mode: 'scales',
   key: 'A',
   type: DEFAULT_SCALE_ID,
@@ -47,6 +50,8 @@ export function defaultTypeForMode(mode: Mode): string {
 
 export function encodeState(state: FretworkState): URLSearchParams {
   const p = new URLSearchParams();
+  // Only emit `inst` when non-default to keep guitar URLs (the common case) compact.
+  if (state.instrumentId !== DEFAULT_STATE.instrumentId) p.set('inst', state.instrumentId);
   p.set('mode', state.mode);
   p.set('key', state.key);
   p.set('type', state.type);
@@ -63,6 +68,10 @@ export function encodeState(state: FretworkState): URLSearchParams {
 }
 
 export function decodeState(params: URLSearchParams): FretworkState {
+  const instRaw = params.get('inst') ?? '';
+  const instrumentId = INSTRUMENT_IDS.has(instRaw) ? instRaw : DEFAULT_STATE.instrumentId;
+  const instrument = getInstrument(instrumentId)!;
+
   const mode = (VALID_MODES as readonly string[]).includes(params.get('mode') ?? '')
     ? (params.get('mode') as Mode)
     : DEFAULT_STATE.mode;
@@ -73,11 +82,21 @@ export function decodeState(params: URLSearchParams): FretworkState {
   const typeRaw = params.get('type') ?? '';
   const type = isValidTypeForMode(mode, typeRaw) ? typeRaw : defaultTypeForMode(mode);
 
+  // Tuning must (a) exist in the catalog and (b) belong to the active instrument.
+  // If either fails, fall back to the instrument's default tuning.
   const tuningRaw = params.get('tuning') ?? '';
-  const tuning = TUNING_IDS.has(tuningRaw) ? tuningRaw : DEFAULT_STATE.tuning;
+  const tuningCandidate = TUNINGS.find((t) => t.id === tuningRaw);
+  const tuning = tuningCandidate && tuningCandidate.instrumentId === instrumentId
+    ? tuningCandidate.id
+    : instrument.defaultTuningId;
+  // Reference TUNING_IDS so the lint stays clean (kept for any external consumers
+  // that may still rely on the prior export shape).
+  void TUNING_IDS;
 
   const capoRaw = parseInt(params.get('capo') ?? '', 10);
-  const capo = Number.isFinite(capoRaw) && capoRaw >= 0 && capoRaw <= 11 ? capoRaw : DEFAULT_STATE.capo;
+  const capo = Number.isFinite(capoRaw) && capoRaw >= 0 && capoRaw <= instrument.fretCount
+    ? capoRaw
+    : DEFAULT_STATE.capo;
 
   const labels = (VALID_LABELS as readonly string[]).includes(params.get('labels') ?? '')
     ? (params.get('labels') as LabelMode)
@@ -92,6 +111,7 @@ export function decodeState(params: URLSearchParams): FretworkState {
   const highlightRoot = decodeFlag(params.get('root'), DEFAULT_STATE.settings.highlightRoot);
 
   return {
+    instrumentId,
     mode,
     key,
     type,

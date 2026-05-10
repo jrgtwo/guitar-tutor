@@ -17,6 +17,7 @@ function makeInput(overrides: Partial<ResolveInput> = {}): ResolveInput {
     key: 'A',
     capo: 0,
     mode: 'scales',
+    instrumentId: 'guitar',
     ...overrides,
   };
 }

@@ -16,6 +16,9 @@ export interface ResolveInput {
   readonly key: string;
   readonly capo: number;
   readonly mode: Mode;
+  /** Active instrument id (e.g. 'guitar', 'bass', 'ukulele'). Patterns can use this
+   * via `applicableInstruments` to hide themselves on inappropriate instruments. */
+  readonly instrumentId: string;
   /** Custom-pattern-only: the user-recorded sequence. Other patterns ignore this. */
   readonly customSequence?: readonly PlayableCell[];
 }
@@ -33,6 +36,12 @@ export interface PlaybackPattern {
   readonly name: string;
   /** Optional grouping label for the pattern dropdown ("Walk", "CAGED", "Custom"). */
   readonly group?: string;
+  /**
+   * When set, the pattern is only applicable on these instrument ids. Undefined =
+   * applies to all instruments. CAGED entries set this to `['guitar']`; universal
+   * patterns (ascending pitch, string-by-string, custom) leave it undefined.
+   */
+  readonly applicableInstruments?: readonly string[];
   /** Whether this pattern is applicable in the current state. CAGED returns false in
    * non-scales modes; Custom returns false when no sequence has been recorded yet. */
   isApplicable(input: ResolveInput): boolean;

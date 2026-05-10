@@ -6,6 +6,10 @@ interface Props {
   highlight: Highlight;
   labels: LabelMode;
   settings: FretworkSettings;
+  /** Active instrument's string count — needed for vertical positioning. */
+  stringCount: number;
+  /** Active instrument's fret count — needed for horizontal positioning. */
+  fretCount: number;
   /** When true, render with playhead treatment — bright pulsing ring + scale up. */
   isPlayhead?: boolean;
   /** When set, render the sequence number badge instead of the normal label (for
@@ -37,6 +41,8 @@ export function NoteMarker({
   highlight,
   labels,
   settings,
+  stringCount,
+  fretCount,
   isPlayhead,
   programmingIndex,
   onClick,
@@ -45,8 +51,8 @@ export function NoteMarker({
   const cx =
     fret === 0
       ? NECK_X - 16 // open-string marker sits in the headstock area
-      : NECK_X + fretCenterX(fret, NECK_LENGTH);
-  const cy = stringY(stringIndex);
+      : NECK_X + fretCenterX(fret, NECK_LENGTH, fretCount);
+  const cy = stringY(stringIndex, stringCount);
 
   const fill = resolveColor(highlight, settings);
   const isLight = highlight.category === 'tone' || (!settings.colorByDegree && !(settings.highlightRoot && highlight.category === 'root'));

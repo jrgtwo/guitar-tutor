@@ -58,6 +58,7 @@ export { RadioGroup, RadioGroupItem } from './components/ui/radio-group';
 export { Label } from './components/ui/label';
 
 // Individual control components (for consumers wanting their own control surface)
+export { InstrumentSelect } from './components/controls/InstrumentSelect';
 export { ModeSelect } from './components/controls/ModeSelect';
 export { KeySelect } from './components/controls/KeySelect';
 export { TypeSelect } from './components/controls/TypeSelect';
@@ -104,10 +105,16 @@ export { ARPEGGIOS, getArpeggio, DEFAULT_ARPEGGIO_ID } from './lib/arpeggios';
 export {
   TUNINGS,
   getTuning,
+  getTuningsForInstrument,
   DEFAULT_TUNING_ID,
   CHROMATIC_KEYS,
   CHROMATIC_NOTES,
 } from './lib/tunings';
+export {
+  INSTRUMENTS,
+  getInstrument,
+  DEFAULT_INSTRUMENT_ID,
+} from './lib/instruments';
 
 // Types
 export type {
@@ -124,6 +131,8 @@ export type {
   Highlight,
   FretworkSettings,
   FretworkState,
+  InstrumentDef,
+  InstrumentId,
 } from './types';
 
 // Metronome — class, hook, store, data, types

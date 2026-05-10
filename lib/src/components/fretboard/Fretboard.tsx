@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from 'react';
 import { useFretworkStore } from '../../store/useFretworkStore';
 import { getTuning } from '../../lib/tunings';
+import { getInstrument, DEFAULT_INSTRUMENT_ID } from '../../lib/instruments';
 import { getScale } from '../../lib/scales';
 import { getArpeggio } from '../../lib/arpeggios';
 import {
@@ -20,6 +21,7 @@ import { usePlaybackStore } from '../../playback/usePlaybackStore';
 import { usePlayback } from '../../playback/usePlayback';
 
 export function Fretboard() {
+  const instrumentId = useFretworkStore((s) => s.instrumentId);
   const mode = useFretworkStore((s) => s.mode);
   const key = useFretworkStore((s) => s.key);
   const type = useFretworkStore((s) => s.type);
@@ -27,6 +29,10 @@ export function Fretboard() {
   const capo = useFretworkStore((s) => s.capo);
   const labels = useFretworkStore((s) => s.labels);
   const settings = useFretworkStore((s) => s.settings);
+
+  const instrument = getInstrument(instrumentId) ?? getInstrument(DEFAULT_INSTRUMENT_ID)!;
+  const fretCount = instrument.fretCount;
+  const stringCount = instrument.stringCount;
 
   const { intervals, effectiveKey } = useMemo(() => {
     if (mode === 'scales') {
@@ -41,7 +47,7 @@ export function Fretboard() {
   }, [mode, key, type]);
 
   const tuning = getTuning(tuningId)!;
-  const grid = useMemo(() => buildGrid(tuning, capo), [tuning, capo]);
+  const grid = useMemo(() => buildGrid(tuning, capo, fretCount), [tuning, capo, fretCount]);
   const highlights = useMemo(
     () => computeHighlights(grid, effectiveKey, intervals, capo),
     [grid, effectiveKey, intervals, capo],
@@ -114,9 +120,9 @@ export function Fretboard() {
           rx={3}
         />
 
-        <FretLines />
-        <CapoBar capo={capo} />
-        <Strings />
+        <FretLines fretCount={fretCount} stringCount={stringCount} />
+        <CapoBar capo={capo} fretCount={fretCount} />
+        <Strings stringCount={stringCount} instrumentId={instrumentId} />
         <Headstock openStrings={openStrings} />
 
         {highlights.map((h) => {
@@ -141,6 +147,8 @@ export function Fretboard() {
               highlight={h}
               labels={labels}
               settings={settings}
+              stringCount={stringCount}
+              fretCount={fretCount}
               isPlayhead={isPlayhead}
               programmingIndex={isProgramming ? programmingIndex : undefined}
               onClick={isProgramming ? () => onCellClick({ stringIndex: h.stringIndex, fret: h.fret }) : undefined}

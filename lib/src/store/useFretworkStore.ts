@@ -12,8 +12,11 @@ import {
   readStateFromLocation,
   writeStateToLocation,
 } from '../lib/url-state';
+import { getInstrument, DEFAULT_INSTRUMENT_ID } from '../lib/instruments';
+import { getTuning } from '../lib/tunings';
 
 interface FretworkActions {
+  setInstrumentId: (id: string) => void;
   setMode: (mode: Mode) => void;
   setKey: (key: string) => void;
   setType: (type: string) => void;
@@ -42,6 +45,24 @@ export const useFretworkStore = create<Store>((set, get) => {
   return {
     ...initial,
 
+    setInstrumentId: (id) => {
+      const instrument = getInstrument(id);
+      if (!instrument) return;
+      const currentTuning = getTuning(get().tuning);
+      // If the current tuning belongs to a different instrument, reset to the
+      // new instrument's default tuning. Otherwise keep the user's choice.
+      const nextTuning =
+        currentTuning?.instrumentId === id ? currentTuning.id : instrument.defaultTuningId;
+      const currentCapo = get().capo;
+      const nextCapo = Math.max(0, Math.min(instrument.fretCount, currentCapo));
+      set({
+        instrumentId: id,
+        tuning: nextTuning,
+        capo: nextCapo,
+      });
+      persist();
+    },
+
     setMode: (mode) => {
       const currentType = get().type;
       // Switching modes usually invalidates the type; reset to a sensible default.
@@ -58,11 +79,17 @@ export const useFretworkStore = create<Store>((set, get) => {
       persist();
     },
     setTuning: (tuning) => {
+      // Defensive: only accept tunings that match the active instrument.
+      const t = getTuning(tuning);
+      const currentInstrument = get().instrumentId;
+      if (t && t.instrumentId !== currentInstrument) return;
       set({ tuning });
       persist();
     },
     setCapo: (capo) => {
-      set({ capo });
+      const instrument = getInstrument(get().instrumentId);
+      const max = instrument?.fretCount ?? 22;
+      set({ capo: Math.max(0, Math.min(max, capo)) });
       persist();
     },
     setLabels: (labels) => {
@@ -94,3 +121,6 @@ function isValidTypeFor(mode: Mode, type: string): boolean {
   if (mode === 'notes') return NOTE_NAMES.has(type);
   return false;
 }
+
+// Reference DEFAULT_INSTRUMENT_ID so it's not orphaned on imports
+void DEFAULT_INSTRUMENT_ID;

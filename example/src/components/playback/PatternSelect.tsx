@@ -13,6 +13,7 @@ import {
   SelectValue,
   buildGrid,
   computeHighlights,
+  getInstrument,
   getScale,
   getArpeggio,
   getTuning,
@@ -28,6 +29,7 @@ export function PatternSelect() {
   const m = usePlayback();
 
   // Compute the current ResolveInput so we can call isApplicable() on each pattern.
+  const fretInstrumentId = useFretworkStore((s) => s.instrumentId);
   const fretMode = useFretworkStore((s) => s.mode);
   const fretKey = useFretworkStore((s) => s.key);
   const fretType = useFretworkStore((s) => s.type);
@@ -37,12 +39,14 @@ export function PatternSelect() {
   const resolveInput: ResolveInput | null = useMemo(() => {
     const tuning = getTuning(fretTuning);
     if (!tuning) return null;
+    const instrument = getInstrument(fretInstrumentId);
+    const fretCount = instrument?.fretCount ?? 22;
     let intervals: IntervalSet;
     let effectiveKey = fretKey;
     if (fretMode === 'scales') intervals = (getScale(fretType)?.intervals ?? [0]) as IntervalSet;
     else if (fretMode === 'arpeggios') intervals = (getArpeggio(fretType)?.intervals ?? [0]) as IntervalSet;
     else { intervals = [0] as IntervalSet; effectiveKey = fretType; }
-    const grid = buildGrid(tuning, fretCapo);
+    const grid = buildGrid(tuning, fretCapo, fretCount);
     const highlights = computeHighlights(grid, effectiveKey, intervals, fretCapo);
     return {
       highlights,
@@ -50,9 +54,10 @@ export function PatternSelect() {
       key: effectiveKey,
       capo: fretCapo,
       mode: fretMode,
+      instrumentId: fretInstrumentId,
       customSequence: m.customSequence,
     };
-  }, [fretMode, fretKey, fretType, fretTuning, fretCapo, m.customSequence]);
+  }, [fretInstrumentId, fretMode, fretKey, fretType, fretTuning, fretCapo, m.customSequence]);
 
   // Group patterns by their `group` field for the grouped Select.
   const grouped = useMemo(() => {

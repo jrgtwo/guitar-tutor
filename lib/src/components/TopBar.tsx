@@ -1,4 +1,5 @@
 import { Button } from '../components/ui/button';
+import { InstrumentSelect } from '../components/controls/InstrumentSelect';
 import { ModeSelect } from '../components/controls/ModeSelect';
 import { KeySelect } from '../components/controls/KeySelect';
 import { TypeSelect } from '../components/controls/TypeSelect';
@@ -15,6 +16,7 @@ export function TopBar() {
       </div>
 
       <div className="flex flex-wrap items-end gap-3 flex-1 min-w-0">
+        <InstrumentSelect />
         <ModeSelect />
         <KeySelect />
         <TypeSelect />

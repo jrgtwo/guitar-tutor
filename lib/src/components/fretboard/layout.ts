@@ -1,8 +1,10 @@
 /**
  * Shared layout constants for the fretboard SVG. All units are viewBox units
  * (unitless), interpreted as pixels at 1:1 zoom but scaled responsively in CSS.
+ *
+ * String count is NOT hardcoded — `getStringSpacing()` and `stringY()` accept a count
+ * parameter so the same layout works for guitar (6), bass (4), and ukulele (4).
  */
-import { STRING_COUNT } from '../../lib/fretboard';
 
 export const HEADSTOCK_WIDTH = 78;
 export const NECK_LENGTH = 1100;
@@ -13,11 +15,19 @@ export const STRING_AREA = 220;
 export const BOTTOM_PAD = 22;
 export const VIEWBOX_H = TOP_PAD + STRING_AREA + BOTTOM_PAD;
 
-export const STRING_SPACING = STRING_AREA / (STRING_COUNT - 1);
+/** Vertical distance between adjacent strings, given the active string count. */
+export function getStringSpacing(stringCount: number): number {
+  return STRING_AREA / Math.max(1, stringCount - 1);
+}
 
-/** Convert a string index (0=low E) into its y coordinate (high E at top). */
-export function stringY(stringIndex: number): number {
-  return TOP_PAD + (STRING_COUNT - 1 - stringIndex) * STRING_SPACING;
+/**
+ * Y coordinate of a given string index. Index 0 is the BOTTOM (matching tab convention
+ * where the highest-pitch string for guitar sits at the top of the diagram). For
+ * reentrant tunings (e.g. ukulele G-C-E-A), index 0 is still the visual bottom even
+ * though it isn't the lowest pitch.
+ */
+export function stringY(stringIndex: number, stringCount: number): number {
+  return TOP_PAD + (stringCount - 1 - stringIndex) * getStringSpacing(stringCount);
 }
 
 /** Where the playable neck starts horizontally (right edge of headstock). */

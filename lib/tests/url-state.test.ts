@@ -11,6 +11,7 @@ describe('url-state', () => {
 
   it('roundtrips a non-default config (Drop D, capo 5, F# blues, labels=notes, left-handed)', () => {
     const state: FretworkState = {
+      instrumentId: 'guitar',
       mode: 'scales',
       key: 'F#',
       type: 'blues',
@@ -21,6 +22,56 @@ describe('url-state', () => {
     };
     const dec = decodeState(encodeState(state));
     expect(dec).toEqual(state);
+  });
+
+  it('roundtrips a bass config (instrumentId="bass", bass-standard tuning)', () => {
+    const state: FretworkState = {
+      instrumentId: 'bass',
+      mode: 'scales',
+      key: 'A',
+      type: 'major',
+      tuning: 'bass-standard',
+      capo: 0,
+      labels: 'intervals',
+      settings: { handedness: 'right', colorByDegree: true, highlightRoot: true },
+    };
+    expect(decodeState(encodeState(state))).toEqual(state);
+  });
+
+  it('roundtrips a ukulele reentrant config', () => {
+    const state: FretworkState = {
+      instrumentId: 'ukulele',
+      mode: 'scales',
+      key: 'C',
+      type: 'major',
+      tuning: 'ukulele-standard',
+      capo: 0,
+      labels: 'intervals',
+      settings: { handedness: 'right', colorByDegree: true, highlightRoot: true },
+    };
+    expect(decodeState(encodeState(state))).toEqual(state);
+  });
+
+  it('omits the inst param for default-instrument (guitar) URLs', () => {
+    expect(encodeState(DEFAULT_STATE).has('inst')).toBe(false);
+  });
+
+  it('falls back to guitar (default instrument) when inst param is missing — backwards compat', () => {
+    const params = new URLSearchParams({
+      mode: 'scales', key: 'A', type: 'major', tuning: 'standard', capo: '0', labels: 'intervals',
+    });
+    expect(decodeState(params).instrumentId).toBe('guitar');
+  });
+
+  it('falls back to instrument default tuning when URL tuning belongs to a different instrument', () => {
+    const params = new URLSearchParams({
+      inst: 'bass',
+      mode: 'scales', key: 'A', type: 'major', tuning: 'standard', // guitar tuning, mismatched
+      capo: '0', labels: 'intervals',
+    });
+    const dec = decodeState(params);
+    expect(dec.instrumentId).toBe('bass');
+    expect(dec.tuning).toBe('bass-standard');
   });
 
   it('roundtrips Notes mode with chromatic note as type', () => {

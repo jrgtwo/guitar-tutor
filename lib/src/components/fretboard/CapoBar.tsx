@@ -1,19 +1,20 @@
-import { fretX, FRET_COUNT } from '../../lib/fretboard';
+import { fretX } from '../../lib/fretboard';
 import { NECK_LENGTH, NECK_X, STRING_AREA, TOP_PAD } from './layout';
 
 interface Props {
   capo: number;
+  fretCount: number;
 }
 
 /**
  * Visual capo: a bar drawn at the capo's fret position, plus a translucent overlay
  * that dims the area to the LEFT of the capo (those positions are not playable).
  */
-export function CapoBar({ capo }: Props) {
-  if (capo <= 0 || capo > FRET_COUNT) return null;
+export function CapoBar({ capo, fretCount }: Props) {
+  if (capo <= 0 || capo > fretCount) return null;
 
-  const x = NECK_X + fretX(capo, NECK_LENGTH);
-  const xPrev = NECK_X + fretX(capo - 1, NECK_LENGTH);
+  const x = NECK_X + fretX(capo, NECK_LENGTH, fretCount);
+  const xPrev = NECK_X + fretX(capo - 1, NECK_LENGTH, fretCount);
   const capoX = (x + xPrev) / 2;
 
   return (

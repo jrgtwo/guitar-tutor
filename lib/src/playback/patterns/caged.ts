@@ -61,7 +61,11 @@ function buildCagedPattern(shape: CagedShapeDef): PlaybackPattern {
     id: shape.id,
     name: shape.name,
     group: 'CAGED',
+    applicableInstruments: ['guitar'],
     isApplicable: (input) => {
+      // CAGED is a guitar-only concept (the C, A, G, E, D shapes are based on the open
+      // guitar chord forms). Hide on bass / ukulele / future instruments.
+      if (input.instrumentId !== 'guitar') return false;
       // CAGED is a scales-mode concept. Don't offer it for arpeggios or single notes.
       if (input.mode !== 'scales') return false;
       // It's also only applicable if we can actually resolve a non-empty sequence —

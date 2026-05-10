@@ -1,19 +1,43 @@
-import { STRING_COUNT } from '../../lib/fretboard';
 import { NECK_LENGTH, NECK_X, stringY } from './layout';
 
+interface Props {
+  stringCount: number;
+  /** Active instrument id — drives the per-instrument string thickness profile. */
+  instrumentId?: string;
+}
+
 /**
- * 6 strings, drawn as horizontal lines spanning the neck.
- * Lower (thicker, wound) strings get more stroke width and a slightly cooler color.
+ * String thickness profiles per instrument. Bass strings are noticeably thicker than
+ * guitar's; ukulele strings (typically nylon) are thin and roughly uniform.
  */
-export function Strings() {
+function getThicknessProfile(instrumentId: string): { lowest: number; highest: number; woundCount: number } {
+  switch (instrumentId) {
+    case 'bass':
+      return { lowest: 4.6, highest: 2.6, woundCount: 4 }; // thicker, all wound
+    case 'ukulele':
+      return { lowest: 1.6, highest: 1.4, woundCount: 0 }; // thin, all plain (nylon)
+    case 'guitar':
+    default:
+      return { lowest: 3.4, highest: 1.4, woundCount: 3 }; // existing guitar profile
+  }
+}
+
+/**
+ * Renders N strings as horizontal lines spanning the neck. Index 0 is the bottom-most
+ * (physical) string — low E for guitar/bass, high G for reentrant ukulele.
+ *
+ * Thicker strings (bass/wound guitar) get more stroke width and a slightly cooler
+ * color. Higher-pitched strings get a brighter steel/nickel color.
+ */
+export function Strings({ stringCount, instrumentId = 'guitar' }: Props) {
+  const profile = getThicknessProfile(instrumentId);
   const lines: React.ReactElement[] = [];
-  for (let i = 0; i < STRING_COUNT; i++) {
-    // Index 0 = low E (thickest). Width tapers down to high E.
-    const t = i / (STRING_COUNT - 1); // 0 at low E, 1 at high E
-    const width = 3.4 - t * 2.0; // ~3.4 → 1.4
-    const isWound = i <= 2;
+  for (let i = 0; i < stringCount; i++) {
+    const t = stringCount > 1 ? i / (stringCount - 1) : 0; // 0 at bottom-most, 1 at top-most
+    const width = profile.lowest + t * (profile.highest - profile.lowest);
+    const isWound = i < profile.woundCount;
     const stroke = isWound ? 'hsl(34 12% 70%)' : 'hsl(40 18% 86%)';
-    const y = stringY(i);
+    const y = stringY(i, stringCount);
     lines.push(
       <line
         key={`str-${i}`}
