@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* @fretwork/lib design tokens + utilities are imported from main.tsx as a separate
+ * stylesheet, which sidesteps PostCSS @import ordering rules and keeps Vite happy. */
+
+@layer base {
+  html, body, #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+    font-feature-settings: 'cv11', 'ss01';
+    /* Subtle ambient warmth: a soft radial glow behind the fretboard. */
+    background-image:
+      radial-gradient(ellipse 60% 40% at 50% 35%, hsl(36 40% 18% / 0.35), transparent 70%),
+      radial-gradient(circle at 50% 50%, hsl(var(--charcoal)), hsl(var(--charcoal-deep)) 80%);
+    background-attachment: fixed;
+  }
+
+  .font-mono {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+  }
+}
