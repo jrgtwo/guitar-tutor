@@ -66,6 +66,32 @@ export function SoundLab() {
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState('');
   const [importError, setImportError] = useState<string | null>(null);
+  /** UI flag for the save-status pill: 'idle' (last save synced) | 'pending'
+   *  (a debounce timer is still counting down) | 'saved' (just flushed). */
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'pending' | 'saved'>('idle');
+
+  /** Build the override blob from the current preset/reverb state and write it
+   *  to localStorage. Runs both for auto-save (debounced) and the explicit
+   *  Save button (immediate). */
+  const flushSave = (next: { presets: VoicePreset[]; reverb: ReverbSettings }) => {
+    const presetMap: Record<string, VoicePreset> = {};
+    // Only store presets that differ from shipped defaults — reduces storage bloat
+    // and lets users selectively reset.
+    for (const preset of next.presets) {
+      const shipped = VOICE_PRESETS.find((p) => p.id === preset.id);
+      if (!shipped || JSON.stringify(preset) !== JSON.stringify(shipped)) {
+        presetMap[preset.id] = preset;
+      }
+    }
+    saveOverrides({
+      schemaVersion: 1,
+      presets: presetMap,
+      reverb:
+        JSON.stringify(next.reverb) === JSON.stringify(DEFAULT_REVERB_SETTINGS)
+          ? undefined
+          : next.reverb,
+    });
+  };
 
   // Debounced auto-save: every change schedules a write 200ms in the future,
   // resetting the timer if more changes come in. Avoids hammering localStorage on
@@ -73,26 +99,28 @@ export function SoundLab() {
   const saveTimerRef = useRef<number | null>(null);
   useEffect(() => {
     if (saveTimerRef.current != null) window.clearTimeout(saveTimerRef.current);
+    setSaveStatus('pending');
     saveTimerRef.current = window.setTimeout(() => {
-      const presetMap: Record<string, VoicePreset> = {};
-      // Only store presets that differ from shipped defaults — reduces storage bloat
-      // and lets users selectively reset.
-      for (const preset of presets) {
-        const shipped = VOICE_PRESETS.find((p) => p.id === preset.id);
-        if (!shipped || JSON.stringify(preset) !== JSON.stringify(shipped)) {
-          presetMap[preset.id] = preset;
-        }
-      }
-      saveOverrides({
-        schemaVersion: 1,
-        presets: presetMap,
-        reverb: JSON.stringify(reverb) === JSON.stringify(DEFAULT_REVERB_SETTINGS) ? undefined : reverb,
-      });
+      flushSave({ presets, reverb });
+      setSaveStatus('saved');
+      window.setTimeout(() => setSaveStatus('idle'), 1200);
     }, 200);
     return () => {
       if (saveTimerRef.current != null) window.clearTimeout(saveTimerRef.current);
     };
   }, [presets, reverb]);
+
+  /** Explicit Save — flushes the debounce immediately. Useful when the user
+   *  wants the certainty of having pressed a button before navigating away. */
+  const saveNow = () => {
+    if (saveTimerRef.current != null) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    flushSave({ presets, reverb });
+    setSaveStatus('saved');
+    window.setTimeout(() => setSaveStatus('idle'), 1500);
+  };
 
   const activePreset = presets.find((p) => p.id === activeId) ?? presets[0];
 
@@ -278,6 +306,10 @@ export function SoundLab() {
               </span>
             </div>
             <div className="flex items-center gap-1 flex-wrap">
+              <SaveStatusPill status={saveStatus} />
+              <Button size="sm" variant="default" onClick={saveNow}>
+                Save
+              </Button>
               <Button size="sm" variant="ghost" onClick={resetActiveToDefault}>
                 Reset preset
               </Button>
@@ -294,9 +326,10 @@ export function SoundLab() {
           </div>
 
           <p className="text-[10px] font-mono text-muted-foreground/70">
-            Tweaks save automatically to <code className="text-foreground/80">localStorage</code> and
-            take effect in the main app on its next render. Use Export / Import to back up
-            or share between browsers.
+            Tweaks save automatically to <code className="text-foreground/80">localStorage</code>{' '}
+            after a short debounce and take effect in the main app on its next render. Click{' '}
+            <span className="text-foreground/80">Save</span> to flush immediately, or use Export /
+            Import to back up or share between browsers.
           </p>
 
           {importOpen && (
@@ -495,6 +528,25 @@ export function SoundLab() {
 }
 
 // ─── Section + helpers ────────────────────────────────────────────────────────
+
+function SaveStatusPill({ status }: { status: 'idle' | 'pending' | 'saved' }) {
+  const text =
+    status === 'pending' ? 'Saving…' : status === 'saved' ? 'Saved ✓' : 'Saved';
+  const tone =
+    status === 'pending'
+      ? 'text-muted-foreground/70'
+      : status === 'saved'
+        ? 'text-degree-fifth'
+        : 'text-muted-foreground/50';
+  return (
+    <span
+      aria-live="polite"
+      className={`text-[10px] font-mono uppercase tracking-wider px-2 ${tone}`}
+    >
+      {text}
+    </span>
+  );
+}
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
