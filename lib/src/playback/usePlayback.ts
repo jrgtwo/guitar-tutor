@@ -9,7 +9,7 @@
  * mode) into the Playback instance on every render so it always has the latest
  * snapshot when a tick fires. This keeps Playback decoupled from any specific store.
  */
-import { useEffect, useMemo, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { Playback } from './Playback';
 import type {
   GuitarInstrument,
@@ -27,6 +27,11 @@ import { getScale } from '../lib/scales';
 import { getArpeggio } from '../lib/arpeggios';
 import { buildGrid, computeHighlights } from '../lib/fretboard';
 import type { IntervalSet } from '../types';
+import { Voice } from './voices/Voice';
+import { ACOUSTIC_GUITAR_PRESET } from './voices/presets';
+import { findEffectivePreset, getEffectiveReverb, subscribeToOverrides } from './voices/preset-overrides';
+import { MasterBus } from './voices/MasterBus';
+import type { FretInstrumentId, VoiceFamily } from './voices/types';
 
 export interface UsePlaybackReturn {
   // State (from store)
@@ -36,6 +41,9 @@ export interface UsePlaybackReturn {
   isProgramming: boolean;
   customSequence: readonly PlayableCell[];
   currentPlayheadCell: PlayableCell | null;
+  /** Per-instrument voice-family selection (acoustic vs electric). Ukulele always
+   *  acoustic; only `guitar` and `bass` are user-configurable. */
+  voiceFamily: { guitar: VoiceFamily; bass: VoiceFamily };
 
   // Controls
   setEnabled: (enabled: boolean) => void;
@@ -44,6 +52,7 @@ export interface UsePlaybackReturn {
   startProgramming: () => void;
   finishProgramming: () => void;
   clearCustom: () => void;
+  setVoiceFamily: (instrument: 'guitar' | 'bass', family: VoiceFamily) => void;
 
   // Helpers for click-to-program UX
   customSequenceIndexOf: (cell: PlayableCell) => number;
@@ -120,12 +129,14 @@ export function usePlayback(): UsePlaybackReturn {
   const customSequence = usePlaybackStore((s) => s.customSequence);
   const isProgramming = usePlaybackStore((s) => s.isProgramming);
   const currentPlayheadCell = usePlaybackStore((s) => s.currentPlayheadCell);
+  const voiceFamily = usePlaybackStore((s) => s.voiceFamily);
 
   const setStoreEnabled = usePlaybackStore((s) => s.setEnabled);
   const toggleStoreEnabled = usePlaybackStore((s) => s.toggleEnabled);
   const setStorePatternId = usePlaybackStore((s) => s.setPatternId);
   const setStoreIsProgramming = usePlaybackStore((s) => s.setIsProgramming);
   const clearStoreCustom = usePlaybackStore((s) => s.clearCustomSequence);
+  const setStoreVoiceFamily = usePlaybackStore((s) => s.setVoiceFamily);
 
   // Resolve the pattern object from the id. Falls back to default if id is unknown
   // (which shouldn't happen, but keeps TS happy).
@@ -181,6 +192,39 @@ export function usePlayback(): UsePlaybackReturn {
     playback.setResolveInput(resolveInput);
   }, [playback, resolveInput]);
 
+  // ─── React to lab-driven preset overrides ────────────────────────────────────
+  // The Sound Lab writes per-preset overrides to localStorage. Bumping a counter
+  // when those change forces the voice-swap effect below to re-resolve.
+  const [overridesVersion, setOverridesVersion] = useState(0);
+  useEffect(() => {
+    return subscribeToOverrides(() => setOverridesVersion((v) => v + 1));
+  }, []);
+
+  // ─── Swap the playback voice when fretboard instrument, family, or overrides change ─
+  // Looks up the effective preset (override > shipped default), builds a fresh
+  // `Voice`, and pushes it into the Playback singleton. Falls back to acoustic
+  // guitar if the lookup fails (shouldn't happen with the shipped preset set).
+  useEffect(() => {
+    if (!playback) return;
+    const fretInst = (['guitar', 'bass', 'ukulele'] as FretInstrumentId[]).includes(
+      fretInstrumentId as FretInstrumentId,
+    )
+      ? (fretInstrumentId as FretInstrumentId)
+      : 'guitar';
+    const family: VoiceFamily =
+      fretInst === 'ukulele'
+        ? 'acoustic'
+        : voiceFamily[fretInst];
+    const preset = findEffectivePreset(fretInst, family) ?? ACOUSTIC_GUITAR_PRESET;
+    const next = new Voice(preset);
+    playback.setInstrument(next);
+    // Apply any reverb override at the same time so reverb tweaks in the lab
+    // propagate without requiring a separate effect.
+    MasterBus.setReverbSettings(getEffectiveReverb());
+    // The Playback class disposes the previously-set instrument when a new one is
+    // installed, so we don't need to track or dispose `next` ourselves on cleanup.
+  }, [playback, fretInstrumentId, voiceFamily, overridesVersion]);
+
   // Custom-sequence membership lookup, useful for the programming UI.
   const customSequenceIndexOf = useCallback(
     (cell: PlayableCell) => {
@@ -200,12 +244,14 @@ export function usePlayback(): UsePlaybackReturn {
     isProgramming,
     customSequence,
     currentPlayheadCell,
+    voiceFamily,
     setEnabled: setStoreEnabled,
     toggleEnabled: toggleStoreEnabled,
     setPatternId: setStorePatternId,
     startProgramming: () => setStoreIsProgramming(true),
     finishProgramming: () => setStoreIsProgramming(false),
     clearCustom: clearStoreCustom,
+    setVoiceFamily: setStoreVoiceFamily,
     customSequenceIndexOf,
     playback,
   };

@@ -23,6 +23,7 @@ import { ExpandedDragHandle } from './ExpandedDragHandle';
 import { useDraggable } from './useDraggable';
 import { useBeatFlash } from './useBeatFlash';
 import { PlaybackControls } from '../playback/PlaybackControls';
+import { SoundControls } from '../playback/SoundControls';
 
 const PANEL_WIDTH = 320;
 
@@ -172,6 +173,10 @@ export function MetronomeExpanded() {
 
         {/* Playback controls (notes-on-beat) live below the accent toggle. */}
         <PlaybackControls />
+
+        {/* Acoustic / Electric switch for the active fretboard instrument. Hidden
+         *  when ukulele is selected (acoustic-only in v1). */}
+        <SoundControls />
       </div>
     </div>
   );

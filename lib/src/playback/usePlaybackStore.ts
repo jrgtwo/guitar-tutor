@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { PlayableCell } from './types';
+import type { VoiceFamily } from './voices/types';
 import { DEFAULT_PATTERN_ID } from './patterns';
 
 /**
@@ -12,6 +13,10 @@ export interface PlaybackStoreState {
   enabled: boolean;
   patternId: string;
   customSequence: readonly PlayableCell[];
+
+  /** Per-instrument voice family selection. Drives which preset the playback
+   *  voice uses for guitar and bass. Ukulele is acoustic-only — no entry. */
+  voiceFamily: { guitar: VoiceFamily; bass: VoiceFamily };
 
   // Programming mode (for custom pattern)
   isProgramming: boolean;
@@ -29,12 +34,14 @@ export interface PlaybackStoreState {
   clearCustomSequence: () => void;
   setIsProgramming: (programming: boolean) => void;
   setCurrentPlayheadCell: (cell: PlayableCell | null) => void;
+  setVoiceFamily: (instrument: 'guitar' | 'bass', family: VoiceFamily) => void;
 }
 
 export const DEFAULT_PLAYBACK_STATE = {
   enabled: false,
   patternId: DEFAULT_PATTERN_ID,
   customSequence: [] as readonly PlayableCell[],
+  voiceFamily: { guitar: 'acoustic' as VoiceFamily, bass: 'electric' as VoiceFamily },
   isProgramming: false,
   currentPlayheadCell: null as PlayableCell | null,
 };
@@ -55,4 +62,6 @@ export const usePlaybackStore = create<PlaybackStoreState>((set) => ({
   clearCustomSequence: () => set({ customSequence: [] }),
   setIsProgramming: (isProgramming) => set({ isProgramming }),
   setCurrentPlayheadCell: (currentPlayheadCell) => set({ currentPlayheadCell }),
+  setVoiceFamily: (instrument, family) =>
+    set((s) => ({ voiceFamily: { ...s.voiceFamily, [instrument]: family } })),
 }));

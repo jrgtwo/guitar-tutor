@@ -1,0 +1,269 @@
+/**
+ * Voice / preset types — public surface for the playback synthesis layer.
+ *
+ * A `VoicePreset` describes how to build a `Voice` from a Tone.js synth source plus
+ * an optional effects chain. The `Voice` class consumes a preset and provides a
+ * `GuitarInstrument` implementation, so anything in the playback module that talks
+ * to `GuitarInstrument` (i.e. `Playback`, `usePlayback`, every pattern resolver)
+ * works unchanged.
+ *
+ * Today's voice sources: `pluck-synth` (Karplus-Strong) and `fm-synth` (FM
+ * synthesis, useful for upright-bass-like body). The `sampler` variant is reserved
+ * for a future implementation that loads recorded WAV/MP3 samples; it's part of the
+ * union now so consumers can author preset data shaped for that future without
+ * waiting for the implementation.
+ */
+
+export type FretInstrumentId = 'guitar' | 'bass' | 'ukulele';
+export type VoiceFamily = 'acoustic' | 'electric';
+
+export interface PluckSynthParams {
+  /** 0..1. Initial impulse amplitude. Lower = softer, less click. */
+  readonly attackNoise: number;
+  /** Hertz. Lowpass on the feedback delay; lower = darker/warmer tone. */
+  readonly dampening: number;
+  /** 0..1. Body resonance / how long the string rings out before fading. */
+  readonly resonance: number;
+  /** Seconds. Tail length after the synth's attack. */
+  readonly release: number;
+}
+
+export type OscillatorType = 'sine' | 'square' | 'sawtooth' | 'triangle';
+
+export interface ADSREnvelope {
+  /** Seconds. */
+  readonly attack: number;
+  readonly decay: number;
+  /** 0..1. */
+  readonly sustain: number;
+  /** Seconds. */
+  readonly release: number;
+}
+
+export interface FMSynthParams {
+  /** Carrier:modulator frequency ratio. */
+  readonly harmonicity: number;
+  /** Depth of the modulator's effect on the carrier. */
+  readonly modulationIndex: number;
+  /** Cents. Pitch fine-tune applied to both carrier and modulator. */
+  readonly detune: number;
+  /** Carrier oscillator waveform. */
+  readonly carrierWaveform: OscillatorType;
+  /** Modulator oscillator waveform. */
+  readonly modulatorWaveform: OscillatorType;
+  /** Amplitude envelope (when the note's volume reaches/fades). */
+  readonly envelope: ADSREnvelope;
+  /** Modulation envelope (when the FM brightness reaches/fades, separate from volume). */
+  readonly modulationEnvelope: ADSREnvelope;
+}
+
+/**
+ * Discriminated union of supported synth sources. New kinds can be added without
+ * breaking existing consumers — the `Voice` class switches on `kind` to build the
+ * appropriate Tone.js graph.
+ */
+export type VoiceSource =
+  | { readonly kind: 'pluck-synth'; readonly params: PluckSynthParams }
+  | { readonly kind: 'fm-synth'; readonly params: FMSynthParams }
+  /** Reserved for the future SamplerInstrument. The `samples` map is `note → URL`
+   *  (e.g. `{ A2: '/sounds/guitar/A2.wav', E3: '...' }`). Not implemented in v1. */
+  | { readonly kind: 'sampler'; readonly samples: Readonly<Record<string, string>>; readonly release?: number };
+
+// ─── Tone-shaping (always available, not just electric) ──────────────────────
+
+/** Per-voice gain + stereo placement. Always present in the chain. */
+export interface VoiceLevel {
+  /** Decibels. -24..+12 is a sensible range. 0 = unity. */
+  readonly volumeDb: number;
+  /** -1..+1. -1 = full left, 0 = centre, +1 = full right. */
+  readonly pan: number;
+}
+
+/** Optional ADSR envelope driving the body filter's cutoff per note. When set,
+ *  each `play()` triggers an attack/release on the envelope. The envelope sweeps
+ *  the cutoff from `baseFrequency` upward by `octaves` over the attack phase,
+ *  then settles at `baseFrequency * 2^(sustain * octaves)`. */
+export interface BodyFilterEnvelope {
+  /** Seconds. */
+  readonly attack: number;
+  readonly decay: number;
+  /** 0..1. Sustain level applied to the octave sweep. */
+  readonly sustain: number;
+  /** Seconds. */
+  readonly release: number;
+  /** Hz. The lower end of the cutoff sweep. */
+  readonly baseFrequency: number;
+  /** How many octaves above `baseFrequency` the envelope can reach at peak. */
+  readonly octaves: number;
+}
+
+/** Optional post-synth lowpass filter. Useful for "body" character beyond what
+ *  PluckSynth's `dampening` provides. */
+export interface BodyFilterParams {
+  /** Cutoff frequency in Hertz. Used as the static value when `envelope` is
+   *  absent; ignored when an envelope is driving the cutoff. */
+  readonly cutoff: number;
+  /** Resonance peak at the cutoff (0.1..18). 0.7 ≈ no peak; higher = pronounced
+   *  resonance (use sparingly). */
+  readonly q: number;
+  /** Optional ADSR envelope on the cutoff, triggered per note. */
+  readonly envelope?: BodyFilterEnvelope;
+}
+
+/** Optional pre-effects compressor. Useful for evening out attack transients
+ *  and adding warmth. */
+export interface CompressorParams {
+  /** dB. Level above which compression starts. */
+  readonly threshold: number;
+  /** Compression ratio (1 = none, 4 = moderate, 20 = limiter). */
+  readonly ratio: number;
+  /** Seconds. How fast the compressor reacts. */
+  readonly attack: number;
+  /** Seconds. How fast the compressor releases. */
+  readonly release: number;
+  /** dB. Soft-knee width. */
+  readonly knee: number;
+}
+
+// ─── Effects ─────────────────────────────────────────────────────────────────
+
+export type DistortionOversample = 'none' | '2x' | '4x';
+
+export interface DistortionParams {
+  /** 0..1. Drive amount. Higher = more clipping. */
+  readonly drive: number;
+  /** 0..1. Effect mix. 0 = bypassed. */
+  readonly wet: number;
+  /** Anti-aliasing oversample mode. '4x' is cleanest, '2x' is a balance, 'none'
+   *  is cheapest (and audibly cruder). */
+  readonly oversample: DistortionOversample;
+}
+
+export type ChorusType = 'sine' | 'square' | 'sawtooth' | 'triangle';
+
+export interface ChorusParams {
+  /** Hz. LFO rate of the chorus modulation. */
+  readonly frequency: number;
+  /** 0..1. Modulation depth. */
+  readonly depth: number;
+  /** 0..1. Effect mix. */
+  readonly wet: number;
+  /** LFO waveform. */
+  readonly type: ChorusType;
+  /** 0..1. How much delayed signal feeds back into the chorus line. */
+  readonly feedback: number;
+  /** Seconds. Base delay time the LFO modulates around. */
+  readonly delayTime: number;
+  /** Degrees. Stereo spread of the two delay lines (0..180). */
+  readonly spread: number;
+}
+
+export interface DelayParams {
+  /** Seconds. Delay time. */
+  readonly delayTime: number;
+  /** 0..1. Feedback amount (how much echo bleeds back into the line). */
+  readonly feedback: number;
+  /** 0..1. Effect mix. */
+  readonly wet: number;
+}
+
+export interface EQParams {
+  /** dB. Low-shelf gain. Negative = cut, positive = boost. Range typically -12..+12. */
+  readonly low: number;
+  /** dB. Mid peak/cut gain. */
+  readonly mid: number;
+  /** dB. High-shelf gain. */
+  readonly high: number;
+  /** Hz. Crossover frequency between low and mid bands. */
+  readonly lowFrequency: number;
+  /** Hz. Crossover frequency between mid and high bands. */
+  readonly highFrequency: number;
+}
+
+/** Envelope-follower-driven wah (Tone.AutoWah). The filter cutoff tracks the
+ *  amplitude of the incoming signal — louder notes open the filter more, like a
+ *  classic "envelope wah" pedal. Different from the body-filter envelope, which
+ *  is triggered per note. */
+export interface AutoWahParams {
+  /** Hz. Lowest cutoff (when input is silent). */
+  readonly baseFrequency: number;
+  /** How many octaves above `baseFrequency` the cutoff can sweep. */
+  readonly octaves: number;
+  /** dB. How sensitive the envelope follower is to input amplitude. Lower values
+   *  mean the filter opens at quieter notes. */
+  readonly sensitivity: number;
+  /** 0.1..18. Filter resonance peak at the cutoff. */
+  readonly q: number;
+  /** dB. Gain applied to the wet signal. */
+  readonly gain: number;
+  /** 0..1. Effect mix. */
+  readonly wet: number;
+}
+
+export interface EffectsConfig {
+  readonly distortion?: DistortionParams;
+  readonly chorus?: ChorusParams;
+  readonly delay?: DelayParams;
+  readonly eq?: EQParams;
+  readonly autoWah?: AutoWahParams;
+}
+
+// ─── Voice layer (sub-body / harmonic stacking) ──────────────────────────────
+
+/** Optional second synth mixed underneath the primary. Triggered alongside the
+ *  primary on every note. Useful for adding sub-octave body (sine layer one
+ *  octave down), shimmer (FM layer one octave up), or articulation (plucked
+ *  pluck layered on a soft FM body). */
+export interface VoiceLayer {
+  /** What synth the layer is built from. Same union as the primary source. */
+  readonly source: VoiceSource;
+  /** dB. Mix level of the layer relative to the primary. -infinity..+6 typical;
+   *  defaults around -10..-6 for "underneath" sub-bodies. */
+  readonly gainDb: number;
+  /** Octave offset from the primary's note. -2..+2 typical. */
+  readonly octaveOffset: number;
+  /** Cents. Fine pitch detune applied where the layer synth supports it
+   *  (FMSynth has `detune`; PluckSynth ignores). */
+  readonly detuneCents: number;
+}
+
+// ─── Voice + presets ─────────────────────────────────────────────────────────
+
+export interface VoicePreset {
+  readonly id: string;
+  readonly name: string;
+  readonly instrumentId: FretInstrumentId;
+  readonly family: VoiceFamily;
+  readonly source: VoiceSource;
+  /** Optional layered second synth, mixed with the primary for harmonic depth. */
+  readonly layer?: VoiceLayer;
+  /** Per-voice gain + stereo placement. Always present in the chain. */
+  readonly level: VoiceLevel;
+  /** Optional body lowpass before the effects chain. */
+  readonly bodyFilter?: BodyFilterParams;
+  /** Optional compressor before the distortion. */
+  readonly compressor?: CompressorParams;
+  /** Effects chain. Conventional defaults populate this for `family === 'electric'`,
+   *  but the lab lets users add effects to any voice. */
+  readonly effects?: EffectsConfig;
+}
+
+// ─── Master / reverb ─────────────────────────────────────────────────────────
+
+export interface ReverbSettings {
+  readonly enabled: boolean;
+  /** Seconds. Reverb tail length. */
+  readonly decay: number;
+  /** Seconds. Time before the reverb tail begins (mimics distance to early
+   *  reflections). Typical range 0..0.1. */
+  readonly preDelay: number;
+  /** 0..1. Reverb send level. */
+  readonly wet: number;
+}
+
+export const DEFAULT_REVERB_SETTINGS: ReverbSettings = {
+  enabled: true,
+  decay: 1.5,
+  preDelay: 0.01,
+  wet: 0.18,
+};
