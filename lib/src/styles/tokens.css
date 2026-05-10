@@ -73,9 +73,27 @@
 /* Hover affordance on note markers (subtle scale-up). */
 .fb-marker {
   transition: transform 120ms ease-out, filter 120ms ease-out;
+}
+.fb-marker.fb-clickable {
   cursor: pointer;
 }
 .fb-marker:hover {
   transform: scale(1.08);
   filter: brightness(1.1);
+}
+
+/* Playhead — currently-playing note. Scaled up + animated outer ring. */
+.fb-playhead {
+  transform: scale(1.18);
+  filter: brightness(1.15);
+}
+.fb-playhead-ring {
+  animation: fb-playhead-pulse 220ms ease-out;
+  transform-origin: center;
+  transform-box: fill-box;
+}
+@keyframes fb-playhead-pulse {
+  0%   { opacity: 0.95; transform: scale(0.85); }
+  60%  { opacity: 0.6;  transform: scale(1.05); }
+  100% { opacity: 0.0;  transform: scale(1.20); }
 }

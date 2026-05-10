@@ -2,7 +2,7 @@
  * Compact metronome control — sits in the TopBar, always visible.
  * Layout: [METRO ▶] [120 BPM ↕] [4/4 ▼] [● beat 1/4] [↗ expand]
  */
-import { Play, Square, Maximize2 } from 'lucide-react';
+import { Play, Square, Maximize2, Music2 } from 'lucide-react';
 import {
   Button,
   Select,
@@ -13,11 +13,13 @@ import {
   TIME_SIGNATURES,
   useMetronome,
   useMetronomeStore,
+  usePlayback,
 } from '@fretwork/lib';
 import { BeatDot } from './BeatDot';
 
 export function MetronomeCompact() {
   const m = useMetronome();
+  const playback = usePlayback();
   const toggleExpanded = useMetronomeStore((s) => s.toggleExpanded);
   const expandedOpen = useMetronomeStore((s) => s.expandedOpen);
 
@@ -121,6 +123,27 @@ export function MetronomeCompact() {
             <span className="text-muted-foreground/50">/{m.timeSignature.numerator}</span>
           </span>
         </div>
+
+        {/* Note-playback toggle — small icon button. Active = notes play with the click. */}
+        <button
+          type="button"
+          onClick={playback.toggleEnabled}
+          aria-pressed={playback.enabled}
+          aria-label={`Note playback ${playback.enabled ? 'on' : 'off'}`}
+          title={
+            playback.enabled
+              ? 'Note playback on (plays scale tones to the beat)'
+              : 'Note playback off (click only)'
+          }
+          className={
+            'h-9 w-9 rounded-md flex items-center justify-center transition-colors border ' +
+            (playback.enabled
+              ? 'bg-degree-root/20 border-degree-root/50 text-degree-root'
+              : 'bg-card border-input text-muted-foreground hover:text-foreground')
+          }
+        >
+          <Music2 className="h-4 w-4" />
+        </button>
 
         {/* Expand toggle */}
         <Button

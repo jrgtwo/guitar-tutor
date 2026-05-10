@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useFretworkStore } from '../../store/useFretworkStore';
 import { getTuning } from '../../lib/tunings';
 import { getScale } from '../../lib/scales';
@@ -16,6 +16,8 @@ import { Headstock } from './Headstock';
 import { CapoBar } from './CapoBar';
 import { NoteMarker } from './NoteMarker';
 import { VIEWBOX_H, VIEWBOX_W, NECK_X, NECK_LENGTH, TOP_PAD, STRING_AREA } from './layout';
+import { usePlaybackStore } from '../../playback/usePlaybackStore';
+import { usePlayback } from '../../playback/usePlayback';
 
 export function Fretboard() {
   const mode = useFretworkStore((s) => s.mode);
@@ -45,6 +47,30 @@ export function Fretboard() {
     [grid, effectiveKey, intervals, capo],
   );
   const openStrings = useMemo(() => effectiveOpenStrings(tuning, capo), [tuning, capo]);
+
+  // Playback state — read directly from the store. We DON'T call usePlayback() here
+  // because that's an opinionated hook that drives the singleton from fretwork-store
+  // state; calling it from inside the Fretboard would create a circular setResolveInput
+  // loop. The example app calls usePlayback at a higher level for the wiring.
+  const playheadCell = usePlaybackStore((s) => s.currentPlayheadCell);
+  const isProgramming = usePlaybackStore((s) => s.isProgramming);
+  const customSequence = usePlaybackStore((s) => s.customSequence);
+  const playback = usePlayback();
+
+  const onCellClick = useCallback(
+    (cell: { stringIndex: number; fret: number }) => {
+      if (!isProgramming) return;
+      playback.playback?.addCustomCell(cell);
+      // Mirror to store for the UI to re-render with the new badge.
+      usePlaybackStore.setState((s) => {
+        if (s.customSequence.some((c) => c.stringIndex === cell.stringIndex && c.fret === cell.fret)) {
+          return s;
+        }
+        return { customSequence: [...s.customSequence, cell] };
+      });
+    },
+    [isProgramming, playback.playback],
+  );
 
   const leftHanded = settings.handedness === 'left';
 
@@ -93,14 +119,34 @@ export function Fretboard() {
         <Strings />
         <Headstock openStrings={openStrings} />
 
-        {highlights.map((h) => (
-          <NoteMarker
-            key={`${h.stringIndex}-${h.fret}`}
-            highlight={h}
-            labels={labels}
-            settings={settings}
-          />
-        ))}
+        {highlights.map((h) => {
+          const isPlayhead =
+            playheadCell != null &&
+            playheadCell.stringIndex === h.stringIndex &&
+            playheadCell.fret === h.fret;
+          // Index of this cell within the custom sequence (-1 if absent).
+          let programmingIndex = -1;
+          if (isProgramming) {
+            for (let i = 0; i < customSequence.length; i++) {
+              const c = customSequence[i];
+              if (c.stringIndex === h.stringIndex && c.fret === h.fret) {
+                programmingIndex = i;
+                break;
+              }
+            }
+          }
+          return (
+            <NoteMarker
+              key={`${h.stringIndex}-${h.fret}`}
+              highlight={h}
+              labels={labels}
+              settings={settings}
+              isPlayhead={isPlayhead}
+              programmingIndex={isProgramming ? programmingIndex : undefined}
+              onClick={isProgramming ? () => onCellClick({ stringIndex: h.stringIndex, fret: h.fret }) : undefined}
+            />
+          );
+        })}
       </svg>
     </div>
   );

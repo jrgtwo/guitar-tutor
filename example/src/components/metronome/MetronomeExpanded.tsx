@@ -21,6 +21,7 @@ import {
 import { BeatDot } from './BeatDot';
 import { ExpandedDragHandle } from './ExpandedDragHandle';
 import { useDraggable } from './useDraggable';
+import { PlaybackControls } from '../playback/PlaybackControls';
 
 const PANEL_WIDTH = 320;
 
@@ -146,6 +147,9 @@ export function MetronomeExpanded() {
             onCheckedChange={m.setAccentEnabled}
           />
         </div>
+
+        {/* Playback controls (notes-on-beat) live below the accent toggle. */}
+        <PlaybackControls />
       </div>
     </div>
   );

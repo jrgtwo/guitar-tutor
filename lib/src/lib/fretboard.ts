@@ -158,3 +158,23 @@ export function fretCenterX(fret: number, scaleLength: number): number {
   const right = fretX(fret, scaleLength);
   return (left + right) / 2;
 }
+
+/**
+ * MIDI pitch number of a (string, fret) cell on the given tuning. Used by playback
+ * patterns to sort cells by pitch and to look up pitch names for synth playback.
+ */
+import { Note } from 'tonal';
+
+export function pitchOf(cell: { stringIndex: number; fret: number }, tuning: TuningDef): number {
+  const open = tuning.strings[cell.stringIndex];
+  const midi = Note.midi(open);
+  if (midi == null) {
+    throw new Error(`Unknown open-string pitch: ${open}`);
+  }
+  return midi + cell.fret;
+}
+
+/** Stable string key for a cell — useful for Set/Map lookup keys. */
+export function cellKey(cell: { stringIndex: number; fret: number }): string {
+  return `${cell.stringIndex}:${cell.fret}`;
+}

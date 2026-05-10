@@ -147,3 +147,28 @@ export type {
   ClickSound,
   UseMetronomeReturn,
 } from './metronome';
+
+// Note playback — class, hook, store, patterns, instrument, types
+export {
+  Playback,
+  usePlayback,
+  usePlaybackStore,
+  DEFAULT_PLAYBACK_STATE,
+  PluckSynthInstrument,
+  PLAYBACK_PATTERNS,
+  getPlaybackPattern,
+  DEFAULT_PATTERN_ID,
+  ASCENDING_PITCH_ID,
+  STRING_BY_STRING_ID,
+  CUSTOM_PATTERN_ID,
+  CAGED_PATTERN_IDS,
+} from './playback';
+export type {
+  PlaybackPattern,
+  PlaybackOptions,
+  PlayableCell,
+  GuitarInstrument,
+  ResolveInput,
+  PlaybackStoreState,
+  UsePlaybackReturn,
+} from './playback';

@@ -6,6 +6,13 @@ interface Props {
   highlight: Highlight;
   labels: LabelMode;
   settings: FretworkSettings;
+  /** When true, render with playhead treatment — bright pulsing ring + scale up. */
+  isPlayhead?: boolean;
+  /** When set, render the sequence number badge instead of the normal label (for
+   * custom-pattern programming mode). 1-based. -1 means "not in the sequence". */
+  programmingIndex?: number;
+  /** Click handler — only attached when the renderer is in programming mode. */
+  onClick?: () => void;
 }
 
 const CATEGORY_TO_VAR: Record<Highlight['category'], string> = {
@@ -26,7 +33,14 @@ function resolveColor(highlight: Highlight, settings: FretworkSettings): string 
   return `hsl(${CATEGORY_TO_VAR[highlight.category]})`;
 }
 
-export function NoteMarker({ highlight, labels, settings }: Props) {
+export function NoteMarker({
+  highlight,
+  labels,
+  settings,
+  isPlayhead,
+  programmingIndex,
+  onClick,
+}: Props) {
   const { stringIndex, fret } = highlight;
   const cx =
     fret === 0
@@ -38,18 +52,50 @@ export function NoteMarker({ highlight, labels, settings }: Props) {
   const isLight = highlight.category === 'tone' || (!settings.colorByDegree && !(settings.highlightRoot && highlight.category === 'root'));
   const textFill = isLight ? 'hsl(24 30% 12%)' : 'hsl(32 25% 96%)';
 
+  // Determine label content + size. Programming-mode sequence number takes precedence.
   let label = '';
-  if (labels === 'notes') label = highlight.noteName;
-  else if (labels === 'intervals') label = highlight.intervalLabel;
+  let fontSize = 11;
+  const inProgrammingSequence = programmingIndex != null && programmingIndex >= 0;
+  if (inProgrammingSequence) {
+    label = String((programmingIndex as number) + 1);
+    fontSize = (programmingIndex as number) + 1 >= 10 ? 9 : 11;
+  } else {
+    if (labels === 'notes') label = highlight.noteName;
+    else if (labels === 'intervals') label = highlight.intervalLabel;
+    fontSize = label.length >= 2 ? 9 : 11;
+  }
 
-  // Slightly squeeze long labels (e.g. "b7", "C#") into the marker.
-  const fontSize = label.length >= 2 ? 9 : 11;
+  const groupClass = [
+    'animate-marker-pop',
+    'fb-marker',
+    isPlayhead ? 'fb-playhead' : '',
+    onClick ? 'fb-clickable' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   return (
-    <g className="animate-marker-pop fb-marker" style={{ transformOrigin: `${cx}px ${cy}px` }}>
+    <g
+      className={groupClass}
+      style={{ transformOrigin: `${cx}px ${cy}px` }}
+      onClick={onClick}
+    >
       <title>{`${highlight.noteName} · ${highlight.intervalLabel} · string ${stringIndex + 1}, fret ${fret}`}</title>
       {/* Drop shadow */}
       <circle cx={cx} cy={cy + 1.5} r={MARKER_R} fill="hsl(0 0% 0%)" opacity={0.45} />
+      {/* Playhead pulse ring — outer, animated. Only renders when isPlayhead is true. */}
+      {isPlayhead && (
+        <circle
+          cx={cx}
+          cy={cy}
+          r={MARKER_R + 6}
+          fill="none"
+          stroke="hsl(var(--degree-root))"
+          strokeWidth={2.5}
+          opacity={0.85}
+          className="fb-playhead-ring"
+        />
+      )}
       {/* Body */}
       <circle cx={cx} cy={cy} r={MARKER_R} fill={fill} />
       {/* Inner gloss highlight */}
@@ -61,15 +107,15 @@ export function NoteMarker({ highlight, labels, settings }: Props) {
         fill="hsl(0 0% 100%)"
         opacity={0.28}
       />
-      {/* Outline */}
+      {/* Outline — slightly thicker if this cell is in the programming sequence. */}
       <circle
         cx={cx}
         cy={cy}
         r={MARKER_R}
         fill="none"
-        stroke="hsl(0 0% 0%)"
-        strokeOpacity={0.35}
-        strokeWidth={0.8}
+        stroke={inProgrammingSequence ? 'hsl(var(--pearl))' : 'hsl(0 0% 0%)'}
+        strokeOpacity={inProgrammingSequence ? 0.9 : 0.35}
+        strokeWidth={inProgrammingSequence ? 1.6 : 0.8}
       />
       {label && (
         <text
@@ -77,8 +123,8 @@ export function NoteMarker({ highlight, labels, settings }: Props) {
           y={cy + fontSize * 0.36}
           textAnchor="middle"
           fontSize={fontSize}
-          fontFamily="Inter, ui-sans-serif, system-ui, sans-serif"
-          fontWeight={600}
+          fontFamily={inProgrammingSequence ? '"JetBrains Mono", ui-monospace, monospace' : 'Inter, ui-sans-serif, system-ui, sans-serif'}
+          fontWeight={inProgrammingSequence ? 700 : 600}
           fill={textFill}
           pointerEvents="none"
         >

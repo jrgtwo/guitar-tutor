@@ -1,6 +1,7 @@
 import { Fretboard, InfoCard, Legend } from '@fretwork/lib';
 import { TopBar } from '@/components/TopBar';
 import { MetronomeExpanded } from '@/components/metronome/MetronomeExpanded';
+import { ProgrammingBanner } from '@/components/playback/ProgrammingBanner';
 
 export default function App() {
   return (
@@ -8,6 +9,9 @@ export default function App() {
       <TopBar />
 
       <main className="flex-1 flex flex-col gap-6 px-4 sm:px-8 py-6 max-w-[1400px] mx-auto w-full">
+        {/* Custom-pattern programming banner — only renders when in programming mode. */}
+        <ProgrammingBanner />
+
         <section aria-label="Fretboard" className="w-full">
           <Fretboard />
         </section>
