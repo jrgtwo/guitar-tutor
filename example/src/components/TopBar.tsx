@@ -14,15 +14,12 @@ import {
   LabelsSelect,
   SettingsDialog,
 } from '@fretwork/lib';
-import { MetronomeCompact } from '../../metronome/MetronomeCompact';
-import { Brand } from '../shared/Brand';
-import { useContextSummary } from '../shared/useContextSummary';
-
-type Props = { children: ReactNode };
+import { MetronomeCompact } from './metronome/MetronomeCompact';
+import { useContextSummary } from './useContextSummary';
 
 const DESKTOP_QUERY = '(min-width: 768px)';
 
-export function VariantFHeaderExpand({ children }: Props) {
+export function TopBar() {
   const [expanded, setExpanded] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const summary = useContextSummary();
@@ -105,9 +102,23 @@ export function VariantFHeaderExpand({ children }: Props) {
           </div>
         </DialogContent>
       </Dialog>
-
-      {children}
     </>
+  );
+}
+
+function Brand() {
+  return (
+    <div className="flex items-center gap-2">
+      <div className="h-9 w-9 rounded-md bg-degree-root/90 flex items-center justify-center text-charcoal-deep font-bold tracking-tighter shadow-md">
+        F
+      </div>
+      <div className="flex flex-col leading-none">
+        <span className="font-bold tracking-tight">FRETWORK</span>
+        <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+          full-neck visualization
+        </span>
+      </div>
+    </div>
   );
 }
 
