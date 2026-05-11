@@ -1,15 +1,12 @@
 import { Fretboard, InfoCard, Legend } from '@fretwork/lib';
-import { TopBar } from '@/components/TopBar';
+import { NavShell } from '@/components/nav-variants/NavShell';
 import { MetronomeExpanded } from '@/components/metronome/MetronomeExpanded';
 import { ProgrammingBanner } from '@/components/playback/ProgrammingBanner';
 
 export default function App() {
   return (
-    <div className="min-h-screen flex flex-col">
-      <TopBar />
-
+    <NavShell>
       <main className="flex-1 flex flex-col gap-6 px-4 sm:px-8 py-6 max-w-[1400px] mx-auto w-full">
-        {/* Custom-pattern programming banner — only renders when in programming mode. */}
         <ProgrammingBanner />
 
         <section aria-label="Fretboard" className="w-full">
@@ -26,8 +23,7 @@ export default function App() {
         Built for guitarists · v0.1
       </footer>
 
-      {/* Floating metronome panel — rendered when expanded mode is on. */}
       <MetronomeExpanded />
-    </div>
+    </NavShell>
   );
 }
