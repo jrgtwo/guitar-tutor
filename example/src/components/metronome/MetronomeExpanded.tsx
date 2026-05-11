@@ -59,7 +59,7 @@ export function MetronomeExpanded() {
     if (!expandedOpen) placedRef.current = false;
   }, [expandedOpen, setPosition]);
 
-  const { onMouseDown } = useDraggable({
+  const { onPointerDown } = useDraggable({
     position,
     onPositionChange: setPosition,
     width: PANEL_WIDTH,
@@ -79,7 +79,7 @@ export function MetronomeExpanded() {
       role="dialog"
       aria-label="Expanded metronome panel"
     >
-      <ExpandedDragHandle onClose={() => setExpandedOpen(false)} onMouseDown={onMouseDown} />
+      <ExpandedDragHandle onClose={() => setExpandedOpen(false)} onPointerDown={onPointerDown} />
 
       <div className="p-4 flex flex-col gap-4">
         {/* Beat-dot row */}

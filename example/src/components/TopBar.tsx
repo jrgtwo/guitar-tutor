@@ -80,9 +80,9 @@ export function TopBar() {
       </header>
 
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-        <DialogContent className="max-w-md sm:max-w-lg">
-          <DialogTitle>Configure</DialogTitle>
-          <div className="flex flex-col gap-5 mt-2">
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-md sm:max-w-lg max-h-[calc(100dvh-2rem)] flex flex-col">
+          <DialogTitle className="shrink-0">Configure</DialogTitle>
+          <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-5 mt-2 -mr-2 pr-2">
             <Section title="Scale">
               <ModeSelect />
               <KeySelect />

@@ -9,22 +9,22 @@ interface UseDraggableArgs {
 }
 
 /**
- * Returns an `onMouseDown` handler to attach to the panel's drag handle. While dragging,
- * mousemove on the document updates position; mouseup releases. Position is clamped so
- * the panel can't disappear off-screen.
+ * Returns an `onPointerDown` handler to attach to the panel's drag handle. Uses Pointer
+ * Events so it works for mouse, touch, and pen with one code path. The handle element
+ * should also set `touch-action: none` so touch sequences become pointer events instead
+ * of being swallowed by the browser as page-scroll gestures.
  */
 export function useDraggable({ position, onPositionChange, width, height }: UseDraggableArgs) {
-  // Refs so the document-level handlers always read the latest values without re-binding.
   const positionRef = useRef(position);
   positionRef.current = position;
   const sizeRef = useRef({ width, height });
   sizeRef.current = { width, height };
 
-  const dragOffset = useRef<{ dx: number; dy: number } | null>(null);
+  const dragOffset = useRef<{ dx: number; dy: number; pointerId: number } | null>(null);
 
-  const onMouseMove = useCallback(
-    (e: MouseEvent) => {
-      if (!dragOffset.current) return;
+  const onPointerMove = useCallback(
+    (e: PointerEvent) => {
+      if (!dragOffset.current || e.pointerId !== dragOffset.current.pointerId) return;
       const { dx, dy } = dragOffset.current;
       const { width: w, height: h } = sizeRef.current;
       const maxX = window.innerWidth - w;
@@ -36,33 +36,42 @@ export function useDraggable({ position, onPositionChange, width, height }: UseD
     [onPositionChange],
   );
 
-  const onMouseUp = useCallback(() => {
-    dragOffset.current = null;
-    document.removeEventListener('mousemove', onMouseMove);
-    document.removeEventListener('mouseup', onMouseUp);
-    document.body.style.userSelect = '';
-  }, [onMouseMove]);
+  const onPointerUp = useCallback(
+    (e: PointerEvent) => {
+      if (dragOffset.current && e.pointerId !== dragOffset.current.pointerId) return;
+      dragOffset.current = null;
+      document.removeEventListener('pointermove', onPointerMove);
+      document.removeEventListener('pointerup', onPointerUp);
+      document.removeEventListener('pointercancel', onPointerUp);
+      document.body.style.userSelect = '';
+    },
+    [onPointerMove],
+  );
 
-  const onMouseDown = useCallback(
-    (e: React.MouseEvent) => {
+  const onPointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      // Only start a drag for primary pointer (left mouse / single touch / pen tip).
+      if (!e.isPrimary) return;
       e.preventDefault();
       const { x, y } = positionRef.current;
-      dragOffset.current = { dx: e.clientX - x, dy: e.clientY - y };
-      document.addEventListener('mousemove', onMouseMove);
-      document.addEventListener('mouseup', onMouseUp);
+      dragOffset.current = { dx: e.clientX - x, dy: e.clientY - y, pointerId: e.pointerId };
+      document.addEventListener('pointermove', onPointerMove);
+      document.addEventListener('pointerup', onPointerUp);
+      document.addEventListener('pointercancel', onPointerUp);
       document.body.style.userSelect = 'none';
     },
-    [onMouseMove, onMouseUp],
+    [onPointerMove, onPointerUp],
   );
 
   // Cleanup any in-flight listeners if the component unmounts mid-drag.
   useEffect(() => {
     return () => {
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
+      document.removeEventListener('pointermove', onPointerMove);
+      document.removeEventListener('pointerup', onPointerUp);
+      document.removeEventListener('pointercancel', onPointerUp);
       document.body.style.userSelect = '';
     };
-  }, [onMouseMove, onMouseUp]);
+  }, [onPointerMove, onPointerUp]);
 
-  return { onMouseDown };
+  return { onPointerDown };
 }
