@@ -21,8 +21,8 @@ import {
   TIME_SIGNATURES,
   useMetronome,
 } from '@fretwork/lib';
-import { MetronomePracticeToggles } from './metronome/MetronomePracticeToggles';
-import { PlaybackControls } from './playback/PlaybackControls';
+import { AccentSwitch, TickSoundSwitch } from './metronome/MetronomePracticeToggles';
+import { NotesOnBeatSwitch, PlaybackPatternControls } from './playback/PlaybackControls';
 import { SoundControls } from './playback/SoundControls';
 import { SimplePopover } from './ui/SimplePopover';
 import { useContextSummary } from './useContextSummary';
@@ -126,31 +126,28 @@ export function TopBar() {
 function ConfigSections() {
   return (
     <div className="flex flex-col gap-5">
-      <Section title="Scale">
+      <Section title="Setup">
+        <InstrumentSelect />
+        <TuningSelect />
         <ModeSelect />
         <KeySelect />
         <TypeSelect />
         <ShapeSelect />
-      </Section>
-      <Section title="Practice">
-        <PracticeTempo />
-        <div className="basis-full">
-          <MetronomePracticeToggles />
-        </div>
-        <div className="basis-full">
-          <PlaybackControls />
-        </div>
-      </Section>
-      <Section title="Setup">
-        <InstrumentSelect />
-        <TuningSelect />
+        <div className="basis-full" />
         <CapoSelect />
-      </Section>
-      <Section title="Display">
         <LabelsSelect />
       </Section>
-      <Section title="Sound">
-        <div className="basis-full">
+      <Section title="Metronome">
+        <PracticeTempo />
+        <div className="basis-full flex flex-col gap-3">
+          <AccentSwitch />
+          <TickSoundSwitch />
+        </div>
+      </Section>
+      <Section title="Playback">
+        <div className="basis-full flex flex-col gap-3">
+          <NotesOnBeatSwitch />
+          <PlaybackPatternControls />
           <SoundControls />
         </div>
       </Section>
