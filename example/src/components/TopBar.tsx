@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   Button,
   Dialog,
@@ -12,96 +12,220 @@ import {
   TuningSelect,
   CapoSelect,
   LabelsSelect,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   SettingsDialog,
+  TIME_SIGNATURES,
+  useMetronome,
 } from '@fretwork/lib';
-import { MetronomeCompact } from './metronome/MetronomeCompact';
+import { MetronomePracticeToggles } from './metronome/MetronomePracticeToggles';
+import { PlaybackControls } from './playback/PlaybackControls';
+import { SoundControls } from './playback/SoundControls';
+import { SimplePopover } from './ui/SimplePopover';
 import { useContextSummary } from './useContextSummary';
 
 const DESKTOP_QUERY = '(min-width: 768px)';
 
-export function TopBar() {
-  const [expanded, setExpanded] = useState(false);
-  const [modalOpen, setModalOpen] = useState(false);
-  const summary = useContextSummary();
+function useIsDesktop(): boolean {
+  const [isDesktop, setIsDesktop] = useState(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+    return window.matchMedia(DESKTOP_QUERY).matches;
+  });
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const mql = window.matchMedia(DESKTOP_QUERY);
+    const onChange = () => setIsDesktop(mql.matches);
+    mql.addEventListener('change', onChange);
+    return () => mql.removeEventListener('change', onChange);
+  }, []);
+  return isDesktop;
+}
 
-  const handleChipClick = () => {
-    if (typeof window !== 'undefined' && window.matchMedia(DESKTOP_QUERY).matches) {
-      setExpanded((e) => !e);
-    } else {
-      setModalOpen(true);
-    }
-  };
+export function TopBar() {
+  const summary = useContextSummary();
+  const isDesktop = useIsDesktop();
+  const [desktopOpen, setDesktopOpen] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  // Single chip button reused as the trigger in both surfaces. On mobile we don't
+  // use SimplePopover (a full Dialog handles it instead), so we wire the mobile
+  // open state via the same button rendering by switching parents.
+  const chipButton = (
+    <button
+      type="button"
+      onClick={isDesktop ? undefined : () => setMobileOpen(true)}
+      className="w-full min-w-0 inline-flex items-center justify-between gap-2 h-10 px-4 rounded-full border border-border/60 bg-charcoal-deep/40 hover:bg-white/5 text-sm"
+    >
+      <span className="truncate text-foreground">{summary}</span>
+      <span className="text-muted-foreground text-xs">▾</span>
+    </button>
+  );
 
   return (
     <>
-      <header className="flex flex-col bg-charcoal-raised/70 backdrop-blur border-b border-border/40">
-        <div className="flex flex-wrap items-center gap-3 px-4 sm:px-6 py-3">
+      <header className="sticky top-0 z-30 flex flex-col gap-2 px-4 sm:px-6 py-3 bg-charcoal-raised/70 backdrop-blur border-b border-border/40">
+        {/* Row 1: brand on the left, utilities on the right. */}
+        <div className="flex items-center justify-between gap-3">
           <Brand />
-
-          <button
-            type="button"
-            onClick={handleChipClick}
-            className="flex-1 min-w-0 inline-flex items-center justify-between gap-2 h-10 px-4 rounded-full border border-border/60 bg-charcoal-deep/40 hover:bg-white/5 text-sm"
-            aria-expanded={expanded}
-            aria-haspopup="dialog"
-          >
-            <span className="truncate text-foreground">{summary}</span>
-            <span className="text-muted-foreground text-xs">{expanded ? '▴' : '▾'}</span>
-          </button>
-
-          <div className="flex items-center gap-3">
-            <MetronomeCompact />
+          <div className="flex items-center gap-2 shrink-0">
             <SettingsDialog />
-            <Button variant="secondary" size="sm" disabled aria-label="Sign in (coming soon)">
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled
+              aria-label="Sign in (coming soon)"
+              title="Sign in (coming soon)"
+            >
               Sign in
             </Button>
           </div>
         </div>
 
-        <div
-          className={`hidden md:grid transition-[grid-template-rows] duration-200 ease-out ${
-            expanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
-          }`}
-          aria-hidden={!expanded}
-        >
-          <div className="overflow-hidden">
-            <div className="flex flex-wrap items-end gap-3 px-4 sm:px-6 py-3 border-t border-border/40">
-              <InstrumentSelect />
-              <ModeSelect />
-              <KeySelect />
-              <TypeSelect />
-              <ShapeSelect />
-              <TuningSelect />
-              <CapoSelect />
-              <LabelsSelect />
-            </div>
+        {/* Row 2: chip centered. Width-capped so it doesn't stretch end-to-end on
+            very wide displays. */}
+        <div className="flex justify-center">
+          <div className="w-full max-w-2xl">
+            {isDesktop ? (
+              <SimplePopover
+                open={desktopOpen}
+                onOpenChange={setDesktopOpen}
+                align="start"
+                rootClassName="relative block w-full"
+                panelClassName="w-[min(720px,calc(100vw-2rem))] p-5"
+                trigger={chipButton}
+              >
+                <ConfigSections />
+              </SimplePopover>
+            ) : (
+              chipButton
+            )}
           </div>
         </div>
       </header>
 
-      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+      <Dialog open={mobileOpen} onOpenChange={setMobileOpen}>
         <DialogContent className="w-[calc(100vw-2rem)] max-w-md sm:max-w-lg max-h-[calc(100dvh-2rem)] flex flex-col">
           <DialogTitle className="shrink-0">Configure</DialogTitle>
           <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-5 mt-2 -mr-2 pr-2">
-            <Section title="Scale">
-              <ModeSelect />
-              <KeySelect />
-              <TypeSelect />
-            </Section>
-            <Section title="Position">
-              <ShapeSelect />
-            </Section>
-            <Section title="Setup">
-              <InstrumentSelect />
-              <TuningSelect />
-              <CapoSelect />
-            </Section>
-            <Section title="Display">
-              <LabelsSelect />
-            </Section>
+            <ConfigSections />
           </div>
         </DialogContent>
       </Dialog>
+    </>
+  );
+}
+
+/**
+ * The single source-of-truth for the chip's configuration UI. Rendered inside the
+ * desktop popover and the mobile dialog. Both popovers (chip + strip overflow) share
+ * the same Zustand store, so toggling here updates the strip and vice versa.
+ */
+function ConfigSections() {
+  return (
+    <div className="flex flex-col gap-5">
+      <Section title="Scale">
+        <ModeSelect />
+        <KeySelect />
+        <TypeSelect />
+        <ShapeSelect />
+      </Section>
+      <Section title="Practice">
+        <PracticeTempo />
+        <div className="basis-full">
+          <MetronomePracticeToggles />
+        </div>
+        <div className="basis-full">
+          <PlaybackControls />
+        </div>
+      </Section>
+      <Section title="Setup">
+        <InstrumentSelect />
+        <TuningSelect />
+        <CapoSelect />
+      </Section>
+      <Section title="Display">
+        <LabelsSelect />
+      </Section>
+      <Section title="Sound">
+        <div className="basis-full">
+          <SoundControls />
+        </div>
+      </Section>
+    </div>
+  );
+}
+
+/**
+ * Tempo + time signature row for the PRACTICE section. BPM uses the same stepper
+ * pattern as the fretboard strip — both edit the same store field, so changes
+ * propagate immediately.
+ */
+function PracticeTempo() {
+  const m = useMetronome();
+  return (
+    <>
+      <div className="flex flex-col gap-1 min-w-[140px]">
+        <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+          Tempo
+        </span>
+        <div className="flex items-center bg-card border border-input rounded-md h-9 overflow-hidden">
+          <button
+            type="button"
+            className="px-2 h-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+            onClick={() => m.setBpm(m.bpm - 1)}
+            aria-label="Decrease BPM"
+          >
+            −
+          </button>
+          <input
+            type="number"
+            value={m.bpm}
+            onChange={(e) => {
+              const v = parseInt(e.target.value, 10);
+              if (Number.isFinite(v)) m.setBpm(v);
+            }}
+            min={40}
+            max={240}
+            className="w-14 bg-transparent text-center font-mono text-sm focus:outline-none focus:ring-1 focus:ring-ring h-full"
+            aria-label="BPM"
+          />
+          <button
+            type="button"
+            className="px-2 h-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+            onClick={() => m.setBpm(m.bpm + 1)}
+            aria-label="Increase BPM"
+          >
+            +
+          </button>
+          <span className="px-2 text-[10px] font-mono uppercase tracking-wider text-muted-foreground/70 border-l border-input h-full flex items-center">
+            BPM
+          </span>
+        </div>
+      </div>
+      <div className="flex flex-col gap-1 min-w-[110px]">
+        <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+          Time signature
+        </span>
+        <Select value={m.timeSignature.id} onValueChange={m.setTimeSignature}>
+          <SelectTrigger className="font-mono uppercase tracking-wider text-xs h-9">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {TIME_SIGNATURES.map((ts) => (
+              <SelectItem
+                key={ts.id}
+                value={ts.id}
+                className="font-mono uppercase tracking-wider text-xs"
+              >
+                {ts.id}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
     </>
   );
 }

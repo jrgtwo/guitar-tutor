@@ -5,6 +5,7 @@ import {
   getArpeggio,
   getInstrument,
   getTuning,
+  getTimeSignature,
 } from '@fretwork/lib';
 
 export function useContextSummary(): string {
@@ -15,6 +16,7 @@ export function useContextSummary(): string {
   const instrumentId = useFretworkStore((s) => s.instrumentId);
   const tuningId = useFretworkStore((s) => s.tuning);
   const bpm = useMetronomeStore((s) => s.bpm);
+  const timeSignatureId = useMetronomeStore((s) => s.timeSignatureId);
 
   const typeLabel = (() => {
     if (mode === 'scales') return getScale(type)?.name ?? type;
@@ -24,13 +26,15 @@ export function useContextSummary(): string {
 
   const instrumentLabel = getInstrument(instrumentId)?.name ?? instrumentId;
   const tuningLabel = getTuning(tuningId)?.name ?? tuningId;
+  const timeSignatureLabel = getTimeSignature(timeSignatureId)?.id ?? timeSignatureId;
 
   const parts: string[] = [
     `${key} ${typeLabel}`,
     instrumentLabel,
     tuningLabel,
-    `${bpm} BPM`,
   ];
   if (shapeId) parts.push(shapeId.replace('caged-', '').toUpperCase() + ' shape');
+  parts.push(`♩ = ${bpm}`); // quarter note · BPM
+  parts.push(timeSignatureLabel);
   return parts.join(' · ');
 }

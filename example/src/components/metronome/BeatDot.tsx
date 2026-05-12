@@ -33,20 +33,27 @@ const SIZE_CLASS: Record<NonNullable<BeatDotProps['size']>, string> = {
 export function BeatDot({ active, isAccent, size = 'sm', dimmed = false }: BeatDotProps) {
   const activeAccent = active && isAccent;
   const activeRegular = active && !isAccent;
+  // The outer span owns the layout box (fixed size, never changes between
+  // active/inactive). The inner span is absolutely positioned so its scale
+  // transform on flash cannot perturb sibling layout. Without this isolation the
+  // scaled visual box was nudging the flex row on each tick.
   return (
     <span
-      className={cn(
-        'inline-block rounded-full transition-all duration-100',
-        SIZE_CLASS[size],
-        activeAccent &&
-          'bg-degree-third scale-125 shadow-[0_0_14px_3px_hsl(var(--degree-third)/0.6)]',
-        activeRegular &&
-          'bg-degree-root scale-125 shadow-[0_0_12px_2px_hsl(var(--degree-root)/0.55)]',
-        !active && 'bg-foreground/20',
-        isAccent && !active && 'ring-1 ring-degree-root/60',
-        dimmed && 'opacity-40',
-      )}
+      className={cn('relative inline-block shrink-0', SIZE_CLASS[size])}
       aria-hidden="true"
-    />
+    >
+      <span
+        className={cn(
+          'absolute inset-0 rounded-full transition-all duration-100',
+          activeAccent &&
+            'bg-degree-third scale-125 shadow-[0_0_14px_3px_hsl(var(--degree-third)/0.6)]',
+          activeRegular &&
+            'bg-degree-root scale-125 shadow-[0_0_12px_2px_hsl(var(--degree-root)/0.55)]',
+          !active && 'bg-foreground/20',
+          isAccent && !active && 'ring-1 ring-degree-root/60',
+          dimmed && 'opacity-40',
+        )}
+      />
+    </span>
   );
 }

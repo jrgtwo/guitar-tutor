@@ -1,10 +1,15 @@
 /**
- * Compact sound controls for the expanded metronome panel.
+ * Sound family selector for the active fretboard instrument.
  *
- * Shows an Acoustic / Electric radio for the active fretboard instrument when it
- * supports both (guitar, bass). Hidden for ukulele since we only ship an acoustic
- * ukulele preset. Selection writes to the playback store; `usePlayback` watches
- * that store and swaps the playback voice automatically.
+ * Exposed in two shapes:
+ *   - `SoundControls`        — Label + radio group, used in the popovers (chip
+ *                              config + strip overflow at narrow widths).
+ *   - `SoundInlineToggle`    — Compact two-button segmented control, used inline
+ *                              on the strip at the widest breakpoint.
+ *
+ * For ukulele only an acoustic preset ships, so both renderings collapse to null.
+ * Both write the same `useFretworkStore` field and `usePlayback` voice family, so
+ * any rendering stays in sync.
  */
 import {
   Label,
@@ -19,7 +24,6 @@ export function SoundControls() {
   const fretInstrumentId = useFretworkStore((s) => s.instrumentId);
   const m = usePlayback();
 
-  // Ukulele: acoustic-only in v1. Hide the control entirely.
   if (fretInstrumentId !== 'guitar' && fretInstrumentId !== 'bass') {
     return null;
   }
@@ -54,6 +58,61 @@ export function SoundControls() {
           </Label>
         </div>
       </RadioGroup>
+    </div>
+  );
+}
+
+/**
+ * Inline segmented control for the strip. Active half is filled with the root
+ * degree color (matches the InlinePill styling). Returns null for ukulele.
+ */
+export function SoundInlineToggle({ className = '' }: { className?: string }) {
+  const fretInstrumentId = useFretworkStore((s) => s.instrumentId);
+  const m = usePlayback();
+
+  if (fretInstrumentId !== 'guitar' && fretInstrumentId !== 'bass') {
+    return null;
+  }
+
+  const family = m.voiceFamily[fretInstrumentId];
+  const set = (next: VoiceFamily) => m.setVoiceFamily(fretInstrumentId, next);
+
+  const seg =
+    'h-full px-3 text-xs font-mono uppercase tracking-wider transition-colors flex items-center';
+
+  return (
+    <div
+      role="group"
+      aria-label="Sound"
+      className={'flex h-9 rounded-md border border-border/40 overflow-hidden shrink-0 ' + className}
+    >
+      <button
+        type="button"
+        onClick={() => set('acoustic')}
+        aria-pressed={family === 'acoustic'}
+        className={
+          seg +
+          (family === 'acoustic'
+            ? ' bg-degree-root/15 text-foreground'
+            : ' text-muted-foreground hover:bg-accent hover:text-foreground')
+        }
+      >
+        Acoustic
+      </button>
+      <div className="w-px bg-border/40" aria-hidden />
+      <button
+        type="button"
+        onClick={() => set('electric')}
+        aria-pressed={family === 'electric'}
+        className={
+          seg +
+          (family === 'electric'
+            ? ' bg-degree-root/15 text-foreground'
+            : ' text-muted-foreground hover:bg-accent hover:text-foreground')
+        }
+      >
+        Electric
+      </button>
     </div>
   );
 }

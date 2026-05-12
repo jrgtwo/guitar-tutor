@@ -27,8 +27,6 @@ export interface MetronomeStoreState {
   isRunning: boolean;
   currentBeat: number;        // -1 before first tick or after stop
   currentMeasure: number;     // -1 before first tick or after stop
-  expandedOpen: boolean;
-  expandedPosition: { x: number; y: number };
 
   // Setters
   setBpm: (bpm: number) => void;
@@ -42,9 +40,6 @@ export interface MetronomeStoreState {
   setRunning: (running: boolean) => void;
   setCurrentBeat: (beat: number) => void;
   setCurrentMeasure: (measure: number) => void;
-  setExpandedOpen: (open: boolean) => void;
-  toggleExpanded: () => void;
-  setExpandedPosition: (pos: { x: number; y: number }) => void;
 }
 
 export const DEFAULT_METRONOME_STATE = {
@@ -57,8 +52,6 @@ export const DEFAULT_METRONOME_STATE = {
   isRunning: false,
   currentBeat: -1,
   currentMeasure: -1,
-  expandedOpen: false,
-  expandedPosition: { x: 24, y: 24 },
 };
 
 export const useMetronomeStore = create<MetronomeStoreState>((set) => ({
@@ -84,7 +77,4 @@ export const useMetronomeStore = create<MetronomeStoreState>((set) => ({
   })),
   setCurrentBeat: (currentBeat) => set({ currentBeat }),
   setCurrentMeasure: (currentMeasure) => set({ currentMeasure }),
-  setExpandedOpen: (expandedOpen) => set({ expandedOpen }),
-  toggleExpanded: () => set((s) => ({ expandedOpen: !s.expandedOpen })),
-  setExpandedPosition: (expandedPosition) => set({ expandedPosition }),
 }));

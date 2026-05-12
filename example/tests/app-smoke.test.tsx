@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import App from '@/App';
 
 describe('App smoke test', () => {
@@ -30,8 +30,12 @@ describe('App smoke test', () => {
     expect(screen.getByText('Scale tone')).toBeInTheDocument();
   });
 
-  it('renders all six control labels in the top bar', () => {
+  it('exposes all six fretboard controls through the top-bar config chip', () => {
     render(<App />);
+    // The chip is the single entry point to config now; clicking it opens the
+    // config surface (a Dialog in jsdom since matchMedia is unavailable).
+    const chipText = screen.getByText(/MAJOR/i, { selector: 'span.truncate' });
+    fireEvent.click(chipText.closest('button')!);
     for (const label of ['Mode', 'Key', 'Type', 'Tuning', 'Capo', 'Labels']) {
       expect(screen.getByText(label)).toBeInTheDocument();
     }
