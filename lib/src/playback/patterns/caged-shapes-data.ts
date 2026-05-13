@@ -67,7 +67,7 @@ export const C_SHAPE_MAJOR: CagedShape = {
     // G: G (5), A (6), B (7)
     { stringIndex: 3, offset: -3, degree: 5 },
     { stringIndex: 3, offset: -1, degree: 6 },
-    { stringIndex: 3, offset: 1, degree: 7 },
+    // { stringIndex: 3, offset: 1, degree: 7 },
     // B: B (7), C (1), D (2)
     { stringIndex: 4, offset: -3, degree: 7 },
     { stringIndex: 4, offset: -2, degree: 1 },
@@ -125,11 +125,10 @@ export const G_SHAPE_MAJOR: CagedShape = {
     // D: G (5), A (6), B (7)
     { stringIndex: 2, offset: -3, degree: 5 },
     { stringIndex: 2, offset: -1, degree: 6 },
-    { stringIndex: 2, offset: 1, degree: 7 },
     // G: C (1), D (2), E (3)
+    { stringIndex: 3, offset: -4, degree: 7 },
     { stringIndex: 3, offset: -3, degree: 1 },
     { stringIndex: 3, offset: -1, degree: 2 },
-    { stringIndex: 3, offset: 1, degree: 3 },
     // B: E (3), F (4), G (5)
     { stringIndex: 4, offset: -3, degree: 3 },
     { stringIndex: 4, offset: -2, degree: 4 },
@@ -179,6 +178,7 @@ export const D_SHAPE_MAJOR: CagedShape = {
     // low E: D (2), E (3)
     { stringIndex: 0, offset: 0, degree: 2 },
     { stringIndex: 0, offset: 2, degree: 3 },
+    { stringIndex: 0, offset: 3, degree: 4 },
     // A: G (5), A (6)
     { stringIndex: 1, offset: 0, degree: 5 },
     { stringIndex: 1, offset: 2, degree: 6 },
