@@ -137,7 +137,7 @@ function ConfigSections() {
         <CapoSelect />
         <LabelsSelect />
       </Section>
-      <Section title="Metronome">
+      <Section title="Metronome" divider>
         <PracticeTempo />
         <div className="basis-full flex flex-col gap-3">
           <AccentSwitch />
@@ -243,12 +243,30 @@ function Brand() {
   );
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+function Section({
+  title,
+  children,
+  divider = false,
+}: {
+  title: string;
+  children: ReactNode;
+  divider?: boolean;
+}) {
   return (
     <div className="flex flex-col gap-2">
-      <h3 className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-        {title}
-      </h3>
+      {divider ? (
+        <div className="flex items-center gap-3 my-3">
+          <div className="flex-1 h-px bg-border/60" />
+          <h3 className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground shrink-0">
+            {title}
+          </h3>
+          <div className="flex-1 h-px bg-border/60" />
+        </div>
+      ) : (
+        <h3 className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+          {title}
+        </h3>
+      )}
       <div className="flex flex-wrap gap-3">{children}</div>
     </div>
   );
