@@ -71,7 +71,7 @@ export function TopBar() {
         <div className="flex items-center justify-between gap-3">
           <Brand />
           <div className="flex items-center gap-2 shrink-0">
-            <SettingsDialog />
+            <SettingsDialog audioSection={<SoundLabLink />} />
             <Button
               variant="secondary"
               size="sm"
@@ -224,6 +224,23 @@ function PracticeTempo() {
         </Select>
       </div>
     </>
+  );
+}
+
+function SoundLabLink() {
+  return (
+    <a
+      href="?lab=1"
+      className="inline-flex items-center justify-between gap-2 rounded-md border border-border/60 bg-charcoal-deep/40 hover:bg-white/5 px-3 py-2 text-sm transition-colors"
+    >
+      <span className="flex flex-col leading-tight">
+        <span className="text-foreground">Sound Lab</span>
+        <span className="text-[10px] font-mono text-muted-foreground">
+          Tune the playback voices.
+        </span>
+      </span>
+      <span className="text-muted-foreground text-xs" aria-hidden>→</span>
+    </a>
   );
 }
 

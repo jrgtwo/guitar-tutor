@@ -356,7 +356,7 @@ describe('Voice — updateEffects', () => {
     const v = new Voice({ ...ACOUSTIC_GUITAR_PRESET });
     v.play('A3', '4n', 0);
     expect(hoisted.calls.distortionCtor).toBe(0);
-    v.updateEffects({ distortion: { drive: 0.3, wet: 0.25 } });
+    v.updateEffects({ distortion: { drive: 0.3, wet: 0.25, oversample: '4x' } });
     expect(hoisted.calls.distortionCtor).toBe(1);
   });
 
@@ -424,7 +424,7 @@ describe('MasterBus — reverb', () => {
   it('updates wet via rampTo when settings change', () => {
     const v = new Voice(ACOUSTIC_GUITAR_PRESET);
     v.play('A3', '4n', 0);
-    MasterBus.setReverbSettings({ enabled: true, decay: 1.5, wet: 0.5 });
+    MasterBus.setReverbSettings({ enabled: true, decay: 1.5, preDelay: 0.01, wet: 0.5 });
     // Can't easily assert on the mock from here, but reaching this point without
     // throwing is enough — we cover behaviour exhaustively in the integration test.
     expect(MasterBus.settings.wet).toBe(0.5);
@@ -434,7 +434,7 @@ describe('MasterBus — reverb', () => {
     const v = new Voice(ACOUSTIC_GUITAR_PRESET);
     v.play('A3', '4n', 0);
     expect(MasterBus.settings.decay).toBeCloseTo(1.5);
-    MasterBus.setReverbSettings({ enabled: true, decay: 3.0, wet: 0.2 });
+    MasterBus.setReverbSettings({ enabled: true, decay: 3.0, preDelay: 0.01, wet: 0.2 });
     expect(MasterBus.settings.decay).toBe(3);
   });
 });

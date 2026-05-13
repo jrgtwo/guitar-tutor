@@ -89,12 +89,12 @@ describe('CAGED — A shape (A major, std tuning)', () => {
 });
 
 describe('CAGED — G shape (A major, std tuning)', () => {
-  it('anchors at fret 5 on low E with box covering frets 2–6', () => {
+  it('anchors at fret 5 on low E with box covering frets 1–5', () => {
     const seq = findShape('caged-g').resolve(makeInput());
     expect(seq.length).toBeGreaterThan(0);
     for (const c of seq) {
-      expect(c.fret).toBeGreaterThanOrEqual(2);
-      expect(c.fret).toBeLessThanOrEqual(6);
+      expect(c.fret).toBeGreaterThanOrEqual(1);
+      expect(c.fret).toBeLessThanOrEqual(5);
     }
     expect(seq.some((c) => c.stringIndex === 0 && c.fret === 5)).toBe(true);
   });

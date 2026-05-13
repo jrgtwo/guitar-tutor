@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Settings as SettingsIcon } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import {
@@ -15,7 +15,7 @@ import { Label } from '../components/ui/label';
 import { useFretworkStore } from '../store/useFretworkStore';
 import type { Handedness } from '../types';
 
-export function SettingsDialog() {
+export function SettingsDialog({ audioSection }: { audioSection?: ReactNode } = {}) {
   const [open, setOpen] = useState(false);
   const settings = useFretworkStore((s) => s.settings);
   const setHandedness = useFretworkStore((s) => s.setHandedness);
@@ -91,9 +91,11 @@ export function SettingsDialog() {
             </div>
           </section>
 
-          <section className="grid gap-2 opacity-50 pointer-events-none">
+          <section className="grid gap-2">
             <h3 className="text-xs font-mono uppercase tracking-[0.14em] text-muted-foreground">Audio</h3>
-            <p className="text-sm text-muted-foreground">Coming in a future release.</p>
+            {audioSection ?? (
+              <p className="text-sm text-muted-foreground opacity-50">Coming in a future release.</p>
+            )}
           </section>
 
           <section className="grid gap-2 opacity-50 pointer-events-none">
