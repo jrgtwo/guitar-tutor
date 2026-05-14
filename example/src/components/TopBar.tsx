@@ -8,9 +8,7 @@ import {
   KeySelect,
   TypeSelect,
   ShapeSelect,
-  TuningSelect,
   CapoSelect,
-  LabelsSelect,
   SettingsDialog,
   INSTRUMENTS,
   useFretworkStore,
@@ -136,14 +134,12 @@ function ConfigSections() {
   return (
     <div className="flex flex-col gap-5">
       <Section title="Setup">
-        <TuningSelect />
         <ModeSelect />
         <KeySelect />
         <TypeSelect />
         <ShapeSelect />
         <div className="basis-full" />
         <CapoSelect />
-        <LabelsSelect />
       </Section>
     </div>
   );

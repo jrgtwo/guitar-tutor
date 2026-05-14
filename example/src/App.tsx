@@ -2,6 +2,7 @@ import { Fretboard, InfoCard, Legend } from '@fretwork/lib';
 import { TopBar } from '@/components/TopBar';
 import { FretboardMetronomeStrip } from '@/components/metronome/FretboardMetronomeStrip';
 import { ProgrammingBanner } from '@/components/playback/ProgrammingBanner';
+import { HeadstockMenu } from '@/components/fretboard/HeadstockMenu';
 
 export default function App() {
   return (
@@ -13,7 +14,12 @@ export default function App() {
         <ProgrammingBanner />
 
         <section aria-label="Fretboard module" className="w-full flex flex-col gap-3">
-          <Fretboard />
+          <div className="relative">
+            <div className="absolute top-2 left-2 z-10">
+              <HeadstockMenu />
+            </div>
+            <Fretboard />
+          </div>
           {/* Desktop: strip lives directly below the fretboard in document flow. */}
           <div className="hidden md:block">
             <FretboardMetronomeStrip />
