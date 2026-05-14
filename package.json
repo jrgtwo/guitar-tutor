@@ -8,11 +8,11 @@
     "example"
   ],
   "scripts": {
-    "dev": "npm run dev -w example",
-    "build": "npm run build -w example",
-    "preview": "npm run preview -w example",
-    "test": "npm run test -w lib && npm run test -w example",
-    "test:lib": "npm run test -w lib",
-    "test:example": "npm run test -w example"
+    "dev": "pnpm --filter example dev",
+    "build": "pnpm --filter example build",
+    "preview": "pnpm --filter example preview",
+    "test": "pnpm --filter lib test && pnpm --filter example test",
+    "test:lib": "pnpm --filter lib test",
+    "test:example": "pnpm --filter example test"
   }
 }
