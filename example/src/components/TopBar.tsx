@@ -4,7 +4,6 @@ import {
   Dialog,
   DialogContent,
   DialogTitle,
-  InstrumentSelect,
   ModeSelect,
   KeySelect,
   TypeSelect,
@@ -13,6 +12,8 @@ import {
   CapoSelect,
   LabelsSelect,
   SettingsDialog,
+  INSTRUMENTS,
+  useFretworkStore,
 } from '@fretwork/lib';
 import { SimplePopover } from './ui/SimplePopover';
 import { useContextSummary } from './useContextSummary';
@@ -57,9 +58,12 @@ export function TopBar() {
   return (
     <>
       <header className="sticky top-0 z-30 flex flex-col gap-2 px-4 sm:px-6 py-3 bg-charcoal-raised/70 backdrop-blur border-b border-border/40">
-        {/* Row 1: brand on the left, nav in the middle, utilities on the right. */}
+        {/* Row 1: brand + instrument pills on the left, nav in the middle, utilities on the right. */}
         <div className="flex items-center justify-between gap-3">
-          <Brand />
+          <div className="flex items-center gap-3 shrink-0">
+            <Brand />
+            <InstrumentPills />
+          </div>
           <nav className="flex items-center gap-1">
             <a
               href="/"
@@ -132,7 +136,6 @@ function ConfigSections() {
   return (
     <div className="flex flex-col gap-5">
       <Section title="Setup">
-        <InstrumentSelect />
         <TuningSelect />
         <ModeSelect />
         <KeySelect />
@@ -160,6 +163,34 @@ function SoundLabLink() {
       </span>
       <span className="text-muted-foreground text-xs" aria-hidden>→</span>
     </a>
+  );
+}
+
+function InstrumentPills() {
+  const instrumentId = useFretworkStore((s) => s.instrumentId);
+  const setInstrumentId = useFretworkStore((s) => s.setInstrumentId);
+  return (
+    <div className="flex items-center gap-1">
+      {INSTRUMENTS.map((inst) => {
+        const active = instrumentId === inst.id;
+        return (
+          <button
+            key={inst.id}
+            type="button"
+            onClick={() => setInstrumentId(inst.id)}
+            aria-pressed={active}
+            className={
+              'h-8 px-3 rounded-md border text-xs font-mono uppercase tracking-wider transition-colors ' +
+              (active
+                ? 'border-degree-root/60 bg-degree-root/15 text-foreground'
+                : 'border-border/40 text-muted-foreground hover:text-foreground hover:bg-white/5')
+            }
+          >
+            {inst.name}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
