@@ -56,7 +56,8 @@ export const DEFAULT_PLAYBACK_STATE = {
 
 export const usePlaybackStore = create<PlaybackStoreState>((set) => ({
   ...DEFAULT_PLAYBACK_STATE,
-  setEnabled: (enabled) => set({ enabled, currentPlayheadCell: enabled ? null : null }),
+  setEnabled: (enabled) =>
+    set(enabled ? { enabled } : { enabled, currentPlayheadCell: null }),
   toggleEnabled: () => set((s) => ({ enabled: !s.enabled, currentPlayheadCell: null })),
   setPatternId: (patternId) => set({ patternId, currentPlayheadCell: null }),
   setCustomSequence: (customSequence) => set({ customSequence: [...customSequence] }),

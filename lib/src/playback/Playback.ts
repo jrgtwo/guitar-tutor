@@ -53,6 +53,8 @@ export class Playback {
   private _unsubTick: (() => void) | null = null;
   /** Subscription cleanup for the Metronome subdivision listener. */
   private _unsubSubdivision: (() => void) | null = null;
+  /** Subscription cleanup for the Metronome stop listener. */
+  private _unsubStop: (() => void) | null = null;
 
   constructor(metronome: Metronome, options: PlaybackOptions = {}) {
     this._enabled = options.enabled ?? false;
@@ -68,7 +70,7 @@ export class Playback {
     this._unsubSubdivision = metronome.on('subdivision', (event) => {
       if (this._notesOnSubdivision) this._onTick(event.audioTime);
     });
-    metronome.on('stop', () => {
+    this._unsubStop = metronome.on('stop', () => {
       // Reset playhead when metronome stops so the next start begins from index 0.
       this._playheadIndex = 0;
       this._setCurrentPlayheadCell(null);
@@ -187,6 +189,8 @@ export class Playback {
     this._unsubTick = null;
     this._unsubSubdivision?.();
     this._unsubSubdivision = null;
+    this._unsubStop?.();
+    this._unsubStop = null;
     this._instrument.dispose();
     this._playheadListeners.clear();
   }
