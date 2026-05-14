@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
 import { SoundLab } from './sound-lab/SoundLab';
+import { PatternsPage } from './patterns/PatternsPage';
 import { seedCommittedPresets } from '@fretwork/lib';
 // Lib design tokens MUST be imported before the app's own stylesheet so Tailwind's
 // generated layers can reference the CSS variables.
@@ -16,14 +17,22 @@ import './styles/index.css';
 // and then the shipped defaults in `presets.ts`.
 void seedCommittedPresets();
 
-// `?lab=1` opens the Sound Lab — a developer-facing tuning surface for the
-// playback voices. Anything else renders the normal app. Lab is intentionally a
-// query param so it stays out of the casual user's way; bookmark to revisit.
+// Query-param routing:
+//   ?lab=1       → Sound Lab (developer-facing audio tuning surface)
+//   ?page=patterns → Patterns (coming soon)
+//   (default)    → Main practice app
 const params = new URLSearchParams(window.location.search);
 const isSoundLab = params.get('lab') === '1';
+const isPatterns = params.get('page') === 'patterns';
+
+function Root() {
+  if (isSoundLab) return <SoundLab />;
+  if (isPatterns) return <PatternsPage />;
+  return <App />;
+}
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    {isSoundLab ? <SoundLab /> : <App />}
+    <Root />
   </StrictMode>,
 );

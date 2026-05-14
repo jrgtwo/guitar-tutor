@@ -12,26 +12,8 @@ import {
   TuningSelect,
   CapoSelect,
   LabelsSelect,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
   SettingsDialog,
-  TIME_SIGNATURES,
-  useMetronome,
 } from '@fretwork/lib';
-import {
-  AccentSwitch,
-  MetronomeFeel,
-  TickSoundSwitch,
-} from './metronome/MetronomePracticeToggles';
-import {
-  NotesOnBeatSwitch,
-  NotesOnSubdivisionSwitch,
-  PlaybackPatternControls,
-} from './playback/PlaybackControls';
-import { SoundControls } from './playback/SoundControls';
 import { SimplePopover } from './ui/SimplePopover';
 import { useContextSummary } from './useContextSummary';
 
@@ -75,9 +57,24 @@ export function TopBar() {
   return (
     <>
       <header className="sticky top-0 z-30 flex flex-col gap-2 px-4 sm:px-6 py-3 bg-charcoal-raised/70 backdrop-blur border-b border-border/40">
-        {/* Row 1: brand on the left, utilities on the right. */}
+        {/* Row 1: brand on the left, nav in the middle, utilities on the right. */}
         <div className="flex items-center justify-between gap-3">
           <Brand />
+          <nav className="flex items-center gap-1">
+            <a
+              href="/"
+              aria-current="page"
+              className="h-8 px-3 inline-flex items-center rounded-md text-xs font-mono uppercase tracking-wider bg-white/5 text-foreground"
+            >
+              Practice
+            </a>
+            <a
+              href="?page=patterns"
+              className="h-8 px-3 inline-flex items-center rounded-md text-xs font-mono uppercase tracking-wider text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors"
+            >
+              Patterns
+            </a>
+          </nav>
           <div className="flex items-center gap-2 shrink-0">
             <SettingsDialog audioSection={<SoundLabLink />} />
             <Button
@@ -145,95 +142,7 @@ function ConfigSections() {
         <CapoSelect />
         <LabelsSelect />
       </Section>
-      <Section title="Metronome" divider>
-        <PracticeTempo />
-        <div className="basis-full flex flex-col gap-3">
-          <AccentSwitch />
-          <TickSoundSwitch />
-          <MetronomeFeel />
-        </div>
-      </Section>
-      <Section title="Playback">
-        <div className="basis-full flex flex-col gap-3">
-          <NotesOnBeatSwitch />
-          <NotesOnSubdivisionSwitch />
-          <PlaybackPatternControls />
-          <SoundControls />
-        </div>
-      </Section>
     </div>
-  );
-}
-
-/**
- * Tempo + time signature row for the PRACTICE section. BPM uses the same stepper
- * pattern as the fretboard strip — both edit the same store field, so changes
- * propagate immediately.
- */
-function PracticeTempo() {
-  const m = useMetronome();
-  return (
-    <>
-      <div className="flex flex-col gap-1 min-w-[140px]">
-        <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-          Tempo
-        </span>
-        <div className="flex items-center bg-card border border-input rounded-md h-9 overflow-hidden">
-          <button
-            type="button"
-            className="px-2 h-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-            onClick={() => m.setBpm(m.bpm - 1)}
-            aria-label="Decrease BPM"
-          >
-            −
-          </button>
-          <input
-            type="number"
-            value={m.bpm}
-            onChange={(e) => {
-              const v = parseInt(e.target.value, 10);
-              if (Number.isFinite(v)) m.setBpm(v);
-            }}
-            min={40}
-            max={240}
-            className="w-14 bg-transparent text-center font-mono text-sm focus:outline-none focus:ring-1 focus:ring-ring h-full"
-            aria-label="BPM"
-          />
-          <button
-            type="button"
-            className="px-2 h-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-            onClick={() => m.setBpm(m.bpm + 1)}
-            aria-label="Increase BPM"
-          >
-            +
-          </button>
-          <span className="px-2 text-[10px] font-mono uppercase tracking-wider text-muted-foreground/70 border-l border-input h-full flex items-center">
-            BPM
-          </span>
-        </div>
-      </div>
-      <div className="flex flex-col gap-1 min-w-[110px]">
-        <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-          Time signature
-        </span>
-        <Select value={m.timeSignature.id} onValueChange={m.setTimeSignature}>
-          <SelectTrigger className="font-mono uppercase tracking-wider text-xs h-9">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {TIME_SIGNATURES.map((ts) => (
-              <SelectItem
-                key={ts.id}
-                value={ts.id}
-                className="font-mono uppercase tracking-wider text-xs"
-              >
-                {ts.id}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-    </>
   );
 }
 

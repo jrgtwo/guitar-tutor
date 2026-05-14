@@ -1,6 +1,8 @@
 /**
- * Grouped pattern dropdown — Walk / CAGED / Custom. Patterns whose `isApplicable()`
- * returns false (e.g. CAGED in arpeggios mode) are rendered grayed-out and disabled.
+ * Walk-style pattern dropdown — Walk / Custom. CAGED patterns are excluded because
+ * position is owned by ShapeSelect in the main controls; walk style applies to
+ * whichever highlights are active (full scale or the selected CAGED position).
+ * Patterns whose `isApplicable()` returns false are rendered grayed-out and disabled.
  */
 import {
   PLAYBACK_PATTERNS,
@@ -35,7 +37,6 @@ export function PatternSelect() {
   const fretType = useFretworkStore((s) => s.type);
   const fretTuning = useFretworkStore((s) => s.tuning);
   const fretCapo = useFretworkStore((s) => s.capo);
-
   const resolveInput: ResolveInput | null = useMemo(() => {
     const tuning = getTuning(fretTuning);
     if (!tuning) return null;
@@ -62,10 +63,12 @@ export function PatternSelect() {
     };
   }, [fretInstrumentId, fretMode, fretKey, fretType, fretTuning, fretCapo, m.customSequence]);
 
-  // Group patterns by their `group` field for the grouped Select.
+  // Group walk + custom patterns. CAGED patterns are excluded — position is owned
+  // by the ShapeSelect in the main controls, which auto-selects the CAGED pattern.
   const grouped = useMemo(() => {
     const map = new Map<string, PlaybackPattern[]>();
     for (const p of PLAYBACK_PATTERNS) {
+      if (p.group === 'CAGED') continue;
       const g = p.group ?? 'Other';
       const arr = map.get(g);
       if (arr) arr.push(p);
