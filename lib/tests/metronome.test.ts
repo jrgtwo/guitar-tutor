@@ -9,6 +9,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 const hoisted = vi.hoisted(() => {
   let scheduledCallback: ((time: number) => void) | null = null;
   let nextScheduleId = 1;
+  const synthInstances: Array<Record<string, unknown>> = [];
   const transportMock = {
     bpm: { value: 120 },
     position: 0,
@@ -26,8 +27,14 @@ const hoisted = vi.hoisted(() => {
   return {
     transportMock,
     drawMock,
+    synthInstances,
     getCallback: () => scheduledCallback,
     setCallback: (cb: ((t: number) => void) | null) => { scheduledCallback = cb; },
+    /** Look up a Mock Synth instance by its initial `volume` config. The default
+     *  metronome creates three: accent (+2), regular (0), subdivision (-6). */
+    findSynthByInitialVolume: (vol: number) =>
+      synthInstances.find((s) => (s as { initialVolume?: number }).initialVolume === vol),
+    resetSynths: () => { synthInstances.length = 0; },
     resetCounters: () => { nextScheduleId = 1; },
   };
 });
@@ -36,15 +43,18 @@ vi.mock('tone', () => {
   class MockSynth {
     oscillator: unknown;
     envelope: unknown;
+    initialVolume: number;
     volume = { value: 0 };
+    triggerAttackRelease = vi.fn();
+    dispose = vi.fn();
     constructor(opts: any = {}) {
       this.oscillator = opts.oscillator;
       this.envelope = opts.envelope;
+      this.initialVolume = opts.volume ?? 0;
       if (opts.volume !== undefined) this.volume.value = opts.volume;
+      hoisted.synthInstances.push(this as unknown as Record<string, unknown>);
     }
     toDestination() { return this; }
-    triggerAttackRelease = vi.fn();
-    dispose = vi.fn();
   }
   class MockSampler {
     volume = { value: 0 };
@@ -69,6 +79,7 @@ import { getTimeSignature } from '../src/metronome/time-signatures';
 beforeEach(() => {
   hoisted.setCallback(null);
   hoisted.resetCounters();
+  hoisted.resetSynths();
   hoisted.transportMock.bpm.value = 120;
   hoisted.transportMock.position = 0;
   vi.clearAllMocks();
@@ -77,6 +88,7 @@ beforeEach(() => {
 
 afterEach(() => {
   hoisted.setCallback(null);
+  hoisted.resetSynths();
 });
 
 function tick(time = 0): void {
@@ -429,6 +441,223 @@ describe('Metronome — payload contract', () => {
       audioTime: 1.234,
     });
     expect(captured.timeSignature.id).toBe('4/4');
+    m.dispose();
+  });
+});
+
+/**
+ * Extract the audio times at which the subdivision voice was triggered after a
+ * call to the main-tick callback. The subdivision voice is the Synth created with
+ * `volume: -6` (see `createDefaultClickVoices`).
+ */
+function subTickAudioTimes(): number[] {
+  const sub = hoisted.findSynthByInitialVolume(-6) as {
+    triggerAttackRelease: { mock: { calls: unknown[][] } };
+  } | undefined;
+  if (!sub) return [];
+  return sub.triggerAttackRelease.mock.calls.map((c) => c[2] as number);
+}
+
+describe('Metronome — subdivisions', () => {
+  it('off (default) schedules no sub-ticks', async () => {
+    const m = new Metronome({ bpm: 120 });
+    await m.start();
+    tick(0);
+    expect(subTickAudioTimes()).toHaveLength(0);
+    m.dispose();
+  });
+
+  it('8ths schedules one sub-tick per beat at the midpoint when swing = 0.5', async () => {
+    const m = new Metronome({ bpm: 120, subdivision: '8ths' });
+    await m.start();
+    // 4/4 at 120 BPM → D = 60/120 = 0.5s. 8ths → 2 sub-ticks per beat; sub-tick
+    // at index 1 fires straight-midway, i.e. 0.25s after the main beat.
+    tick(0);
+    const times = subTickAudioTimes();
+    expect(times).toHaveLength(1);
+    expect(times[0]).toBeCloseTo(0.25);
+    m.dispose();
+  });
+
+  it('subdivision event payload carries beat/index/sub-count', async () => {
+    vi.useFakeTimers();
+    let captured: any;
+    const m = new Metronome({ bpm: 120, subdivision: '8ths' });
+    m.on('subdivision', (e) => { captured = e; });
+    await m.start();
+    tick(1.0);
+    // setTimeout(... 250ms) for the 8th-note sub-tick at 120 BPM.
+    vi.advanceTimersByTime(260);
+    expect(captured).toMatchObject({
+      beat: 0,
+      measure: 0,
+      subdivisionIndex: 1,
+      subdivisionsPerBeat: 2,
+      bpm: 120,
+    });
+    expect(captured.audioTime).toBeCloseTo(1.25);
+    m.dispose();
+    vi.useRealTimers();
+  });
+
+  it('triplets schedule 2 sub-ticks per beat at 1/3 and 2/3 of the beat', async () => {
+    const m = new Metronome({ bpm: 120, subdivision: 'triplets' });
+    await m.start();
+    tick(0);
+    const times = subTickAudioTimes();
+    expect(times).toHaveLength(2);
+    expect(times[0]).toBeCloseTo(0.5 / 3);
+    expect(times[1]).toBeCloseTo((0.5 / 3) * 2);
+    m.dispose();
+  });
+
+  it('16ths schedule 3 sub-ticks per beat (straight)', async () => {
+    const m = new Metronome({ bpm: 120, subdivision: '16ths' });
+    await m.start();
+    tick(0);
+    const times = subTickAudioTimes();
+    expect(times).toHaveLength(3);
+    const step = 0.5 / 4;
+    expect(times[0]).toBeCloseTo(step);
+    expect(times[1]).toBeCloseTo(step * 2);
+    expect(times[2]).toBeCloseTo(step * 3);
+    m.dispose();
+  });
+
+  it('sextuplets schedule 5 sub-ticks per beat', async () => {
+    const m = new Metronome({ bpm: 120, subdivision: 'sextuplets' });
+    await m.start();
+    tick(0);
+    expect(subTickAudioTimes()).toHaveLength(5);
+    m.dispose();
+  });
+
+  it('subdivision setting can be toggled at runtime', async () => {
+    const m = new Metronome({ bpm: 120 });
+    await m.start();
+    tick(0);
+    expect(subTickAudioTimes()).toHaveLength(0);
+
+    m.setSubdivision('8ths');
+    tick(0.5);
+    expect(subTickAudioTimes()).toHaveLength(1);
+
+    m.setSubdivision('off');
+    tick(1.0);
+    // Subdivision-voice mock retains prior calls; subdiv=off should NOT add new ones.
+    expect(subTickAudioTimes()).toHaveLength(1);
+
+    m.dispose();
+  });
+
+  it('subdivisionChange event fires on setSubdivision', () => {
+    const handler = vi.fn();
+    const m = new Metronome();
+    m.on('subdivisionChange', handler);
+    m.setSubdivision('triplets');
+    expect(handler).toHaveBeenCalledWith('triplets');
+    m.dispose();
+  });
+
+  it('setSubdivision is a no-op when value unchanged', () => {
+    const handler = vi.fn();
+    const m = new Metronome({ subdivision: 'triplets' });
+    m.on('subdivisionChange', handler);
+    m.setSubdivision('triplets');
+    expect(handler).not.toHaveBeenCalled();
+    m.dispose();
+  });
+
+  it('stop() cancels pending sub-tick events', async () => {
+    vi.useFakeTimers();
+    const handler = vi.fn();
+    const m = new Metronome({ bpm: 120, subdivision: '8ths' });
+    m.on('subdivision', handler);
+    await m.start();
+    tick(0);
+    // Sub-tick is scheduled for +250ms. Stop before it fires.
+    vi.advanceTimersByTime(100);
+    m.stop();
+    vi.advanceTimersByTime(500);
+    expect(handler).not.toHaveBeenCalled();
+    m.dispose();
+    vi.useRealTimers();
+  });
+});
+
+describe('Metronome — swing', () => {
+  it('swing on 8ths shifts the up-tick later (75% case)', async () => {
+    const m = new Metronome({ bpm: 120, subdivision: '8ths', swing: 0.75 });
+    await m.start();
+    // D = 0.5s. Pair offset = 2 * 0.75 * (D/N) = 2 * 0.75 * 0.25 = 0.375s.
+    tick(0);
+    const times = subTickAudioTimes();
+    expect(times).toHaveLength(1);
+    expect(times[0]).toBeCloseTo(0.375);
+    m.dispose();
+  });
+
+  it('swing collapses to straight at 0.5 (midpoint)', async () => {
+    const m = new Metronome({ bpm: 120, subdivision: '8ths', swing: 0.5 });
+    await m.start();
+    tick(0);
+    expect(subTickAudioTimes()[0]).toBeCloseTo(0.25);
+    m.dispose();
+  });
+
+  it('clamps swing to [0.5, 0.75]', () => {
+    expect(new Metronome({ swing: 0.1 }).swing).toBe(0.5);
+    expect(new Metronome({ swing: 0.99 }).swing).toBe(0.75);
+    expect(new Metronome({ swing: 0.6 }).swing).toBeCloseTo(0.6);
+  });
+
+  it('triplets ignore swing (positions stay evenly spaced)', async () => {
+    const m = new Metronome({ bpm: 120, subdivision: 'triplets', swing: 0.75 });
+    await m.start();
+    tick(0);
+    const times = subTickAudioTimes();
+    expect(times).toHaveLength(2);
+    expect(times[0]).toBeCloseTo(0.5 / 3);
+    expect(times[1]).toBeCloseTo((0.5 / 3) * 2);
+    m.dispose();
+  });
+
+  it('sextuplets ignore swing', async () => {
+    const m = new Metronome({ bpm: 120, subdivision: 'sextuplets', swing: 0.75 });
+    await m.start();
+    tick(0);
+    const times = subTickAudioTimes();
+    expect(times).toHaveLength(5);
+    // All evenly spaced.
+    const step = 0.5 / 6;
+    for (let i = 0; i < times.length; i++) {
+      expect(times[i]).toBeCloseTo(step * (i + 1));
+    }
+    m.dispose();
+  });
+
+  it('16ths with swing shifts only the 2nd and 4th sub-ticks (odd indices)', async () => {
+    const m = new Metronome({ bpm: 120, subdivision: '16ths', swing: 0.75 });
+    await m.start();
+    tick(0);
+    const times = subTickAudioTimes();
+    expect(times).toHaveLength(3);
+    // sub-ticks 1,2,3. D/N = 0.125. swing-pair offset = 2*0.75*0.125 = 0.1875.
+    // i=1 (odd, "up" of pair 0): pair-start (0) + 0.1875 = 0.1875.
+    // i=2 (even, "down" of pair 1): straight 2*0.125 = 0.25.
+    // i=3 (odd, "up" of pair 1): pair-start (2*0.125=0.25) + 0.1875 = 0.4375.
+    expect(times[0]).toBeCloseTo(0.1875);
+    expect(times[1]).toBeCloseTo(0.25);
+    expect(times[2]).toBeCloseTo(0.4375);
+    m.dispose();
+  });
+
+  it('swingChange event fires on setSwing', () => {
+    const handler = vi.fn();
+    const m = new Metronome();
+    m.on('swingChange', handler);
+    m.setSwing(0.67);
+    expect(handler).toHaveBeenCalledWith(0.67);
     m.dispose();
   });
 });

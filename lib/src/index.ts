@@ -146,15 +146,19 @@ export {
   getTimeSignature,
   DEFAULT_TIME_SIGNATURE_ID,
   tickSubdivision,
+  subdivisionCount,
+  subdivisionSupportsSwing,
 } from './metronome';
 export type {
   TimeSignature,
   MetronomeTickEvent,
+  MetronomeSubdivisionEvent,
   MetronomeEvents,
   MetronomeOptions,
   MetronomeState,
   MetronomeStoreState,
   ClickSound,
+  SubdivisionId,
   UseMetronomeReturn,
 } from './metronome';
 

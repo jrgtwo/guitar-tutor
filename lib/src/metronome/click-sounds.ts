@@ -1,16 +1,20 @@
 /**
- * Default click-sound factory. The metronome creates two voices on construction:
- * an "accent" voice tuned bright (1500Hz) and a "regular" voice (800Hz). Both are
- * sharp electronic blips with a near-instant attack and a 50ms decay.
+ * Default click-sound factory. The metronome creates three voices on construction:
+ * an "accent" voice (high), a "regular" voice (mid), and a "subdivision" voice
+ * (low, softer). All are short triangle blips with a near-instant attack and a
+ * 50ms decay.
  *
- * Consumers can override either voice via `Metronome.setSounds(...)` — see types.ts.
+ * Consumers can override any voice via `Metronome.setSounds(...)` — see types.ts.
  */
 import { Synth, Sampler, gainToDb } from 'tone';
 import type { ClickSound } from './types';
 
+export type ClickRole = 'accent' | 'regular' | 'subdivision';
+
 export interface NormalizedClickVoices {
   accent: Synth | Sampler;
   regular: Synth | Sampler;
+  subdivision: Synth | Sampler;
   /** Voices we created and own — must be disposed when the metronome is disposed. */
   ownedVoices: Set<Synth | Sampler>;
 }
@@ -29,7 +33,18 @@ export function createDefaultClickVoices(): NormalizedClickVoices {
     volume: 0,
   }).toDestination();
 
-  return { accent, regular, ownedVoices: new Set([accent, regular]) };
+  const subdivision = new Synth({
+    oscillator: { type: 'triangle' },
+    envelope: { attack: 0.001, decay: 0.04, sustain: 0, release: 0.02 },
+    volume: -6,
+  }).toDestination();
+
+  return {
+    accent,
+    regular,
+    subdivision,
+    ownedVoices: new Set([accent, regular, subdivision]),
+  };
 }
 
 /**
@@ -56,17 +71,23 @@ export function normalizeClickSound(
 }
 
 /**
- * Trigger one click on the given voice.
+ * Trigger one click on the given voice with role-appropriate pitch + level.
  *
- * Important: Tone.Synth's pitch is determined by the note passed to triggerAttackRelease,
- * not the oscillator config. We pass a higher note for accent ("C6") and a lower one for
- * the regular click ("C5"), which produces an audibly distinct downbeat. Accent also gets
- * a small volume boost on top.
+ * Important: Tone.Synth's pitch is determined by the note passed to
+ * triggerAttackRelease, not the oscillator config. We pass a higher note for accent
+ * ('C6'), 'C5' for regular, and 'C4' for subdivision. Volume offsets stack on top
+ * of the per-voice base level so the relative balance survives a master-volume
+ * change.
  */
-export function triggerClick(voice: Synth | Sampler, time: number, volume01: number, isAccent = false) {
-  // Map 0..1 → ~ -40dB..0dB. Accent gets +4dB boost so it reads even on cheap speakers.
-  const dB = gainToDb(Math.max(0.0001, volume01)) + (isAccent ? 4 : 0);
+export function triggerClick(
+  voice: Synth | Sampler,
+  time: number,
+  volume01: number,
+  role: ClickRole = 'regular',
+) {
+  const offsetDb = role === 'accent' ? 4 : role === 'subdivision' ? -4 : 0;
+  const dB = gainToDb(Math.max(0.0001, volume01)) + offsetDb;
   voice.volume.value = dB;
-  const note = isAccent ? 'C6' : 'C5';
+  const note = role === 'accent' ? 'C6' : role === 'subdivision' ? 'C4' : 'C5';
   voice.triggerAttackRelease(note, '32n', time);
 }

@@ -1,5 +1,9 @@
 import { create } from 'zustand';
 import { DEFAULT_TIME_SIGNATURE_ID, getTimeSignature } from './time-signatures';
+import type { SubdivisionId } from './types';
+
+const SWING_MIN = 0.5;
+const SWING_MAX = 0.75;
 
 /**
  * UI-and-config state for the metronome, separate from the fretwork store. Keeping
@@ -22,11 +26,18 @@ export interface MetronomeStoreState {
    *  the lights or the plucked-tone playback to keep time. */
   clickMuted: boolean;
   volume: number;
+  /** Subdivision setting. 'off' means no sub-ticks between main beats. */
+  subdivision: SubdivisionId;
+  /** Swing amount in [0.5, 0.75]; only audible for 8ths/16ths subdivisions. */
+  swing: number;
 
   // UI-only / runtime
   isRunning: boolean;
   currentBeat: number;        // -1 before first tick or after stop
   currentMeasure: number;     // -1 before first tick or after stop
+  /** Sub-tick index within the current beat. 0 on a main beat; 1..N-1 between
+   *  main beats. -1 before first tick or after stop. */
+  currentSubdivisionIndex: number;
 
   // Setters
   setBpm: (bpm: number) => void;
@@ -37,9 +48,12 @@ export interface MetronomeStoreState {
   setClickMuted: (muted: boolean) => void;
   toggleClickMuted: () => void;
   setVolume: (v: number) => void;
+  setSubdivision: (id: SubdivisionId) => void;
+  setSwing: (swing: number) => void;
   setRunning: (running: boolean) => void;
   setCurrentBeat: (beat: number) => void;
   setCurrentMeasure: (measure: number) => void;
+  setCurrentSubdivisionIndex: (index: number) => void;
 }
 
 export const DEFAULT_METRONOME_STATE = {
@@ -49,9 +63,12 @@ export const DEFAULT_METRONOME_STATE = {
   accentEnabled: true,
   clickMuted: false,
   volume: 0.7,
+  subdivision: 'off' as SubdivisionId,
+  swing: 0.5,
   isRunning: false,
   currentBeat: -1,
   currentMeasure: -1,
+  currentSubdivisionIndex: -1,
 };
 
 export const useMetronomeStore = create<MetronomeStoreState>((set) => ({
@@ -69,12 +86,16 @@ export const useMetronomeStore = create<MetronomeStoreState>((set) => ({
   setClickMuted: (clickMuted) => set({ clickMuted }),
   toggleClickMuted: () => set((s) => ({ clickMuted: !s.clickMuted })),
   setVolume: (v) => set({ volume: Math.max(0, Math.min(1, v)) }),
+  setSubdivision: (subdivision) => set({ subdivision }),
+  setSwing: (swing) => set({ swing: Math.max(SWING_MIN, Math.min(SWING_MAX, swing)) }),
   setRunning: (isRunning) => set((s) => ({
     isRunning,
     // Reset beat/measure on stop; on start they'll get set to 0 on first tick.
     currentBeat: isRunning ? s.currentBeat : -1,
     currentMeasure: isRunning ? s.currentMeasure : -1,
+    currentSubdivisionIndex: isRunning ? s.currentSubdivisionIndex : -1,
   })),
   setCurrentBeat: (currentBeat) => set({ currentBeat }),
   setCurrentMeasure: (currentMeasure) => set({ currentMeasure }),
+  setCurrentSubdivisionIndex: (currentSubdivisionIndex) => set({ currentSubdivisionIndex }),
 }));

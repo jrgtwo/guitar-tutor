@@ -9,11 +9,17 @@ export {
   DEFAULT_TIME_SIGNATURE_ID,
   tickSubdivision,
 } from './time-signatures';
+export {
+  subdivisionCount,
+  subdivisionSupportsSwing,
+} from './types';
 export type {
   TimeSignature,
   MetronomeTickEvent,
+  MetronomeSubdivisionEvent,
   MetronomeEvents,
   MetronomeOptions,
   MetronomeState,
   ClickSound,
+  SubdivisionId,
 } from './types';

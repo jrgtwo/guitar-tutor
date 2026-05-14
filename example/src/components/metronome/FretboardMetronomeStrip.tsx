@@ -20,16 +20,19 @@ import {
   SelectTrigger,
   SelectValue,
   TIME_SIGNATURES,
+  subdivisionCount,
   useMetronome,
   usePlayback,
 } from '@fretwork/lib';
-import { BeatDot } from './BeatDot';
+import { BeatDot, SubdivisionDot } from './BeatDot';
 import {
   AccentSwitch,
+  MetronomeFeel,
   TickSoundSwitch,
 } from './MetronomePracticeToggles';
 import {
   NotesOnBeatSwitch,
+  NotesOnSubdivisionSwitch,
   PlaybackPatternControls,
 } from '../playback/PlaybackControls';
 import { PatternSelect } from '../playback/PatternSelect';
@@ -41,9 +44,18 @@ export function FretboardMetronomeStrip() {
   const m = useMetronome();
   const playback = usePlayback();
   const flashing = useBeatFlash(m.currentBeat, m.isRunning);
+  // Sub-tick flash uses the composite beat*16 + subIndex key so it ticks on every
+  // sub-tick (and on main-beat resets-to-0 too — the per-dot index filter ignores
+  // mismatches so only the right sub-dot lights).
+  const subFlashing = useBeatFlash(
+    m.currentBeat * 16 + Math.max(0, m.currentSubdivisionIndex),
+    m.isRunning,
+  );
 
   const beatsInMeasure = m.timeSignature.numerator;
   const beats = Array.from({ length: beatsInMeasure }, (_, i) => i);
+  const subsPerBeat = subdivisionCount(m.subdivision);
+  const hasSubs = subsPerBeat > 1;
 
   return (
     <div className="flex items-center gap-3 px-3 sm:px-4 py-2 rounded-lg border border-border/40 bg-card/60 backdrop-blur">
@@ -58,18 +70,34 @@ export function FretboardMetronomeStrip() {
         {m.isRunning ? <Square className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
       </Button>
 
-      {/* Beat dots — closest dynamic element to the fretboard. The row sizes to
+      {/* Beat dots — closest dynamic element to the fretboard. When a subdivision
+       *  is active, sub-dots are interleaved between main beats. The row sizes to
        *  its content (no overflow handling) so the active dot's glow can paint
        *  freely without triggering scrollbar/layout shifts on each flash. */}
-      <div className="flex items-center gap-2 px-1 shrink-0">
+      <div
+        className={'flex items-center px-1 shrink-0 ' + (hasSubs ? 'gap-1' : 'gap-2')}
+      >
         {beats.map((b) => (
-          <BeatDot
-            key={b}
-            active={flashing && m.currentBeat === b}
-            isAccent={m.accents.includes(b)}
-            size="md"
-            dimmed={!m.isRunning}
-          />
+          <div key={b} className="flex items-center gap-1">
+            <BeatDot
+              active={flashing && m.currentBeat === b}
+              isAccent={m.accents.includes(b)}
+              size="md"
+              dimmed={!m.isRunning}
+            />
+            {hasSubs &&
+              Array.from({ length: subsPerBeat - 1 }, (_, k) => k + 1).map((subIdx) => (
+                <SubdivisionDot
+                  key={`b${b}-s${subIdx}`}
+                  active={
+                    subFlashing &&
+                    m.currentBeat === b &&
+                    m.currentSubdivisionIndex === subIdx
+                  }
+                  dimmed={!m.isRunning}
+                />
+              ))}
+          </div>
         ))}
       </div>
 
@@ -176,6 +204,7 @@ export function FretboardMetronomeStrip() {
         <div className="lg:hidden">
           <NotesOnBeatSwitch />
         </div>
+        <NotesOnSubdivisionSwitch />
         {/* PlaybackPatternControls renders Pattern + the conditional "Program
          *  pattern" button (only when Custom is selected). Kept in the popover at
          *  every width because the program button needs a home — the inline
@@ -185,6 +214,9 @@ export function FretboardMetronomeStrip() {
         <PlaybackPatternControls />
         <div className="xl:hidden">
           <SoundControls />
+        </div>
+        <div className="border-t border-border/40 pt-3">
+          <MetronomeFeel />
         </div>
       </SimplePopover>
     </div>

@@ -21,8 +21,16 @@ import {
   TIME_SIGNATURES,
   useMetronome,
 } from '@fretwork/lib';
-import { AccentSwitch, TickSoundSwitch } from './metronome/MetronomePracticeToggles';
-import { NotesOnBeatSwitch, PlaybackPatternControls } from './playback/PlaybackControls';
+import {
+  AccentSwitch,
+  MetronomeFeel,
+  TickSoundSwitch,
+} from './metronome/MetronomePracticeToggles';
+import {
+  NotesOnBeatSwitch,
+  NotesOnSubdivisionSwitch,
+  PlaybackPatternControls,
+} from './playback/PlaybackControls';
 import { SoundControls } from './playback/SoundControls';
 import { SimplePopover } from './ui/SimplePopover';
 import { useContextSummary } from './useContextSummary';
@@ -142,11 +150,13 @@ function ConfigSections() {
         <div className="basis-full flex flex-col gap-3">
           <AccentSwitch />
           <TickSoundSwitch />
+          <MetronomeFeel />
         </div>
       </Section>
       <Section title="Playback">
         <div className="basis-full flex flex-col gap-3">
           <NotesOnBeatSwitch />
+          <NotesOnSubdivisionSwitch />
           <PlaybackPatternControls />
           <SoundControls />
         </div>

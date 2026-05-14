@@ -10,8 +10,14 @@ import type {
   ClickSound,
   MetronomeEvents,
   MetronomeOptions,
+  MetronomeSubdivisionEvent,
   MetronomeTickEvent,
+  SubdivisionId,
   TimeSignature,
+} from './types';
+import {
+  subdivisionCount,
+  subdivisionSupportsSwing,
 } from './types';
 import {
   DEFAULT_TIME_SIGNATURE_ID,
@@ -27,6 +33,20 @@ import {
 
 const MIN_BPM = 40;
 const MAX_BPM = 240;
+const SWING_MIN = 0.5;
+const SWING_MAX = 0.75;
+
+function clampSwing(swing: number): number {
+  if (!Number.isFinite(swing)) return SWING_MIN;
+  return Math.max(SWING_MIN, Math.min(SWING_MAX, swing));
+}
+
+/** Seconds per main metronome tick at the given time-sig denominator and BPM.
+ *  /4 → quarter note, /8 → eighth note, /2 → half, /16 → sixteenth.
+ *  Generally: tickDuration = (4 / denom) * (60 / bpm). */
+function tickDurationSeconds(ts: TimeSignature, bpm: number): number {
+  return (4 / ts.denominator) * (60 / bpm);
+}
 
 function clampBpm(bpm: number): number {
   return Math.max(MIN_BPM, Math.min(MAX_BPM, bpm));
@@ -51,6 +71,8 @@ export class Metronome {
   private _accentEnabled: boolean;
   private _volume: number;
   private _muted: boolean;
+  private _subdivision: SubdivisionId;
+  private _swing: number;
   private _isRunning = false;
 
   // Counters reset on every start()
@@ -62,8 +84,13 @@ export class Metronome {
   // Tone wiring — created lazily on first start() so constructing a Metronome doesn't
   // require an AudioContext (important for SSR and jsdom-based tests).
   private _voices: NormalizedClickVoices | null = null;
-  private _pendingSounds: { accent?: ClickSound; regular?: ClickSound } | null = null;
+  private _pendingSounds:
+    | { accent?: ClickSound; regular?: ClickSound; subdivision?: ClickSound }
+    | null = null;
   private _scheduledEventId: number | null = null;
+  /** Pending setTimeout handles for sub-tick visual/event dispatch. Cleared on
+   *  stop() and dispose() so a stopped metronome doesn't keep firing sub-events. */
+  private _pendingSubTimeouts: Set<ReturnType<typeof setTimeout>> = new Set();
 
   constructor(options: MetronomeOptions = {}) {
     this._bpm = clampBpm(options.bpm ?? 120);
@@ -72,6 +99,8 @@ export class Metronome {
     this._accentEnabled = options.accentEnabled ?? true;
     this._volume = options.volume ?? 0.7;
     this._muted = options.muted ?? false;
+    this._subdivision = options.subdivision ?? 'off';
+    this._swing = clampSwing(options.swing ?? 0.5);
 
     if (options.sounds) {
       this._pendingSounds = { ...options.sounds };
@@ -93,6 +122,9 @@ export class Metronome {
     }
     if (this._pendingSounds?.regular) {
       this._voices.regular = normalizeClickSound(this._pendingSounds.regular, this._voices.regular, this._voices.ownedVoices);
+    }
+    if (this._pendingSounds?.subdivision) {
+      this._voices.subdivision = normalizeClickSound(this._pendingSounds.subdivision, this._voices.subdivision, this._voices.ownedVoices);
     }
     this._pendingSounds = null;
     return this._voices;
@@ -133,6 +165,7 @@ export class Metronome {
     transport.stop();
     this._isRunning = false;
     this._tickIndex = 0;
+    this._cancelPendingSubTimeouts();
     this._fire('stop');
   }
 
@@ -190,7 +223,20 @@ export class Metronome {
     this._muted = muted;
   }
 
-  setSounds(sounds: { accent?: ClickSound; regular?: ClickSound }): void {
+  setSubdivision(id: SubdivisionId): void {
+    if (id === this._subdivision) return;
+    this._subdivision = id;
+    this._fire('subdivisionChange', id);
+  }
+
+  setSwing(swing: number): void {
+    const clamped = clampSwing(swing);
+    if (clamped === this._swing) return;
+    this._swing = clamped;
+    this._fire('swingChange', clamped);
+  }
+
+  setSounds(sounds: { accent?: ClickSound; regular?: ClickSound; subdivision?: ClickSound }): void {
     if (!this._voices) {
       // Defer until voices exist (i.e. until first start()).
       this._pendingSounds = { ...this._pendingSounds, ...sounds };
@@ -201,6 +247,9 @@ export class Metronome {
     }
     if (sounds.regular) {
       this._voices.regular = normalizeClickSound(sounds.regular, this._voices.regular, this._voices.ownedVoices);
+    }
+    if (sounds.subdivision) {
+      this._voices.subdivision = normalizeClickSound(sounds.subdivision, this._voices.subdivision, this._voices.ownedVoices);
     }
   }
 
@@ -230,11 +279,14 @@ export class Metronome {
   get accentEnabled(): boolean { return this._accentEnabled; }
   get volume(): number { return this._volume; }
   get muted(): boolean { return this._muted; }
+  get subdivision(): SubdivisionId { return this._subdivision; }
+  get swing(): number { return this._swing; }
 
   // ─── Cleanup ─────────────────────────────────────────────────────────────────
 
   dispose(): void {
     this.stop();
+    this._cancelPendingSubTimeouts();
     if (this._voices) {
       for (const voice of this._voices.ownedVoices) {
         voice.dispose();
@@ -266,8 +318,9 @@ export class Metronome {
     // Audio first, so the click is sample-accurate (Tone schedules on its own clock).
     if (!this._muted && this._voices) {
       const voice = shouldSoundAccent ? this._voices.accent : this._voices.regular;
+      const role = shouldSoundAccent ? 'accent' : 'regular';
       try {
-        triggerClick(voice, audioTime, this._volume, shouldSoundAccent);
+        triggerClick(voice, audioTime, this._volume, role);
       } catch {
         // A custom voice may have its own latency (e.g. Sampler not yet loaded).
         // Silently swallow click failures — the tick events still fire so UI stays in sync.
@@ -294,6 +347,114 @@ export class Metronome {
     this._fire('tick', event);
     if (isAccent) this._fire('accent', event);
     if (beat === 0) this._fire('measure', event);
+
+    // Schedule sub-ticks for this beat (no-op when subdivision is 'off').
+    this._scheduleSubTicks(beat, measure, audioTime);
+  }
+
+  /**
+   * Schedule sub-tick audio + visual/event dispatch between this main beat and the
+   * next.
+   *
+   * Layout: a main beat has duration D = (4/denominator) * (60/bpm). N sub-ticks per
+   * beat (1 = off, 2 = 8ths, 3 = triplets, 4 = 16ths, 6 = sextuplets). The main beat
+   * is sub-tick index 0 and is fired by `_dispatchTick` itself — this method schedules
+   * indices 1..N-1.
+   *
+   * Swing (only when N is even and the subdivision supports swing): sub-ticks pair as
+   * [down, up]. The `down` tick of each pair fires at its straight time; the `up`
+   * tick shifts to `downStart + 2 * swing * (D/N)`. At swing = 0.5 this collapses to
+   * the straight midpoint; at 0.75 the up sits three-quarters of the way through the
+   * pair.
+   *
+   * Why audio + setTimeout (instead of Tone.Transport.schedule): Transport.schedule's
+   * `time` argument is in transport-relative time, not AudioContext time — passing
+   * AudioContext time leaves the callback parked far in the future and it never fires.
+   * The synth itself accepts an absolute AudioContext time on `triggerAttackRelease`,
+   * so audio is sample-accurate via Tone's own scheduler. Visual/event dispatch uses
+   * setTimeout, which has the same ~5–10ms visual-leads-audio tradeoff as the main
+   * tick's synchronous dispatch (see `_dispatchTick`).
+   */
+  private _scheduleSubTicks(beat: number, measure: number, beatAudioTime: number): void {
+    const n = subdivisionCount(this._subdivision);
+    if (n <= 1) return;
+
+    const D = tickDurationSeconds(this._timeSignature, this._bpm);
+    const stepStraight = D / n;
+    const swingActive = subdivisionSupportsSwing(this._subdivision) && this._swing > 0.5;
+
+    for (let i = 1; i < n; i++) {
+      let offset: number;
+      if (swingActive) {
+        // Pair index within the beat: 0, 1, 2, ... where each pair owns sub-ticks
+        // (2k, 2k+1). The "up" tick (odd `i`) shifts; the "down" tick (even `i`) stays.
+        const pairIndex = Math.floor(i / 2);
+        const isUp = i % 2 === 1;
+        if (isUp) {
+          // up = pairStart + 2 * swing * stepStraight
+          offset = pairIndex * 2 * stepStraight + 2 * this._swing * stepStraight;
+        } else {
+          offset = i * stepStraight; // even-index "down" ticks stay at their straight position
+        }
+      } else {
+        offset = i * stepStraight;
+      }
+
+      const subAudioTime = beatAudioTime + offset;
+      const subdivisionIndex = i;
+      const subdivisionsPerBeat = n;
+
+      // Audio: schedule at the future audio time directly. Tone's synth handles the
+      // sample-accurate scheduling.
+      if (!this._muted && this._voices) {
+        try {
+          triggerClick(this._voices.subdivision, subAudioTime, this._volume, 'subdivision');
+        } catch {
+          // A custom voice may have its own latency (e.g. Sampler not yet loaded).
+          // Silently swallow click failures.
+        }
+      }
+
+      // Visual/event: fire roughly when the audio hits, via setTimeout. Guarded so a
+      // metronome stopped before the timer fires doesn't emit a stale event.
+      const delayMs = Math.max(0, offset * 1000);
+      const handle = setTimeout(() => {
+        this._pendingSubTimeouts.delete(handle);
+        if (!this._isRunning) return;
+        this._dispatchSubTickEvent(
+          beat,
+          measure,
+          subAudioTime,
+          subdivisionIndex,
+          subdivisionsPerBeat,
+        );
+      }, delayMs);
+      this._pendingSubTimeouts.add(handle);
+    }
+  }
+
+  private _dispatchSubTickEvent(
+    beat: number,
+    measure: number,
+    audioTime: number,
+    subdivisionIndex: number,
+    subdivisionsPerBeat: number,
+  ): void {
+    const event: MetronomeSubdivisionEvent = {
+      beat,
+      measure,
+      subdivisionIndex,
+      subdivisionsPerBeat,
+      timeSignature: this._timeSignature,
+      bpm: this._bpm,
+      audioTime,
+    };
+    this._fire('subdivision', event);
+  }
+
+  private _cancelPendingSubTimeouts(): void {
+    for (const handle of this._pendingSubTimeouts) clearTimeout(handle);
+    this._pendingSubTimeouts.clear();
   }
 
   private _fire<K extends keyof MetronomeEvents>(event: K, ...args: Parameters<Handler<K>>): void {

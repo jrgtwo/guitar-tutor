@@ -34,6 +34,9 @@ export class Playback {
   private _pattern: PlaybackPattern;
   private _customSequence: readonly PlayableCell[] = [];
   private _isProgramming = false;
+  /** When true, the playhead advances on every metronome subdivision sub-tick in
+   *  addition to main beats. When false (default), only main beats advance it. */
+  private _notesOnSubdivision = false;
 
   /** Latest snapshot of state to feed into pattern.resolve(). */
   private _resolveInput: ResolveInput | null = null;
@@ -48,6 +51,8 @@ export class Playback {
 
   /** Subscription cleanup for the Metronome tick listener. */
   private _unsubTick: (() => void) | null = null;
+  /** Subscription cleanup for the Metronome subdivision listener. */
+  private _unsubSubdivision: (() => void) | null = null;
 
   constructor(metronome: Metronome, options: PlaybackOptions = {}) {
     this._enabled = options.enabled ?? false;
@@ -59,6 +64,9 @@ export class Playback {
     // of this Playback instance.
     this._unsubTick = metronome.on('tick', (event) => {
       this._onTick(event.audioTime);
+    });
+    this._unsubSubdivision = metronome.on('subdivision', (event) => {
+      if (this._notesOnSubdivision) this._onTick(event.audioTime);
     });
     metronome.on('stop', () => {
       // Reset playhead when metronome stops so the next start begins from index 0.
@@ -89,6 +97,10 @@ export class Playback {
   setCustomSequence(cells: readonly PlayableCell[]): void {
     this._customSequence = [...cells];
     this._invalidateCache();
+  }
+
+  setNotesOnSubdivision(on: boolean): void {
+    this._notesOnSubdivision = on;
   }
 
   setInstrument(instrument: GuitarInstrument): void {
@@ -173,6 +185,8 @@ export class Playback {
   dispose(): void {
     this._unsubTick?.();
     this._unsubTick = null;
+    this._unsubSubdivision?.();
+    this._unsubSubdivision = null;
     this._instrument.dispose();
     this._playheadListeners.clear();
   }

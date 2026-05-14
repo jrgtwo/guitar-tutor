@@ -57,3 +57,30 @@ export function BeatDot({ active, isAccent, size = 'sm', dimmed = false }: BeatD
     </span>
   );
 }
+
+/**
+ * Smaller, dimmer dot rendered between main beats when a subdivision is active.
+ * Pulses on its own sub-tick using the cream "fifth" color so it reads as related
+ * to but visually subordinate to the main-beat dots.
+ */
+export function SubdivisionDot({
+  active,
+  dimmed = false,
+}: {
+  active: boolean;
+  dimmed?: boolean;
+}) {
+  return (
+    <span className="relative inline-block shrink-0 h-1.5 w-1.5" aria-hidden="true">
+      <span
+        className={cn(
+          'absolute inset-0 rounded-full transition-all duration-100',
+          active
+            ? 'bg-degree-fifth scale-125 shadow-[0_0_8px_2px_hsl(var(--degree-fifth)/0.5)]'
+            : 'bg-foreground/15',
+          dimmed && 'opacity-40',
+        )}
+      />
+    </span>
+  );
+}

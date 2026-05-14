@@ -15,6 +15,7 @@ import {
   Label,
   Switch,
   CUSTOM_PATTERN_ID,
+  useMetronome,
   usePlayback,
 } from '@fretwork/lib';
 import { PatternSelect } from './PatternSelect';
@@ -35,6 +36,42 @@ export function NotesOnBeatSwitch() {
         id="playback-enabled"
         checked={m.enabled}
         onCheckedChange={m.setEnabled}
+      />
+    </div>
+  );
+}
+
+/**
+ * Promotes playback density from "one note per main beat" to "one note per
+ * subdivision sub-tick." Dims when the metronome's subdivision is 'off' (no
+ * sub-ticks exist to play on), but stays interactive — the user can pre-arm
+ * the switch before picking a subdivision.
+ */
+export function NotesOnSubdivisionSwitch() {
+  const m = usePlayback();
+  const metro = useMetronome();
+  const inactive = metro.subdivision === 'off';
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-col leading-tight">
+        <Label
+          htmlFor="playback-on-subdivision"
+          className={
+            'cursor-pointer ' + (inactive ? 'text-muted-foreground' : '')
+          }
+        >
+          Notes on subdivision
+        </Label>
+        <span className="text-[10px] font-mono text-muted-foreground">
+          {inactive
+            ? 'Pick a subdivision to play on every sub-tick.'
+            : 'Play a note on every subdivision sub-tick.'}
+        </span>
+      </div>
+      <Switch
+        id="playback-on-subdivision"
+        checked={m.notesOnSubdivision}
+        onCheckedChange={m.setNotesOnSubdivision}
       />
     </div>
   );
@@ -101,6 +138,7 @@ export function PlaybackControls() {
   return (
     <div className="flex flex-col gap-3 border-t border-border/40 pt-3">
       <NotesOnBeatSwitch />
+      <NotesOnSubdivisionSwitch />
       <PlaybackPatternControls />
     </div>
   );
