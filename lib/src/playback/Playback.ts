@@ -23,6 +23,7 @@ import type {
   PlayableCell,
   ResolveInput,
 } from './types';
+import { cellsEqual } from './types';
 import { getPlaybackPattern, DEFAULT_PATTERN_ID } from './patterns';
 import { PluckSynthInstrument } from './instrument';
 
@@ -150,11 +151,7 @@ export class Playback {
   }
 
   addCustomCell(cell: PlayableCell): void {
-    if (
-      this._customSequence.some(
-        (c) => c.stringIndex === cell.stringIndex && c.fret === cell.fret,
-      )
-    ) {
+    if (this._customSequence.some((c) => cellsEqual(c, cell))) {
       return;
     }
     this._customSequence = [...this._customSequence, cell];

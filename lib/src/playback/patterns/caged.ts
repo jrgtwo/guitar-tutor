@@ -19,6 +19,7 @@
  * lowest fret in the active key.
  */
 import type { PlaybackPattern, PlayableCell, ResolveInput } from '../types';
+import { cellsEqual } from '../types';
 import type { CagedShape, CagedShapeId, CagedLetter } from './caged-shapes-data';
 import {
   MAJOR_CAGED_SHAPES,
@@ -330,10 +331,7 @@ function buildUpAndDown(cells: readonly AbsoluteCell[]): PlayableCell[] {
   // Drop the apex from desc to avoid playing it twice.
   if (desc.length > 0) {
     const apex = asc[asc.length - 1];
-    if (
-      desc[0].stringIndex === apex.stringIndex &&
-      desc[0].fret === apex.fret
-    ) {
+    if (cellsEqual(desc[0], apex)) {
       desc.shift();
     }
   }

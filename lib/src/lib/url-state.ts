@@ -38,7 +38,7 @@ export const DEFAULT_STATE: FretworkState = {
 };
 
 /** Validate that the `type` value matches the chosen `mode`. */
-function isValidTypeForMode(mode: Mode, type: string): boolean {
+export function isValidTypeForMode(mode: Mode, type: string): boolean {
   if (mode === 'scales') return SCALE_IDS.has(type);
   if (mode === 'arpeggios') return ARP_IDS.has(type);
   if (mode === 'notes') return CHROMATIC_SET.has(type);

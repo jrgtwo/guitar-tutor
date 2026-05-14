@@ -9,6 +9,15 @@ export interface PlayableCell {
   readonly fret: number;
 }
 
+/** Position-equality test for any cell with `stringIndex + fret`. Works for both
+ *  `PlayableCell` and `AbsoluteCell` (and anything structurally compatible). */
+export function cellsEqual(
+  a: { stringIndex: number; fret: number },
+  b: { stringIndex: number; fret: number },
+): boolean {
+  return a.stringIndex === b.stringIndex && a.fret === b.fret;
+}
+
 /** Inputs available to a pattern's `resolve()` and `isApplicable()` functions. */
 export interface ResolveInput {
   readonly highlights: readonly Highlight[];

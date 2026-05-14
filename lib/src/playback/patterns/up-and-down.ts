@@ -1,5 +1,6 @@
 import type { Highlight } from '../../types';
 import type { PlaybackPattern, PlayableCell } from '../types';
+import { cellsEqual } from '../types';
 
 export const UP_AND_DOWN_ID = 'up-and-down';
 
@@ -58,10 +59,7 @@ export function buildUpAndDown(cells: readonly Highlight[]): PlayableCell[] {
   // Drop the apex from desc to avoid playing it twice.
   if (desc.length > 0 && asc.length > 0) {
     const apex = asc[asc.length - 1];
-    if (
-      desc[0].stringIndex === apex.stringIndex &&
-      desc[0].fret === apex.fret
-    ) {
+    if (cellsEqual(desc[0], apex)) {
       desc.shift();
     }
   }

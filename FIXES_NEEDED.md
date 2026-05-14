@@ -29,14 +29,14 @@ Sections:
 
 ### 🟠 Duplications
 
-#### L3. Two parallel `(mode, type)` validators
+#### ~~L3. Two parallel `(mode, type)` validators~~ ✅ Fixed
 **Where:** `lib/src/lib/url-state.ts:41-46` (`isValidTypeForMode`) and `lib/src/store/useFretworkStore.ts:131-136` (`isValidTypeFor`)
 **Problem:** Same rule implemented twice with independent `SCALE_IDS`/`ARP_IDS` sets. Drift risk.
-**Fix:** Extract to a single helper in `lib/src/lib/validators.ts` (new) or `lib/src/lib/utils.ts`; both consumers import it.
+**Fix:** Exported `isValidTypeForMode` from `url-state.ts`; imported it in `useFretworkStore.ts`; deleted the duplicate function, its locals (`SCALE_IDS`/`ARP_IDS`/`NOTE_NAMES`), and the now-unused `SCALES`/`ARPEGGIOS`/`CHROMATIC_KEYS` imports from the store.
 
-#### L4. Cell-equality check inlined ≥3 times
-**Where:** `lib/src/playback/Playback.ts:144`, `lib/src/playback/usePlaybackStore.ts:57`, `lib/src/playback/usePlayback.ts:289` (search for `stringIndex === ... && fret === ...`)
-**Fix:** One `cellsEqual(a, b)` helper in `lib/src/playback/types.ts` or a small `lib/src/playback/cells.ts`.
+#### ~~L4. Cell-equality check inlined ≥3 times~~ ✅ Fixed
+**Where:** Final count was 8 sites: `Playback.ts:155`, `usePlaybackStore.ts:66`, `usePlayback.ts:290`, `Fretboard.tsx` (3 sites), `up-and-down.ts:62`, `caged.ts:334`.
+**Fix:** Added `cellsEqual(a, b)` helper in `lib/src/playback/types.ts` (structurally typed so it works for both `PlayableCell` and `AbsoluteCell`); replaced all 8 inlined call sites.
 
 #### L5. Playhead-reset duplicated
 **Where:** `lib/src/playback/Playback.ts:73-74` (stop handler) and `lib/src/playback/Playback.ts:85-86` (setEnabled(false))

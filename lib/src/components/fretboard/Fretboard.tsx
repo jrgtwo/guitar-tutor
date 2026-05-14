@@ -18,6 +18,7 @@ import { CapoBar } from './CapoBar';
 import { NoteMarker } from './NoteMarker';
 import { VIEWBOX_H, VIEWBOX_W, NECK_X, NECK_LENGTH, TOP_PAD, STRING_AREA } from './layout';
 import { usePlaybackStore } from '../../playback/usePlaybackStore';
+import { cellsEqual } from '../../playback/types';
 import { usePlayback } from '../../playback/usePlayback';
 import { resolveShapeAbsoluteCells } from '../../playback/patterns/caged';
 import type { CagedShapeId } from '../../playback/patterns/caged-shapes-data';
@@ -94,7 +95,7 @@ export function Fretboard() {
       playback.playback?.addCustomCell(cell);
       // Mirror to store for the UI to re-render with the new badge.
       usePlaybackStore.setState((s) => {
-        if (s.customSequence.some((c) => c.stringIndex === cell.stringIndex && c.fret === cell.fret)) {
+        if (s.customSequence.some((c) => cellsEqual(c, cell))) {
           return s;
         }
         return { customSequence: [...s.customSequence, cell] };
@@ -151,16 +152,13 @@ export function Fretboard() {
         <Headstock openStrings={openStrings} />
 
         {highlights.map((h) => {
-          const isPlayhead =
-            playheadCell != null &&
-            playheadCell.stringIndex === h.stringIndex &&
-            playheadCell.fret === h.fret;
+          const isPlayhead = playheadCell != null && cellsEqual(playheadCell, h);
           // Index of this cell within the custom sequence (-1 if absent).
           let programmingIndex = -1;
           if (isProgramming) {
             for (let i = 0; i < customSequence.length; i++) {
               const c = customSequence[i];
-              if (c.stringIndex === h.stringIndex && c.fret === h.fret) {
+              if (cellsEqual(c, h)) {
                 programmingIndex = i;
                 break;
               }

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { PlayableCell } from './types';
+import { cellsEqual } from './types';
 import type { VoiceFamily } from './voices/types';
 import { DEFAULT_PATTERN_ID } from './patterns';
 
@@ -63,7 +64,7 @@ export const usePlaybackStore = create<PlaybackStoreState>((set) => ({
   setCustomSequence: (customSequence) => set({ customSequence: [...customSequence] }),
   appendCustomCell: (cell) => set((s) => {
     // Avoid duplicates — same cell already in the sequence is a no-op.
-    if (s.customSequence.some((c) => c.stringIndex === cell.stringIndex && c.fret === cell.fret)) {
+    if (s.customSequence.some((c) => cellsEqual(c, cell))) {
       return s;
     }
     return { customSequence: [...s.customSequence, cell] };

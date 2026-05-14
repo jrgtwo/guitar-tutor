@@ -9,6 +9,7 @@ import type {
 import {
   DEFAULT_STATE,
   defaultTypeForMode,
+  isValidTypeForMode,
   readStateFromLocation,
   writeStateToLocation,
 } from '../lib/url-state';
@@ -68,7 +69,7 @@ export const useFretworkStore = create<Store>((set, get) => {
     setMode: (mode) => {
       const currentType = get().type;
       // Switching modes usually invalidates the type; reset to a sensible default.
-      const nextType = isValidTypeFor(mode, currentType) ? currentType : defaultTypeForMode(mode);
+      const nextType = isValidTypeForMode(mode, currentType) ? currentType : defaultTypeForMode(mode);
       // CAGED shape applies to scales and arpeggios. Clear it when entering Notes
       // mode so a hidden filter doesn't follow the user there.
       const nextShapeId = mode === 'notes' ? null : get().shapeId;
@@ -119,21 +120,6 @@ export const useFretworkStore = create<Store>((set, get) => {
     },
   };
 });
-
-import { SCALES } from '../lib/scales';
-import { ARPEGGIOS } from '../lib/arpeggios';
-import { CHROMATIC_KEYS } from '../lib/tunings';
-
-const SCALE_IDS = new Set(SCALES.map((s) => s.id));
-const ARP_IDS = new Set(ARPEGGIOS.map((a) => a.id));
-const NOTE_NAMES = new Set<string>(CHROMATIC_KEYS);
-
-function isValidTypeFor(mode: Mode, type: string): boolean {
-  if (mode === 'scales') return SCALE_IDS.has(type);
-  if (mode === 'arpeggios') return ARP_IDS.has(type);
-  if (mode === 'notes') return NOTE_NAMES.has(type);
-  return false;
-}
 
 // Reference DEFAULT_INSTRUMENT_ID so it's not orphaned on imports
 void DEFAULT_INSTRUMENT_ID;

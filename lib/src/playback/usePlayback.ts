@@ -17,6 +17,7 @@ import type {
   PlayableCell,
   ResolveInput,
 } from './types';
+import { cellsEqual } from './types';
 import { getPlaybackPattern, DEFAULT_PATTERN_ID } from './patterns';
 import { usePlaybackStore } from './usePlaybackStore';
 import { useFretworkStore } from '../store/useFretworkStore';
@@ -287,7 +288,7 @@ export function usePlayback(): UsePlaybackReturn {
     (cell: PlayableCell) => {
       for (let i = 0; i < customSequence.length; i++) {
         const c = customSequence[i];
-        if (c.stringIndex === cell.stringIndex && c.fret === cell.fret) return i;
+        if (cellsEqual(c, cell)) return i;
       }
       return -1;
     },
