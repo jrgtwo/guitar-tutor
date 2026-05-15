@@ -1,61 +1,46 @@
+import { useEffect } from 'react';
+import { usePatternsStore } from '@fretwork/lib';
+import { useMetronome, usePlaybackStore } from '@fretwork/lib';
+import { PatternsTopBar } from './layout/PatternsTopBar';
+import { LibrarySidebar } from './layout/LibrarySidebar';
+import { WorkspaceTabs } from './layout/WorkspaceTabs';
+import { useResponsiveSidebar } from './hooks/useResponsiveSidebar';
+import { EditPatternTab } from './editor/EditPatternTab';
+import { ArrangeCompositionTab } from './arranger/ArrangeCompositionTab';
+
 export function PatternsPage() {
+  useResponsiveSidebar();
+  const activeTab = usePatternsStore((s) => s.activeTab);
+  const { metronome } = useMetronome();
+  const setPlaybackEnabled = usePlaybackStore((s) => s.setEnabled);
+
+  // Force-disable Practice page's Playback while we're on Patterns so its audio
+  // doesn't interleave with our scheduler. Also stop transport defensively on
+  // mount and on unmount.
+  useEffect(() => {
+    const prev = usePlaybackStore.getState().enabled;
+    setPlaybackEnabled(false);
+    if (metronome) metronome.stop();
+    return () => {
+      if (metronome) metronome.stop();
+      setPlaybackEnabled(prev);
+    };
+    // metronome is a singleton; only the initial reference matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [metronome]);
+
   return (
-    <div className="min-h-screen flex flex-col bg-charcoal-deep">
-      <header className="sticky top-0 z-30 flex items-center justify-between px-4 sm:px-6 py-3 bg-charcoal-raised/70 backdrop-blur border-b border-border/40">
-        <a href="/" className="flex items-center gap-2">
-          <div className="h-9 w-9 rounded-md bg-degree-root/90 flex items-center justify-center text-charcoal-deep font-bold tracking-tighter shadow-md">
-            F
+    <div className="min-h-screen flex flex-col bg-charcoal-deep text-foreground">
+      <PatternsTopBar />
+      <div className="flex-1 flex overflow-hidden">
+        <LibrarySidebar />
+        <main className="flex-1 flex flex-col overflow-hidden">
+          <WorkspaceTabs />
+          <div className="flex-1 overflow-auto">
+            {activeTab === 'edit' ? <EditPatternTab /> : <ArrangeCompositionTab />}
           </div>
-          <div className="flex flex-col leading-none">
-            <span className="font-bold tracking-tight">FRETWORK</span>
-            <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-              full-neck visualization
-            </span>
-          </div>
-        </a>
-
-        <nav className="flex items-center gap-1">
-          <a
-            href="/"
-            className="h-8 px-3 inline-flex items-center rounded-md text-xs font-mono uppercase tracking-wider text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors"
-          >
-            Practice
-          </a>
-          <a
-            href="?page=patterns"
-            className="h-8 px-3 inline-flex items-center rounded-md text-xs font-mono uppercase tracking-wider bg-white/5 text-foreground"
-            aria-current="page"
-          >
-            Patterns
-          </a>
-        </nav>
-      </header>
-
-      <main className="flex-1 flex flex-col items-center justify-center gap-6 px-4 text-center">
-        <div className="flex flex-col items-center gap-4 max-w-md">
-          <div className="h-16 w-16 rounded-xl bg-degree-root/15 border border-degree-root/30 flex items-center justify-center">
-            <span className="text-2xl font-bold text-degree-root/80 font-mono">P</span>
-          </div>
-          <div className="flex flex-col gap-2">
-            <h1 className="text-2xl font-bold tracking-tight">Patterns</h1>
-            <p className="text-sm font-mono text-muted-foreground leading-relaxed">
-              Create, share, and explore custom fretboard patterns.
-              <br />
-              Coming soon.
-            </p>
-          </div>
-          <a
-            href="/"
-            className="mt-2 h-9 px-4 inline-flex items-center rounded-md border border-border/60 bg-charcoal-raised/40 hover:bg-white/5 text-sm transition-colors"
-          >
-            ← Back to Practice
-          </a>
-        </div>
-      </main>
-
-      <footer className="px-6 py-3 text-[10px] font-mono uppercase tracking-wider text-muted-foreground/60 text-right">
-        Built for guitarists · v0.1
-      </footer>
+        </main>
+      </div>
     </div>
   );
 }

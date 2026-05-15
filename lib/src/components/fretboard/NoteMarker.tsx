@@ -1,3 +1,4 @@
+import type { MouseEvent as ReactMouseEvent } from 'react';
 import type { Highlight, LabelMode, FretworkSettings } from '../../types';
 import { fretCenterX } from '../../lib/fretboard';
 import { MARKER_R, NECK_LENGTH, NECK_X, stringY } from './layout';
@@ -15,8 +16,9 @@ interface Props {
   /** When set, render the sequence number badge instead of the normal label (for
    * custom-pattern programming mode). 1-based. -1 means "not in the sequence". */
   programmingIndex?: number;
-  /** Click handler — only attached when the renderer is in programming mode. */
-  onClick?: () => void;
+  /** Click handler — receives the React event so consumers can read modifier keys
+   *  (e.g. shift for chord-stamping). Only attached when clickable. */
+  onClick?: (event: ReactMouseEvent) => void;
   /** When true, render this marker translucently — used to "ghost" notes that are
    *  in the active scale but outside the selected CAGED shape. The fretboard skips
    *  rendering ghosted markers entirely when the user has turned ghost markers off. */

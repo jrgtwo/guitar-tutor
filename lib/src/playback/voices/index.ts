@@ -1,5 +1,6 @@
 export { Voice } from './Voice';
 export { MasterBus, _resetMasterBusForTests } from './MasterBus';
+export { buildEffectiveVoice, effectiveVoiceFamily } from './buildEffectiveVoice';
 export {
   VOICE_PRESETS,
   ACOUSTIC_GUITAR_PRESET,

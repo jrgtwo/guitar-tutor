@@ -19,7 +19,7 @@
  */
 
 // Top-level renderable components
-export { Fretboard } from './components/fretboard/Fretboard';
+export { Fretboard, type FretboardProps } from './components/fretboard/Fretboard';
 export { TopBar } from './components/TopBar';
 export { InfoCard } from './components/InfoCard';
 export { Legend } from './components/Legend';
@@ -118,6 +118,78 @@ export {
 } from './lib/instruments';
 
 // Types
+// Patterns (Phase 1: pattern editor, library, composition arrangement)
+export {
+  generateId,
+  PPQ,
+  stepLengthToTicks,
+  ticksPerBar,
+  ticksPerBeat,
+  secondsPerTick,
+  ticksToSeconds,
+  defaultPatternDurationTicks,
+  snapTick,
+  createEmptyPattern,
+  clonePattern,
+  snapshotPatternForPlacement,
+  sortedEvents,
+  nextEventStartOnString,
+  prevEventEndOnString,
+  stampEvent,
+  resizeEvent,
+  moveEvent,
+  setEventFret,
+  deleteEvents,
+  setPatternName,
+  setPatternDuration,
+  setPatternTimeSignature,
+  createEmptyComposition,
+  totalDurationTicks,
+  addPlacement,
+  reorderPlacement,
+  setPlacementRepeat,
+  removePlacement,
+  setCompositionName,
+  setCompositionBpm,
+  flattenComposition,
+} from './patterns';
+export type {
+  Tick,
+  StepLength,
+  ArticulationId,
+  PatternEvent,
+  Lane,
+  PatternTimeSignature,
+  Pattern,
+  Placement,
+  Composition,
+  Library,
+  FlattenedEvent,
+} from './patterns';
+export {
+  usePatternsStore,
+  DEFAULT_PATTERNS_STATE,
+  selectEditingPattern,
+  selectEditingComposition,
+  findPlacement,
+} from './patterns/store/usePatternsStore';
+export type {
+  PatternsState,
+  PatternsActions,
+  PatternsStoreState,
+  WorkspaceTab,
+  SelectionMode,
+  PendingStamp,
+} from './patterns/store/usePatternsStore';
+export { EventScheduler } from './patterns/scheduler/EventScheduler';
+export type {
+  EventStream,
+  ScheduledEvent,
+  EventSchedulerOpts,
+} from './patterns/scheduler/EventScheduler';
+export { PatternSource } from './patterns/scheduler/PatternSource';
+export { CompositionSource } from './patterns/scheduler/CompositionSource';
+
 export type {
   Mode,
   LabelMode,
@@ -202,6 +274,8 @@ export {
   PLAYBACK_PATTERNS,
 } from './playback';
 export type { PresetSource } from './playback';
+// Voice-construction helper, shared between Practice and Patterns pages.
+export { buildEffectiveVoice, effectiveVoiceFamily } from './playback/voices/buildEffectiveVoice';
 export {
   getPlaybackPattern,
   DEFAULT_PATTERN_ID,

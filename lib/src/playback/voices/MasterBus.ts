@@ -104,6 +104,30 @@ class MasterBusImpl {
     this._reverb.wet.rampTo(targetWet, 0.05);
   }
 
+  /** Briefly silence the bus to cut decay tails (e.g. PluckSynth resonance) when
+   *  switching streams or stopping playback. Ramps gain to 0 over ~30ms, then back
+   *  to 1 after a short hold, so subsequent notes are immediately audible.
+   *
+   *  Implemented entirely on the input gain node so it works regardless of which
+   *  synth backend produced the tails. */
+  cutTails(): void {
+    if (!this._input) return;
+    const ctx = Tone.getContext();
+    const now = ctx.currentTime;
+    const ramp = 0.03;
+    const hold = 0.005;
+    try {
+      this._input.gain.cancelScheduledValues(now);
+      this._input.gain.setValueAtTime(this._input.gain.value, now);
+      this._input.gain.linearRampToValueAtTime(0, now + ramp);
+      this._input.gain.setValueAtTime(0, now + ramp + hold);
+      this._input.gain.linearRampToValueAtTime(1, now + ramp + hold + 0.01);
+    } catch {
+      // No-op: AudioParam scheduling can throw in edge cases (suspended context);
+      // a missed mute briefly is better than a thrown error.
+    }
+  }
+
   /** Current reverb settings. */
   get settings(): ReverbSettings {
     return this._settings;
