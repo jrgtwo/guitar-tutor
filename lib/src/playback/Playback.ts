@@ -73,8 +73,7 @@ export class Playback {
     });
     this._unsubStop = metronome.on('stop', () => {
       // Reset playhead when metronome stops so the next start begins from index 0.
-      this._playheadIndex = 0;
-      this._setCurrentPlayheadCell(null);
+      this._resetPlayhead();
     });
   }
 
@@ -85,8 +84,7 @@ export class Playback {
     this._enabled = enabled;
     if (!enabled) {
       this._instrument.releaseAll();
-      this._setCurrentPlayheadCell(null);
-      this._playheadIndex = 0;
+      this._resetPlayhead();
     }
   }
 
@@ -193,6 +191,13 @@ export class Playback {
   }
 
   // ─── Internal ────────────────────────────────────────────────────────────────
+
+  /** Reset the playhead position and clear the visual playhead cell. Shared by
+   *  the metronome-stop handler and `setEnabled(false)`. */
+  private _resetPlayhead(): void {
+    this._playheadIndex = 0;
+    this._setCurrentPlayheadCell(null);
+  }
 
   private _invalidateCache(): void {
     this._resolvedSequence = [];

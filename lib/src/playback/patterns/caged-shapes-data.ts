@@ -233,4 +233,11 @@ export const HARMONIC_MINOR_CAGED_SHAPES: readonly CagedShape[] =
 export const MELODIC_MINOR_CAGED_SHAPES: readonly CagedShape[] =
   MAJOR_CAGED_SHAPES.map((s) => shiftDegree(s, MM_DEGREES));
 
-export const CAGED_PATTERN_IDS: readonly string[] = MAJOR_CAGED_SHAPES.map((s) => s.id);
+export const CAGED_PATTERN_IDS: readonly CagedShapeId[] = MAJOR_CAGED_SHAPES.map((s) => s.id);
+
+/** Type guard: narrows a possibly-invalid string to a known `CagedShapeId`. Use
+ *  at boundaries where a `string | null | undefined` enters CAGED-aware code
+ *  (URL params, store reads) instead of casting. */
+export function isCagedShapeId(s: string | null | undefined): s is CagedShapeId {
+  return s != null && (CAGED_PATTERN_IDS as readonly string[]).includes(s);
+}

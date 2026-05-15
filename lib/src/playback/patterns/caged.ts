@@ -18,8 +18,7 @@
  * the position number reflects how the box ranks against the other 4 shapes by
  * lowest fret in the active key.
  */
-import type { PlaybackPattern, PlayableCell, ResolveInput } from '../types';
-import { cellsEqual } from '../types';
+import type { PlaybackPattern, ResolveInput } from '../types';
 import type { CagedShape, CagedShapeId, CagedLetter } from './caged-shapes-data';
 import {
   MAJOR_CAGED_SHAPES,
@@ -27,6 +26,7 @@ import {
   MELODIC_MINOR_CAGED_SHAPES,
 } from './caged-shapes-data';
 import { pitchClass } from '../../lib/theory';
+import { buildUpAndDown } from './up-and-down';
 
 // ─── Scale-family helpers ──────────────────────────────────────────────────────
 
@@ -290,55 +290,6 @@ export function getCagedPositionMap(input: ResolveInput): Map<CagedShapeId, numb
   return buildPositionMap(input);
 }
 
-// ─── Up-and-down sequence ──────────────────────────────────────────────────────
-
-/** Build the playback order: ascending string-by-string (low → high, each string's
- *  cells in fret-ascending order), then descending string-by-string (high → low,
- *  each string's cells in fret-descending order). The apex (last note of asc =
- *  first note of desc) is played only once. */
-function buildUpAndDown(cells: readonly AbsoluteCell[]): PlayableCell[] {
-  if (cells.length === 0) return [];
-
-  const byString = new Map<number, AbsoluteCell[]>();
-  for (const c of cells) {
-    const arr = byString.get(c.stringIndex);
-    if (arr) arr.push(c);
-    else byString.set(c.stringIndex, [c]);
-  }
-  for (const arr of byString.values()) {
-    arr.sort((a, b) => a.fret - b.fret);
-  }
-
-  const stringIndices = [...byString.keys()].sort((a, b) => a - b);
-
-  const asc: PlayableCell[] = [];
-  for (const i of stringIndices) {
-    for (const c of byString.get(i)!) {
-      asc.push({ stringIndex: c.stringIndex, fret: c.fret });
-    }
-  }
-
-  const desc: PlayableCell[] = [];
-  for (let k = stringIndices.length - 1; k >= 0; k--) {
-    const i = stringIndices[k];
-    const list = byString.get(i)!;
-    for (let j = list.length - 1; j >= 0; j--) {
-      const c = list[j];
-      desc.push({ stringIndex: c.stringIndex, fret: c.fret });
-    }
-  }
-
-  // Drop the apex from desc to avoid playing it twice.
-  if (desc.length > 0) {
-    const apex = asc[asc.length - 1];
-    if (cellsEqual(desc[0], apex)) {
-      desc.shift();
-    }
-  }
-
-  return [...asc, ...desc];
-}
-
 // ─── Per-key Position numbering ────────────────────────────────────────────────
 
 /**
@@ -415,4 +366,4 @@ export const CAGED_PATTERNS: readonly PlaybackPattern[] = [
   buildCagedPattern('D', 'caged-d'),
 ];
 
-export { CAGED_PATTERN_IDS } from './caged-shapes-data';
+export { CAGED_PATTERN_IDS, isCagedShapeId } from './caged-shapes-data';

@@ -1,7 +1,7 @@
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { useMemo } from 'react';
 import { useFretworkStore } from '../../store/useFretworkStore';
 import { INSTRUMENTS } from '../../lib/instruments';
-import { ControlGroup } from './ControlGroup';
+import { SelectControl } from './SelectControl';
 
 /**
  * Instrument picker — sits as the leftmost control in the TopBar. Switching
@@ -12,20 +12,16 @@ import { ControlGroup } from './ControlGroup';
 export function InstrumentSelect() {
   const instrumentId = useFretworkStore((s) => s.instrumentId);
   const setInstrumentId = useFretworkStore((s) => s.setInstrumentId);
+  const options = useMemo(
+    () => INSTRUMENTS.map((i) => ({ value: i.id, label: i.name })),
+    [],
+  );
   return (
-    <ControlGroup label="Instrument">
-      <Select value={instrumentId} onValueChange={setInstrumentId}>
-        <SelectTrigger className="font-mono uppercase tracking-wider text-xs">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {INSTRUMENTS.map((i) => (
-            <SelectItem key={i.id} value={i.id} className="font-mono uppercase tracking-wider text-xs">
-              {i.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </ControlGroup>
+    <SelectControl
+      label="Instrument"
+      value={instrumentId}
+      options={options}
+      onChange={setInstrumentId}
+    />
   );
 }

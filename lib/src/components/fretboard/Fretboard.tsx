@@ -21,7 +21,7 @@ import { usePlaybackStore } from '../../playback/usePlaybackStore';
 import { cellsEqual } from '../../playback/types';
 import { usePlayback } from '../../playback/usePlayback';
 import { resolveShapeAbsoluteCells } from '../../playback/patterns/caged';
-import type { CagedShapeId } from '../../playback/patterns/caged-shapes-data';
+import { isCagedShapeId } from '../../playback/patterns/caged-shapes-data';
 import type { ResolveInput } from '../../playback/types';
 
 export function Fretboard() {
@@ -63,7 +63,8 @@ export function Fretboard() {
   // lookup so we can split highlights into "in-shape" (full prominence) and
   // "out-of-shape" (ghosted or hidden, depending on the user's setting).
   const inShapeKeys = useMemo<Set<string> | null>(() => {
-    if (!shapeId || (mode !== 'scales' && mode !== 'arpeggios')) return null;
+    if (!isCagedShapeId(shapeId)) return null;
+    if (mode !== 'scales' && mode !== 'arpeggios') return null;
     const input: ResolveInput = {
       highlights,
       tuning,
@@ -75,7 +76,7 @@ export function Fretboard() {
       scaleType: mode === 'scales' ? type : undefined,
       arpeggioType: mode === 'arpeggios' ? type : undefined,
     };
-    const cells = resolveShapeAbsoluteCells(shapeId as CagedShapeId, input);
+    const cells = resolveShapeAbsoluteCells(shapeId, input);
     if (cells.length === 0) return null;
     return new Set(cells.map((c) => `${c.stringIndex}:${c.fret}`));
   }, [shapeId, mode, highlights, tuning, key, capo, instrumentId, fretCount, type]);

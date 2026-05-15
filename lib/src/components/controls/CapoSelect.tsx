@@ -1,8 +1,7 @@
 import { useMemo } from 'react';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { useFretworkStore } from '../../store/useFretworkStore';
 import { getInstrument } from '../../lib/instruments';
-import { ControlGroup } from './ControlGroup';
+import { SelectControl } from './SelectControl';
 
 /**
  * Capo position selector. The fret range is derived from the active instrument:
@@ -29,26 +28,20 @@ export function CapoSelect() {
     return Math.min(12, inst?.fretCount ?? 11);
   }, [instrumentId]);
 
-  const capoFrets = useMemo(() => {
-    const arr: number[] = [];
-    for (let i = 0; i <= maxCapo; i++) arr.push(i);
+  const options = useMemo(() => {
+    const arr: { value: string; label: string }[] = [];
+    for (let f = 0; f <= maxCapo; f++) {
+      arr.push({ value: String(f), label: f === 0 ? 'Off' : `Fret ${f}` });
+    }
     return arr;
   }, [maxCapo]);
 
   return (
-    <ControlGroup label="Capo">
-      <Select value={String(capo)} onValueChange={(v) => setCapo(parseInt(v, 10))}>
-        <SelectTrigger className="font-mono uppercase tracking-wider text-xs">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {capoFrets.map((f) => (
-            <SelectItem key={f} value={String(f)} className="font-mono uppercase tracking-wider text-xs">
-              {f === 0 ? 'Off' : `Fret ${f}`}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </ControlGroup>
+    <SelectControl
+      label="Capo"
+      value={String(capo)}
+      options={options}
+      onChange={(v) => setCapo(parseInt(v, 10))}
+    />
   );
 }

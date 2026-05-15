@@ -38,47 +38,44 @@ Sections:
 **Where:** Final count was 8 sites: `Playback.ts:155`, `usePlaybackStore.ts:66`, `usePlayback.ts:290`, `Fretboard.tsx` (3 sites), `up-and-down.ts:62`, `caged.ts:334`.
 **Fix:** Added `cellsEqual(a, b)` helper in `lib/src/playback/types.ts` (structurally typed so it works for both `PlayableCell` and `AbsoluteCell`); replaced all 8 inlined call sites.
 
-#### L5. Playhead-reset duplicated
-**Where:** `lib/src/playback/Playback.ts:73-74` (stop handler) and `lib/src/playback/Playback.ts:85-86` (setEnabled(false))
-**Fix:** Extract `_resetPlayhead()` private method.
+#### ~~L5. Playhead-reset duplicated~~ ✅ Fixed
+**Where:** `lib/src/playback/Playback.ts` (stop handler and `setEnabled(false)`)
+**Fix:** Extracted `_resetPlayhead()` private method; both call sites now invoke it.
 
-#### L6. CAGED resolver reimplements `buildUpAndDown`
-**Where:** `lib/src/playback/patterns/caged.ts` (ascending+descending traversal) vs. `lib/src/playback/patterns/up-and-down.ts:buildUpAndDown`
-**Fix:** Replace the CAGED-internal traversal with a call to `buildUpAndDown(cells)`.
+#### ~~L6. CAGED resolver reimplements `buildUpAndDown`~~ ✅ Fixed
+**Where:** `lib/src/playback/patterns/caged.ts` vs. `lib/src/playback/patterns/up-and-down.ts:buildUpAndDown`
+**Fix:** Generalized `buildUpAndDown` in `up-and-down.ts` to a structural generic `<T extends { stringIndex: number; fret: number }>`; deleted the 40-line duplicate in `caged.ts` and imported the shared helper. Dropped now-unused `cellsEqual` and `PlayableCell` imports from `caged.ts`.
 
-#### L7. Select control boilerplate
+#### ~~L7. Select control boilerplate~~ ✅ Fixed
 **Where:** `lib/src/components/controls/{Instrument,Key,Mode,Type,Tuning,Capo,Labels,Shape}Select.tsx`
-**Problem:** All follow the same `<ControlGroup label><Select><SelectTrigger><SelectValue/></SelectTrigger><SelectContent>{opts.map(...)}</SelectContent></Select>` shape. ~5-10 redundant lines per file.
-**Fix:** Introduce a `<SelectControl label= options= value= onChange=/>` wrapper; call it from each.
+**Fix:** Added `SelectControl.tsx` wrapper around `ControlGroup + Select` with built-in mono/uppercase styling on both the trigger and every item. Replaced all 8 callers — they now derive a `{value, label}[]` options array and pass it in. Trigger width overrides (`min-w-[140px]`, `w-[170px]`) come through a `triggerClassName?` escape hatch. Net ~125 lines removed; conditional rendering, sentinel-value translation, and number↔string coercion stay in callers where they belong.
 
 ### 🟡 Type-safety / API hygiene
 
-#### L8. `as CagedShapeId` / `as never` casts hide invalid IDs
-**Where:** `lib/src/components/fretboard/Fretboard.tsx:77`, `lib/src/playback/usePlayback.ts:223`
-**Problem:** `shapeId` is `string | null`; the cast bypasses validation.
-**Fix:** Add `isCagedShapeId(s: string): s is CagedShapeId` type guard alongside `CAGED_PATTERN_IDS`; replace both casts with calls to the guard.
+#### ~~L8. `as CagedShapeId` / `as never` casts hide invalid IDs~~ ✅ Fixed
+**Where:** `lib/src/components/fretboard/Fretboard.tsx`, `lib/src/playback/usePlayback.ts`
+**Fix:** Added `isCagedShapeId(s: string | null | undefined): s is CagedShapeId` in `caged-shapes-data.ts` (also tightened `CAGED_PATTERN_IDS` to `readonly CagedShapeId[]`). Replaced both casts with guard calls; `resolveShapeAbsoluteCells` now receives a properly-narrowed `CagedShapeId`. Also re-exported the guard from `caged.ts`.
 
-#### L9. `handler as never` in event-map registration
+#### L9. `handler as never` in event-map registration — _skipped (low-priority)_
 **Where:** `lib/src/metronome/Metronome.ts:111` (constructor's `events` option iteration)
 **Problem:** Mismatched handler signatures aren't caught at compile time.
-**Fix:** Iterate with explicit type narrowing per event key, or hand-roll a small typed wrapper.
+**Decision:** Reviewed three fixes (localized cast, switch block, unrolled per-event); all uglier than the current state for the value gained. The `events` constructor option is used in exactly one test and never in production. Leaving as-is.
 
-#### L10. Dead store setters on `useMetronomeStore`
-**Where:** `lib/src/metronome/useMetronomeStore.ts:53-56` — `setRunning`, `setCurrentBeat`, `setCurrentMeasure`, `setCurrentSubdivisionIndex`
-**Problem:** Exposed on the public interface but never called externally (singleton writes via `useMetronomeStore.setState({...})` directly). They appear in the type, expanding the API surface for no benefit.
-**Fix:** Delete from the interface + implementation. The internal `setState` calls don't need them.
+#### ~~L10. Dead store setters on `useMetronomeStore`~~ ✅ Fixed
+**Where:** `lib/src/metronome/useMetronomeStore.ts` — `setRunning`, `setCurrentBeat`, `setCurrentMeasure`, `setCurrentSubdivisionIndex`
+**Fix:** Confirmed via grep that none of the four had any call sites outside the store file itself; the metronome singleton writes runtime fields via `useMetronomeStore.setState({...})` directly. Deleted all four from the interface and implementation; left a comment explaining why those fields are written via `setState` instead of through setters (they're mirrors of the Metronome class's state, not user-input contracts).
 
-#### L11. Misleading deprecated exports
+#### L11. Misleading deprecated exports — _skipped_
 **Where:** `lib/src/lib/fretboard.ts:24-38` — `STRING_COUNT = 6`, `FRET_COUNT = 22`
-**Problem:** Marked `@deprecated`, but still exported and still hard-coded to guitar values. Wrong for bass (4/21) and uke (4/15).
-**Fix:** Audit internal callers; replace with per-instrument lookups; remove the exports if no external consumer needs them.
+**Problem:** Marked `@deprecated`, but still exported and still hard-coded to guitar values. `FRET_COUNT` is genuinely used as a bound in `playback/patterns/custom.ts:25` — wrong for bass (21 frets) / ukulele (15 frets).
+**Audit results:** `STRING_COUNT` has zero usages outside its export + barrel. `FRET_COUNT` is used in `custom.ts` (real bug) + 4 test files (fixture constant). Deferred.
 
-#### L12. `CHROMATIC_NOTES = CHROMATIC_KEYS` alias
+#### L12. `CHROMATIC_NOTES = CHROMATIC_KEYS` alias — _skipped (kept intentionally)_
 **Where:** `lib/src/lib/tunings.ts:48-49`
-**Problem:** Same array exported under two names. Consumers don't know which to use.
-**Fix:** Pick one canonical name; remove the other (or keep one as a deprecation-tagged alias and migrate consumers).
+**Audit:** `CHROMATIC_NOTES` has zero internal callers; `CHROMATIC_KEYS` has 4 (`url-state.ts`, `KeySelect.tsx`, `TypeSelect.tsx`).
+**Decision:** Kept — there may have been or will be a use for the `CHROMATIC_NOTES` name to distinguish the Notes-mode usage from the key dropdown.
 
-#### L13. `void TUNING_IDS` dead reference
+#### L13. `void TUNING_IDS` dead reference — _deferred_
 **Where:** `lib/src/lib/url-state.ts:101-103`
 **Problem:** The `void` is the only thing keeping the const alive — leftover from a previous export shape.
 **Fix:** Delete `TUNING_IDS` if nothing depends on it. If it's needed for external consumers, export it properly and drop the `void`.

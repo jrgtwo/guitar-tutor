@@ -33,6 +33,7 @@ import { ACOUSTIC_GUITAR_PRESET } from './voices/presets';
 import { findEffectivePreset, getEffectiveReverb, subscribeToOverrides } from './voices/preset-overrides';
 import { MasterBus } from './voices/MasterBus';
 import { resolveShapeAbsoluteCells } from './patterns/caged';
+import { isCagedShapeId } from './patterns/caged-shapes-data';
 import type { FretInstrumentId, VoiceFamily } from './voices/types';
 
 export interface UsePlaybackReturn {
@@ -209,7 +210,7 @@ export function usePlayback(): UsePlaybackReturn {
     // active, walk patterns should hear only the shape's cells — what you see at
     // full prominence is what you hear. Ghost markers don't sound.
     let scopedHighlights = fullHighlights;
-    if (fretShapeId && (fretMode === 'scales' || fretMode === 'arpeggios')) {
+    if (isCagedShapeId(fretShapeId) && (fretMode === 'scales' || fretMode === 'arpeggios')) {
       const shapeInput: ResolveInput = {
         highlights: fullHighlights,
         tuning,
@@ -221,7 +222,7 @@ export function usePlayback(): UsePlaybackReturn {
         scaleType: fretMode === 'scales' ? fretType : undefined,
         arpeggioType: fretMode === 'arpeggios' ? fretType : undefined,
       };
-      const shapeCells = resolveShapeAbsoluteCells(fretShapeId as never, shapeInput);
+      const shapeCells = resolveShapeAbsoluteCells(fretShapeId, shapeInput);
       if (shapeCells.length > 0) {
         const shapeKeys = new Set(shapeCells.map((c) => `${c.stringIndex}:${c.fret}`));
         scopedHighlights = fullHighlights.filter((h) =>

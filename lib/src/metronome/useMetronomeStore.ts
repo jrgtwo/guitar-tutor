@@ -50,10 +50,10 @@ export interface MetronomeStoreState {
   setVolume: (v: number) => void;
   setSubdivision: (id: SubdivisionId) => void;
   setSwing: (swing: number) => void;
-  setRunning: (running: boolean) => void;
-  setCurrentBeat: (beat: number) => void;
-  setCurrentMeasure: (measure: number) => void;
-  setCurrentSubdivisionIndex: (index: number) => void;
+  // Runtime fields (isRunning, currentBeat, currentMeasure, currentSubdivisionIndex)
+  // are mirrors of the Metronome class's own state. They're written directly via
+  // `useMetronomeStore.setState({...})` from useMetronome.ts — no setters because
+  // the store isn't their source of truth and exposing setters would invite drift.
 }
 
 export const DEFAULT_METRONOME_STATE = {
@@ -88,14 +88,4 @@ export const useMetronomeStore = create<MetronomeStoreState>((set) => ({
   setVolume: (v) => set({ volume: Math.max(0, Math.min(1, v)) }),
   setSubdivision: (subdivision) => set({ subdivision }),
   setSwing: (swing) => set({ swing: Math.max(SWING_MIN, Math.min(SWING_MAX, swing)) }),
-  setRunning: (isRunning) => set((s) => ({
-    isRunning,
-    // Reset beat/measure on stop; on start they'll get set to 0 on first tick.
-    currentBeat: isRunning ? s.currentBeat : -1,
-    currentMeasure: isRunning ? s.currentMeasure : -1,
-    currentSubdivisionIndex: isRunning ? s.currentSubdivisionIndex : -1,
-  })),
-  setCurrentBeat: (currentBeat) => set({ currentBeat }),
-  setCurrentMeasure: (currentMeasure) => set({ currentMeasure }),
-  setCurrentSubdivisionIndex: (currentSubdivisionIndex) => set({ currentSubdivisionIndex }),
 }));

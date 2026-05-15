@@ -1,7 +1,6 @@
 import { useMemo } from 'react';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { useFretworkStore } from '../../store/useFretworkStore';
-import { ControlGroup } from './ControlGroup';
+import { SelectControl } from './SelectControl';
 import { getInstrument } from '../../lib/instruments';
 import { getTuning } from '../../lib/tunings';
 import { getScale } from '../../lib/scales';
@@ -76,34 +75,26 @@ export function ShapeSelect() {
     return out;
   }, [mode, instrumentId, key, type, tuningId, capo]);
 
+  const options = useMemo(
+    () => [
+      { value: FULL_SCALE_VALUE, label: 'Full scale' },
+      ...sortedShapes.map((s) => ({
+        value: s.id,
+        label: `Position ${s.position} — ${s.letter} shape`,
+      })),
+    ],
+    [sortedShapes],
+  );
+
   if (sortedShapes.length === 0) return null;
 
-  const value = shapeId ?? FULL_SCALE_VALUE;
-  const onChange = (next: string) => {
-    setShapeId(next === FULL_SCALE_VALUE ? null : next);
-  };
-
   return (
-    <ControlGroup label="Position">
-      <Select value={value} onValueChange={onChange}>
-        <SelectTrigger className="font-mono uppercase tracking-wider text-xs w-[170px]">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={FULL_SCALE_VALUE} className="font-mono uppercase tracking-wider text-xs">
-            Full scale
-          </SelectItem>
-          {sortedShapes.map((s) => (
-            <SelectItem
-              key={s.id}
-              value={s.id}
-              className="font-mono uppercase tracking-wider text-xs"
-            >
-              Position {s.position} — {s.letter} shape
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </ControlGroup>
+    <SelectControl
+      label="Position"
+      value={shapeId ?? FULL_SCALE_VALUE}
+      options={options}
+      onChange={(next) => setShapeId(next === FULL_SCALE_VALUE ? null : next)}
+      triggerClassName="w-[170px]"
+    />
   );
 }

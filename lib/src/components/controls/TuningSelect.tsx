@@ -1,8 +1,7 @@
 import { useMemo } from 'react';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { useFretworkStore } from '../../store/useFretworkStore';
 import { getTuningsForInstrument } from '../../lib/tunings';
-import { ControlGroup } from './ControlGroup';
+import { SelectControl } from './SelectControl';
 
 export function TuningSelect() {
   const tuning = useFretworkStore((s) => s.tuning);
@@ -10,22 +9,10 @@ export function TuningSelect() {
   const instrumentId = useFretworkStore((s) => s.instrumentId);
 
   // Filter to tunings that belong to the active instrument.
-  const tunings = useMemo(() => getTuningsForInstrument(instrumentId), [instrumentId]);
-
-  return (
-    <ControlGroup label="Tuning">
-      <Select value={tuning} onValueChange={setTuning}>
-        <SelectTrigger className="font-mono uppercase tracking-wider text-xs">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {tunings.map((t) => (
-            <SelectItem key={t.id} value={t.id} className="font-mono uppercase tracking-wider text-xs">
-              {t.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </ControlGroup>
+  const options = useMemo(
+    () => getTuningsForInstrument(instrumentId).map((t) => ({ value: t.id, label: t.name })),
+    [instrumentId],
   );
+
+  return <SelectControl label="Tuning" value={tuning} options={options} onChange={setTuning} />;
 }

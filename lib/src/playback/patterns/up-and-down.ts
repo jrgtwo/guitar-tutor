@@ -1,4 +1,3 @@
-import type { Highlight } from '../../types';
 import type { PlaybackPattern, PlayableCell } from '../types';
 import { cellsEqual } from '../types';
 
@@ -22,12 +21,15 @@ export const upAndDownPattern: PlaybackPattern = {
   resolve: ({ highlights }) => buildUpAndDown(highlights),
 };
 
-/** Exported helper: identical algorithm to the inline CAGED resolver. Pure
- *  function, no Tone deps — fast enough to call per pattern resolve. */
-export function buildUpAndDown(cells: readonly Highlight[]): PlayableCell[] {
+/** Build an up-and-down playback order from any cell shape with `stringIndex`
+ *  and `fret` — works for `Highlight`, `AbsoluteCell`, etc. Pure function, no
+ *  Tone deps. */
+export function buildUpAndDown<T extends { stringIndex: number; fret: number }>(
+  cells: readonly T[],
+): PlayableCell[] {
   if (cells.length === 0) return [];
 
-  const byString = new Map<number, Highlight[]>();
+  const byString = new Map<number, T[]>();
   for (const c of cells) {
     const arr = byString.get(c.stringIndex);
     if (arr) arr.push(c);
