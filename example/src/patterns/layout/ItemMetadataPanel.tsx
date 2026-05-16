@@ -8,7 +8,7 @@
  * popover to `PatternPickerPanel` for choosing a different item.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { Check, ChevronRight, Copy } from 'lucide-react';
+import { Check, ChevronRight, Copy, Trash2 } from 'lucide-react';
 import {
   ControlGroup,
   DESCRIPTION_MAX_LENGTH,
@@ -32,6 +32,7 @@ import type { Composition, Pattern } from '@fretwork/lib';
 import { Section } from '../../components/ui/Section';
 import { MultiSelectChips } from '../../components/ui/MultiSelectChips';
 import { PatternPickerPanel } from './PatternPickerPanel';
+import { DeleteItemDialog } from './DeleteItemDialog';
 
 /** UI-layer token for the "None" difficulty option. Never reaches the DB —
  *  translated to/from `null` at the store boundary. Lives here (not in lib) because
@@ -54,7 +55,12 @@ export function ItemMetadataPanel({ item, kind, onClose }: Props) {
   }
 
   return (
-    <MetadataView item={item} kind={kind} onOpenPicker={() => setMode('picker')} />
+    <MetadataView
+      item={item}
+      kind={kind}
+      onOpenPicker={() => setMode('picker')}
+      onClose={onClose}
+    />
   );
 }
 
@@ -62,10 +68,12 @@ function MetadataView({
   item,
   kind,
   onOpenPicker,
+  onClose,
 }: {
   item: Pattern | Composition;
   kind: 'pattern' | 'composition';
   onOpenPicker: () => void;
+  onClose: () => void;
 }) {
   const renamePattern = usePatternsStore((s) => s.renamePattern);
   const renameComposition = usePatternsStore((s) => s.renameComposition);
@@ -80,6 +88,7 @@ function MetadataView({
   // Controlled inputs — reset when the active item changes.
   const [nameDraft, setNameDraft] = useState(item.name);
   const [descriptionDraft, setDescriptionDraft] = useState(item.description ?? '');
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   useEffect(() => {
     setNameDraft(item.name);
     setDescriptionDraft(item.description ?? '');
@@ -246,6 +255,27 @@ function MetadataView({
           </div>
         )}
       </Section>
+
+      {/* Delete affordance, separated visually so it doesn't read as part of Sharing. */}
+      <div className="flex justify-end pt-2 border-t border-border/30">
+        <button
+          type="button"
+          onClick={() => setDeleteDialogOpen(true)}
+          className="h-9 px-3 inline-flex items-center gap-1.5 rounded-md border border-red-500/30 bg-red-500/5 text-red-300 text-xs font-mono uppercase tracking-wider hover:bg-red-500/15 transition-colors"
+        >
+          <Trash2 size={12} /> Delete {kind}
+        </button>
+      </div>
+
+      <DeleteItemDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        kind={kind}
+        id={item.id}
+        name={item.name}
+        visibility={item.visibility}
+        onConfirmed={onClose}
+      />
     </div>
   );
 }
