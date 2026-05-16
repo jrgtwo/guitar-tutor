@@ -18,8 +18,10 @@ export type Route =
   | { kind: 'profile'; displayName: string }
   | { kind: 'settings' };
 
-/** Routing-only keys. All other query params (instrument, key, scale, …) are preserved across navigation. */
-const ROUTING_KEYS = ['page', 'lab', 'profile', 'settings'] as const;
+/** Routing-only keys. All other query params (instrument, key, scale, …) are preserved across navigation.
+ *  Includes the shared-content viewer keys (`pattern`, `composition`, `voice-preset`) so an in-app
+ *  navigation cleanly leaves the viewer. */
+const ROUTING_KEYS = ['page', 'lab', 'profile', 'settings', 'pattern', 'composition', 'voice-preset'] as const;
 
 function routeToUrl(route: Route): URL {
   const url = new URL(window.location.href);

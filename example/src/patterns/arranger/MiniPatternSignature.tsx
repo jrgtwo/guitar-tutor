@@ -5,13 +5,19 @@ interface Props {
   pattern: Pattern;
   width?: number;
   height?: number;
+  /** Override the instrument used for string-count layout. Defaults to the viewer's
+   *  current fretwork instrument — but a shared-content viewer needs to honor the
+   *  pattern's own instrument rather than mutate the viewer's preferences. */
+  instrumentId?: string;
 }
 
 /** Tiny visualization of a pattern's event distribution. One row per string; events
- *  shown as small marks at their time position. Used inside BlockCard. */
-export function MiniPatternSignature({ pattern, width = 100, height = 28 }: Props) {
-  const instrumentId = useFretworkStore((s) => s.instrumentId);
-  const inst = getInstrument(instrumentId) ?? getInstrument(DEFAULT_INSTRUMENT_ID)!;
+ *  shown as small marks at their time position. Used inside BlockCard and the
+ *  shared-pattern viewer. */
+export function MiniPatternSignature({ pattern, width = 100, height = 28, instrumentId }: Props) {
+  const storeInstrumentId = useFretworkStore((s) => s.instrumentId);
+  const resolvedId = instrumentId ?? pattern.instrumentId ?? storeInstrumentId;
+  const inst = getInstrument(resolvedId) ?? getInstrument(DEFAULT_INSTRUMENT_ID)!;
   const stringCount = inst.stringCount;
   const rowHeight = height / stringCount;
   const dur = pattern.durationTicks || 1;

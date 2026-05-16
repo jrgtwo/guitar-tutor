@@ -953,6 +953,16 @@ Split into two sub-groups for shipping clarity.
   Defer until after Group G ships and the catalog browse surface lands — we'll have more real usage
   to judge from.
 
+- **Audio playback in the shared pattern viewer (`?pattern=<uuid>`).** Today the viewer renders a
+  static `MiniPatternSignature` preview of the events grid — enough to glance at the shape, but
+  nothing audible. Worth adding a "play" affordance so visitors can hear the pattern before deciding
+  to fork. Plumbing-wise this means feeding the viewed pattern through the existing playback path
+  (`Playback` singleton + metronome transport) without mutating the user's editing state. The
+  challenge is that playback today reads from `usePatternsStore` / `useFretworkStore` — we'd need
+  either a props-based playback render or a scoped "temporarily push this pattern into the stores
+  for the duration of preview playback, restore on unmount" wrapper. Net-new sub-feature; nice-to-have
+  before catalog browse but not blocking on viewer / fork / attribution work.
+
 ---
 
 ## Explicit deferrals
