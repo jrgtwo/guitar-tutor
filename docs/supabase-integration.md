@@ -4,6 +4,27 @@ A long-running implementation effort. Use the **Implementation Checklist** secti
 
 ---
 
+## Current status (last touched 2026-05-15)
+
+| Group | State | Notes |
+|---|---|---|
+| A — Foundation (client, env, OAuth) | ✅ Done |  |
+| B — Database schema | ✅ Done | Migrations 0001–0005 applied. Manual RLS verification still optional. |
+| C — Auth state + sign-in UX | ✅ Done | Modal, button, user menu, signup form, RPC. ProfilePage (read-only) jumped ahead from Group G. |
+| D — Anon → signed-in migration | ✅ Done | sessionStorage swap + migration prompt + migration-done flag fix. |
+| E — Patterns/Compositions cloud sync | ✅ Done | Diff-sync, hydration, sign-out cleanup. UUIDs for DB-bound IDs. |
+| F.1 — Sound Lab cloud sync | ✅ Done | Storage swap, hydration, lab override sync, migration prompt extension. Migration-deferred-hydration fix. |
+| F.2 — Multi-variant Sound Lab UI | ⏳ Deferred | Save As / Rename / Delete in the lab; UX upgrade rather than foundation. |
+| G — Sharing, forking, profile editor, account deletion | ⏳ Next | Biggest remaining chunk. Plan to split into G.1 (profile editor + account deletion), G.2 (share-by-link + viewer routes), G.3 (fork action + attribution). |
+| H — Teaching workflows | ⏳ Pending | Invites, relationships, assignments, scoped notes. |
+| I — Help button + per-page walkthroughs | ⏳ Pending | Lightweight UX layer. |
+| J — Tier scaffolding | ⏳ Pending | Free/pro/teacher caps in code; Stripe integration deferred. |
+| K — Final verification & cleanup | ⏳ Pending | Manual E2E flows + automated tests + legacy-localStorage shim removal. |
+
+**Where to pick up tomorrow:** Group G, starting with G.1 (profile editor at `?settings=1` + account deletion RPC + DeleteAccountFlow component). The Settings link in the UserMenu currently points to `?settings=1` which 404s back to the practice page; building the editor unblocks that.
+
+---
+
 ## Context
 
 The app is currently entirely client-side. User content (patterns, compositions, Sound Lab voice overrides) lives in `localStorage`, which has three problems:
@@ -639,73 +660,83 @@ Group A through G are roughly sequential — each unlocks the next. Within a gro
 
 ### Group A — Supabase foundation
 
-- [ ] Install `@supabase/supabase-js` in `lib/package.json`
-- [ ] Create `lib/src/auth/supabaseClient.ts` with the singleton `createClient(URL, ANON_KEY)` reading from `import.meta.env`
-- [ ] Add `.env.example` with `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` placeholders
-- [ ] Update `.gitignore` to ignore `.env.local`, `.env.*.local`
-- [ ] Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` to local `.env.local`
-- [ ] Register the same env vars in Vercel (preview + production environments)
-- [ ] In Supabase dashboard: enable Google OAuth provider. Configure OAuth credentials from Google Cloud Console. Register redirect URLs (`localhost:5173`, Vercel preview pattern, production domain).
+- [x] Install `@supabase/supabase-js` in `lib/package.json` (v2.105.4)
+- [x] Create `lib/src/auth/supabaseClient.ts` with the singleton `createClient(URL, ANON_KEY)` reading from `import.meta.env`. Exports `getSupabaseClient()`, `isSupabaseConfigured()`, `_resetSupabaseClientForTests()`.
+- [x] Add `example/.env.example` with `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` placeholders
+- [x] Update `.gitignore` to ignore `.env.local`, `.env.*.local` *(already covered by existing root `.gitignore`'s `.env*` + `!.env.example` rules)*
+- [x] Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` to local `.env.local`
+- [x] Register the same env vars in Vercel (preview + production environments)
+- [x] In Supabase dashboard: enable Google OAuth provider. Configure OAuth credentials from Google Cloud Console. Register redirect URLs (`localhost:5173`, Vercel preview pattern, production domain).
 
 ### Group B — Database schema
 
-- [ ] Create `supabase/migrations/0001_init_profiles.sql` with the `profiles` table + RLS policies
-- [ ] Create `0002_patterns.sql` with `patterns` table + RLS policies + indexes
-- [ ] Create `0003_compositions.sql` (mirror of patterns)
-- [ ] Create `0004_voice_presets.sql`
-- [ ] Create `0005_user_settings.sql`
-- [ ] Create `0006_teacher_student_relationships.sql`
-- [ ] Create `0007_assignments.sql`
-- [ ] Create `0008_assignment_recipients.sql`
-- [ ] Create `0009_assignment_notes.sql`
-- [ ] Create `0010_subscriptions.sql`
-- [ ] Run the migrations against the Supabase project
+The 10 originally-planned migration files were consolidated into 4 logical groups for easier review and atomic application. Each file contains multiple related tables + their RLS policies.
+
+- [x] Create `supabase/migrations/0001_profiles_and_settings.sql` — `profiles` + `user_settings` tables, indexes, RLS
+- [x] Create `supabase/migrations/0002_user_content.sql` — `patterns` + `compositions` + `voice_presets` tables, indexes, RLS
+- [x] Create `supabase/migrations/0003_teaching.sql` — `teacher_student_relationships` + `assignments` + `assignment_recipients` + `assignment_notes`, indexes, RLS
+- [x] Create `supabase/migrations/0004_subscriptions.sql` — `subscriptions` table, RLS (service_role required for upgrades)
+- [x] Run the migrations against the Supabase project (`supabase db push`)
 - [ ] Manually verify RLS: as `anon`, attempt selects on each table — should return 0 rows. Sign in as test user; verify isolation between two test users.
 
 ### Group C — Auth state + sign-in UX
 
-- [ ] Build `lib/src/auth/useAuthStore.ts` — Zustand store with `user`, `profile`, `session`, `status: 'idle'|'loading'|'signed-in'|'signed-out'`
-- [ ] Build `lib/src/auth/useAuth.ts` — hook wiring `onAuthStateChange` to the store; exposes `signIn`, `signOut`, `signInWithGoogle`
-- [ ] Build `example/src/auth/SignupModal.tsx` — the universal CTA modal with the "Continue with Google" button
-- [ ] Build `example/src/auth/SignInButton.tsx` — TopBar slot: shows "Sign in" when signed-out, opens a user menu when signed-in
-- [ ] Build `example/src/auth/UserMenu.tsx` — dropdown with display name, "Profile," "Settings," "Sign out"
-- [ ] Build `example/src/auth/AuthCallbackHandler.tsx` — handles the OAuth redirect; checks whether `profiles` row exists; routes to SignupForm or app
-- [ ] Mount `<AuthCallbackHandler/>` in `example/src/main.tsx`
-- [ ] Replace disabled Sign In button in `lib/src/components/TopBar.tsx` and `example/src/components/TopBar.tsx` with `<SignInButton/>`
-- [ ] Build `example/src/auth/SignupForm.tsx` — first-time profile creation form with display name uniqueness check, user-type multi-select, all optional fields
-- [ ] On submit, insert `profiles`, `user_settings`, `subscriptions(tier='free')` rows in one transaction (RPC function)
-- [ ] Build a Supabase RPC `create_profile_with_settings` to do this atomically
+**Foundation pieces (lib-side) — done:**
+
+- [x] Build `lib/src/auth/types.ts` — `Profile`, `AuthStatus` (`idle`/`loading`/`signed-out`/`needs-profile`/`signed-in`), `CreateProfileInput`, `rowToProfile()` snake→camel helper
+- [x] Build `lib/src/auth/useAuthStore.ts` — Zustand store with `user`, `profile`, `session`, `status`, `error`, plus selectors (`selectIsSignedIn`, `selectNeedsProfile`, `selectIsAuthLoading`)
+- [x] Build `lib/src/auth/useAuth.ts` — hook wiring `getSession()` + `onAuthStateChange` to the store; exposes `signInWithGoogle`, `signOut`, `refreshProfile`; auto-fetches profile row and sets `needs-profile` status when authenticated but no profile row exists
+- [x] Export auth surface from `lib/src/index.ts`
+
+**UI pieces (example-side):**
+
+- [x] Build `example/src/auth/SignupModal.tsx` — universal CTA modal with the "Continue with Google" button + Google brand SVG. Reads `signupModalOpen` state from useAuthStore; dismissible via X / Escape / click-outside.
+- [x] Build `example/src/auth/SignInButton.tsx` — TopBar slot: renders Sign In CTA when signed-out (opens SignupModal); renders UserMenu when signed-in; loading skeleton while auth is resolving.
+- [x] Build `example/src/auth/UserMenu.tsx` — dropdown with avatar/initials + display name; menu items: Profile (links to `?profile=<name>`), Settings (links to `?settings=1`), Sign out.
+- [x] Build `example/src/auth/AuthCallbackHandler.tsx` — root-mounted component: calls `useAuth()` to start the singleton subscription, renders SignupModal always, overlays SignupForm when status = `needs-profile`.
+- [x] Mount `<AuthCallbackHandler/>` in `example/src/main.tsx` (rendered alongside every route).
+- [x] Replace disabled Sign In button in `example/src/components/TopBar.tsx` with `<SignInButton/>`. *(lib's `TopBar.tsx` left alone — it's a generic component for hypothetical other consumers; updating it would require a slot-injection refactor that's out of scope for this work.)*
+- [x] Build `example/src/auth/SignupForm.tsx` — first-time profile creation form: required display name (with unique check via RPC error code 23505) + user_types multi-select; optional bio, pronouns, external link, Instagram/YouTube/SoundCloud handles, instruments, years playing, skill level, genres, lessons flags.
+- [x] On submit, insert `profiles`, `user_settings`, `subscriptions(tier='free')` rows in one transaction via RPC.
+- [x] Build Supabase RPC `create_profile_with_settings` to do this atomically (`supabase/migrations/0005_create_profile_rpc.sql`). Apply with `supabase db push`.
 
 ### Group D — Anon → signed-in migration
 
-- [ ] Build `lib/src/auth/migration.ts` — pure function that reads sessionStorage, builds payload of patterns/compositions/voice presets to upload
-- [ ] Build `example/src/auth/MigrationPromptDialog.tsx` — blocking modal triggered after successful signup if session content exists
-- [ ] Wire migration: on Add → bulk-insert into Supabase; on Discard → clear sessionStorage; in both cases, drop user into app afterward
-- [ ] Switch `lib/src/patterns/store/usePatternsStore.ts` `persist`'s storage from `localStorage` to `sessionStorage`
-- [ ] One-time-migration shim: on app boot, if `localStorage['fretwork:patterns:v1']` exists AND sessionStorage doesn't, copy to sessionStorage then delete the localStorage key (so existing users don't lose their work in the transition)
+- [x] Build `lib/src/auth/migration.ts` — `readSessionContent()`, `countSessionContent()`, `uploadSessionContent()`, `clearSessionContent()`. Pure read + bulk insert into `patterns`/`compositions` for current user. (Voice presets handled in Group F when Sound Lab cloud-syncs.)
+- [x] Build `example/src/auth/MigrationPromptDialog.tsx` — blocking modal with Add / Discard, item counts, error display. Not dismissible without choosing. Sets `sessionStorage['fretwork:migration-done']` after resolution so cloud-sync-repopulated session storage doesn't re-trigger on subsequent renders.
+- [x] Wire migration into `AuthCallbackHandler`: on the first signed-in transition with non-empty session content AND no migration-done flag, prompt opens. Add uploads + clears + flags + resets store. Discard clears + flags + resets. Either path closes the modal and won't re-prompt this tab session.
+- [x] Migration-done flag cleared by cloud-sync teardown on sign-out so a subsequent anon → signup flow in the same tab can re-trigger the prompt.
+- [x] Switch `lib/src/patterns/store/usePatternsStore.ts` `persist`'s storage from `localStorage` to `sessionStorage`.
+- [x] One-time-migration shim `migrateLegacyLocalStorage()`: on module import, if `localStorage['fretwork:patterns:v1']` exists AND sessionStorage doesn't, copy to sessionStorage then delete the localStorage key. Idempotent.
 
 ### Group E — Patterns/Compositions cloud sync
 
-- [ ] Build `lib/src/cloud/patternsSync.ts` — replaces persist middleware when signed in: on every store mutation, debounce-write upsert into Supabase `patterns`; on sign-in, fetch all rows and hydrate the store; on sign-out, reset to defaults
-- [ ] Build `lib/src/cloud/compositionsSync.ts` — same for compositions
-- [ ] Wire both syncs to `useAuthStore`'s state changes (signed-in/signed-out triggers)
-- [ ] Sign-out cleanup: clear in-memory state in `usePatternsStore`, clear sessionStorage, cancel pending sync requests
-- [ ] Add cross-device test: sign in on Chrome, create pattern; sign in on Firefox same account; verify the pattern appears
+- [x] Build `lib/src/cloud/sync.ts` — generic diff-and-sync for both patterns + compositions in a single module. On sign-in, fetches all rows and hydrates the store. On every store mutation, debounces 500ms then INSERTs new rows / UPDATEs changed rows / DELETEs removed rows. Hydration uses an `isHydrating` flag so cloud-load doesn't loop back as outgoing sync.
+- [x] Switched `Pattern.id` and `Composition.id` to UUIDs (new `generateUuid()` helper in `lib/src/patterns/ids.ts`); event/lane ids in jsonb keep the short-prefix format. UUIDs match the Supabase row id type so the same id works in-memory and on disk.
+- [x] On hydration, overwrite `Pattern.id` with the DB row id (handles migrated anon content where data.id was the legacy `pat_xxx` format).
+- [x] `useCloudSync()` hook in `lib/src/cloud/index.ts`. Watches `useAuthStore.status === 'signed-in'`; activates on sign-in, tears down on sign-out / user change.
+- [x] Sign-out cleanup integrated into teardown: clears in-memory store via `usePatternsStore.setState(DEFAULT_PATTERNS_STATE)`, clears `sessionStorage['fretwork:patterns:v1']`, cancels pending debounce.
+- [x] Wired into `AuthCallbackHandler` (one call alongside `useAuth()`).
+- [ ] Cross-device manual verification (sign in on Chrome, create pattern; sign in on Firefox; see it).
 
 ### Group F — Sound Lab expansion + cloud sync
 
-- [ ] Refactor `lib/src/playback/voices/preset-overrides.ts`:
-  - `findEffectivePreset(instrumentId, family)` consults `user_settings.active_presets` first (signed-in), then committed JSON files, then shipped defaults
-- [ ] Build `lib/src/cloud/voicePresetsSync.ts` — sync logic for the new `voice_presets` table
-- [ ] Build `lib/src/cloud/userSettingsSync.ts` — sync for the singleton settings row
-- [ ] Update `example/src/sound-lab/SoundLab.tsx`:
-  - Add Variants picker dropdown per `(instrumentId, family)`
-  - Add "Save as…" button + new-variant modal
-  - Add Rename + Delete actions on active variant
-  - Auto-save edits to the active variant
-- [ ] Sound Lab cloud-vs-session: anon uses sessionStorage; signed-in uses Supabase
-- [ ] Voice presets included in migration prompt at signup
-- [ ] One-time-migration shim for existing `fretwork:lab-presets:v1` localStorage data: convert single-override-per-preset into one "Imported" variant per preset, mark as active
+Split into two sub-groups for shipping clarity.
+
+**F.1 — Storage migration & cloud sync (Lab UI unchanged):**
+
+- [x] Switch `preset-overrides.ts` from `localStorage` to `sessionStorage`. Added one-time-migration shim `migrateLegacyLabStorage()` that copies existing `localStorage['fretwork:lab-presets:v1']` to sessionStorage on module import. Idempotent.
+- [x] Extended `cloud/sync.ts` with `hydrateLabFromCloud()` + `performLabSync()`: pulls `voice_presets` rows + `user_settings.reverb` on sign-in into the existing `PresetOverridesData` shape; subscribes to override changes via `subscribeToOverrides`; debounced 500ms diff-sync (INSERT/UPDATE/DELETE for voice_presets; upsert for user_settings.reverb). Row-id map (`labRowIdByPresetId`) makes UPDATEs O(1) without round-trip selects.
+- [x] Migration prompt extended: `MigrationCounts` gains `voicePresets` + `reverbCustomized`; `uploadSessionContent()` uploads voice presets and reverb in addition to patterns/compositions. MigrationPromptDialog UI shows additional rows.
+- [x] Teardown on sign-out clears `LAB_STORAGE_KEY` from sessionStorage and resets in-memory caches via `saveOverrides({...empty})`.
+
+**F.2 — Multi-variant UI (deferred):**
+
+- [ ] New `Variants` picker dropdown per `(instrumentId, family)` in the Sound Lab
+- [ ] "Save as…" button + new-variant modal
+- [ ] Rename + Delete actions on the active variant
+- [ ] `user_settings.active_presets` map of `{instrumentId-family}-{variantId}` driving `findEffectivePreset`
+- [ ] Migration of existing single-override data into the variant model (one "Imported" variant per preset_id, marked active)
 
 ### Group G — Profile + sharing + forking
 

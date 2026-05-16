@@ -18,6 +18,39 @@
  * includes node_modules/@fretwork/lib/src so the classes are picked up.
  */
 
+// Cloud sync (Supabase): patterns + compositions
+export { useCloudSync } from './cloud';
+
+// Auth (Supabase): client, store, hook, and types
+export {
+  getSupabaseClient,
+  isSupabaseConfigured,
+  useAuthStore,
+  selectIsSignedIn,
+  selectNeedsProfile,
+  selectIsAuthLoading,
+  useAuth,
+  rowToProfile,
+  readSessionContent,
+  countSessionContent,
+  uploadSessionContent,
+  clearSessionContent,
+  markMigrationResolved,
+  hasMigrationBeenResolved,
+  clearMigrationFlag,
+} from './auth';
+export type {
+  AuthStatus,
+  AuthStoreState,
+  Profile,
+  Session,
+  User,
+  UseAuthReturn,
+  CreateProfileInput,
+  MigrationCounts,
+  MigrationResult,
+} from './auth';
+
 // Top-level renderable components
 export { Fretboard, type FretboardProps } from './components/fretboard/Fretboard';
 export { TopBar } from './components/TopBar';
@@ -121,6 +154,7 @@ export {
 // Patterns (Phase 1: pattern editor, library, composition arrangement)
 export {
   generateId,
+  generateUuid,
   PPQ,
   stepLengthToTicks,
   ticksPerBar,

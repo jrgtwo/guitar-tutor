@@ -135,10 +135,17 @@ export const DEFAULT_PATTERNS_STATE: PatternsState = {
   selectedPlacementId: null,
 };
 
+// Anon users persist to sessionStorage — survives reload within the same tab,
+// dies when the tab closes. Privacy stance: no public-computer leaks. Signed-in
+// users sync to Supabase (Group E) instead of relying on this layer.
+//
+// One-time migration: if a user has an existing localStorage entry from before
+// this swap, copy it to sessionStorage on first load so they don't lose work.
+// See `migrateLegacyLocalStorage()` below; called on module import.
 const persistOptions: PersistOptions<PatternsStoreState, Pick<PatternsStoreState, 'library' | 'activeTab' | 'sidebarCollapsed' | 'fretboardCollapsed' | 'stepLength'>> = {
   name: PERSIST_KEY,
   version: 1,
-  storage: createJSONStorage(() => (typeof localStorage !== 'undefined' ? localStorage : memoryStorage())),
+  storage: createJSONStorage(() => (typeof sessionStorage !== 'undefined' ? sessionStorage : memoryStorage())),
   partialize: (state) => ({
     library: state.library,
     activeTab: state.activeTab,
@@ -165,6 +172,41 @@ function memoryStorage(): Storage {
     },
   } as Storage;
 }
+
+/**
+ * One-time migration: copy any existing `fretwork:patterns:v1` data from
+ * localStorage into sessionStorage and delete the localStorage entry.
+ *
+ * Why: before this work, the patterns library was persisted in localStorage
+ * (durable across tab closes). The privacy stance changed (anon users should
+ * not leave content on disk for the next person on a public computer), so we
+ * swapped to sessionStorage. Existing users who already have library data in
+ * localStorage would lose it on the swap without this shim.
+ *
+ * Runs exactly once per page load on module import. After successful copy,
+ * the localStorage key is removed so the migration doesn't re-run on every
+ * reload. Idempotent — if there's nothing to migrate or migration already
+ * happened, it's a no-op.
+ */
+function migrateLegacyLocalStorage(): void {
+  if (typeof localStorage === 'undefined' || typeof sessionStorage === 'undefined') return;
+  try {
+    const legacy = localStorage.getItem(PERSIST_KEY);
+    if (!legacy) return;
+    if (sessionStorage.getItem(PERSIST_KEY)) {
+      // Session already has data — leave it alone, just clear legacy.
+      localStorage.removeItem(PERSIST_KEY);
+      return;
+    }
+    sessionStorage.setItem(PERSIST_KEY, legacy);
+    localStorage.removeItem(PERSIST_KEY);
+  } catch {
+    // Storage may throw in private-browsing modes or quota-exceeded states.
+    // A failed migration is OK — the user just starts with an empty session.
+  }
+}
+
+migrateLegacyLocalStorage();
 
 export const usePatternsStore = create<PatternsStoreState>()(
   persist(

@@ -14,7 +14,7 @@ export type {
   Library,
 } from './types';
 
-export { generateId } from './ids';
+export { generateId, generateUuid } from './ids';
 
 export {
   PPQ,

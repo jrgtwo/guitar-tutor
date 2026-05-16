@@ -5,7 +5,9 @@ import { usePatternsStore, DEFAULT_PATTERNS_STATE } from '@fretwork/lib';
 
 beforeEach(() => {
   // Reset the patterns store and its persisted storage so each test runs clean.
+  // Persistence backend is now sessionStorage (privacy change for anon users).
   localStorage.clear();
+  sessionStorage.clear();
   usePatternsStore.setState({ ...DEFAULT_PATTERNS_STATE });
 });
 
@@ -38,12 +40,12 @@ describe('PatternsPage smoke test', () => {
     expect(usePatternsStore.getState().sidebarCollapsed).toBe(!initialCollapsed);
   });
 
-  it('writes library to localStorage via the persist middleware', () => {
+  it('writes library to sessionStorage via the persist middleware', () => {
     render(<PatternsPage />);
     usePatternsStore.getState().createPattern('persistent riff');
-    // The persist middleware writes to localStorage synchronously after each set().
-    // Inspect the stored payload directly to confirm wiring.
-    const raw = localStorage.getItem('fretwork:patterns:v1');
+    // Persist middleware writes synchronously after each set(). Storage is
+    // sessionStorage now (was localStorage) per the anon-privacy stance.
+    const raw = sessionStorage.getItem('fretwork:patterns:v1');
     expect(raw).not.toBeNull();
     const parsed = JSON.parse(raw!);
     const patterns = parsed?.state?.library?.patterns ?? [];

@@ -12,7 +12,7 @@ import type {
   Placement,
   Tick,
 } from './types';
-import { generateId } from './ids';
+import { generateId, generateUuid } from './ids';
 import { snapshotPatternForPlacement } from './pattern-ops';
 
 const DEFAULT_TS: PatternTimeSignature = { numerator: 4, denominator: 4 };
@@ -21,7 +21,8 @@ const DEFAULT_BPM = 120;
 export function createEmptyComposition(name = 'Untitled composition'): Composition {
   const now = Date.now();
   return {
-    id: generateId('comp'),
+    // UUID so the same id can be used as the Supabase row id when synced.
+    id: generateUuid(),
     name,
     bpm: DEFAULT_BPM,
     timeSignature: { ...DEFAULT_TS },

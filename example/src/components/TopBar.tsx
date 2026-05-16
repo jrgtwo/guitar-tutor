@@ -1,6 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import {
-  Button,
   Dialog,
   DialogContent,
   DialogTitle,
@@ -15,6 +14,7 @@ import {
 } from '@fretwork/lib';
 import { SimplePopover } from './ui/SimplePopover';
 import { useContextSummary } from './useContextSummary';
+import { SignInButton } from '@/auth/SignInButton';
 
 const DESKTOP_QUERY = '(min-width: 768px)';
 
@@ -79,15 +79,7 @@ export function TopBar() {
           </nav>
           <div className="flex items-center gap-2 shrink-0">
             <SettingsDialog audioSection={<SoundLabLink />} />
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled
-              aria-label="Sign in (coming soon)"
-              title="Sign in (coming soon)"
-            >
-              Sign in
-            </Button>
+            <SignInButton />
           </div>
         </div>
 

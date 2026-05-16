@@ -30,6 +30,38 @@ const STORAGE_KEY = 'fretwork:lab-presets:v1';
 const CHANGE_EVENT = 'fretwork:overrides-changed';
 const SCHEMA_VERSION = 1;
 
+/**
+ * One-time migration: copy any existing legacy `fretwork:lab-presets:v1` data
+ * from localStorage to sessionStorage and delete the localStorage entry.
+ *
+ * Why: pre-cloud, the lab persisted to localStorage (durable across tabs).
+ * The privacy stance changed (anon content shouldn't live on disk for the
+ * next user on a shared computer), so we swapped to sessionStorage. Existing
+ * users would lose their lab tweaks without this shim.
+ *
+ * Idempotent — runs exactly once on module import; if there's nothing to
+ * migrate, no-ops. After successful copy, the localStorage entry is removed
+ * so future loads don't re-migrate.
+ */
+function migrateLegacyLabStorage(): void {
+  if (typeof localStorage === 'undefined' || typeof sessionStorage === 'undefined') return;
+  try {
+    const legacy = localStorage.getItem(STORAGE_KEY);
+    if (!legacy) return;
+    if (sessionStorage.getItem(STORAGE_KEY)) {
+      // Session already populated — clear legacy and move on.
+      localStorage.removeItem(STORAGE_KEY);
+      return;
+    }
+    sessionStorage.setItem(STORAGE_KEY, legacy);
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // Storage may throw in private-browsing modes. Non-fatal.
+  }
+}
+
+migrateLegacyLabStorage();
+
 export interface PresetOverridesData {
   schemaVersion: number;
   presets: Record<string, VoicePreset>;
@@ -42,7 +74,7 @@ const EMPTY: PresetOverridesData = {
 };
 
 function isBrowser(): boolean {
-  return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+  return typeof window !== 'undefined' && typeof window.sessionStorage !== 'undefined';
 }
 
 // ─── Committed presets (from public/presets/<id>.json) ───────────────────────
@@ -118,6 +150,9 @@ export function committedPresetsLoaded(): boolean {
   return _committedLoaded;
 }
 
+/** Where a preset's active value is coming from. `localStorage` is kept as the
+ *  label for "local user override" for backward compat with existing UI; the
+ *  actual storage is sessionStorage now. */
 export type PresetSource = 'localStorage' | 'committed' | 'shipped';
 
 /** Tell the caller which layer is supplying the active value for a preset id.
@@ -139,12 +174,17 @@ export function getReverbSource(): PresetSource {
   return 'shipped';
 }
 
-/** Load the entire override blob from localStorage. Returns an empty record on
- *  parse failure or schema mismatch. */
+/** Load the entire override blob from sessionStorage. Returns an empty record
+ *  on parse failure or schema mismatch.
+ *
+ *  Storage is sessionStorage (per-tab, dies on tab close) per the anon-privacy
+ *  stance — lab tweaks made on a public computer don't persist for the next
+ *  visitor. Signed-in users get cross-device persistence via the cloud-sync
+ *  layer (see `cloud/sync.ts`), which writes/reads voice_presets + user_settings. */
 export function loadOverrides(): PresetOverridesData {
   if (!isBrowser()) return EMPTY;
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = window.sessionStorage.getItem(STORAGE_KEY);
     if (!raw) return { ...EMPTY };
     const parsed = JSON.parse(raw) as Partial<PresetOverridesData>;
     if (parsed?.schemaVersion !== SCHEMA_VERSION || !parsed.presets) {
@@ -160,13 +200,14 @@ export function loadOverrides(): PresetOverridesData {
   }
 }
 
-/** Persist the override blob and notify listeners (same-tab + cross-tab). */
+/** Persist the override blob and notify listeners. */
 export function saveOverrides(next: PresetOverridesData): void {
   if (!isBrowser()) return;
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-    // Native `storage` event only fires in OTHER tabs; dispatch a custom event so
-    // listeners in this tab also pick up the change.
+    window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    // SessionStorage is per-tab so the cross-tab `storage` event doesn't fire
+    // (it does for localStorage but not sessionStorage). Same-tab listeners
+    // still need this custom event to invalidate caches and re-render.
     window.dispatchEvent(new CustomEvent(CHANGE_EVENT));
   } catch {
     // Storage quota exceeded, private mode, etc. — silently fail.
@@ -238,18 +279,20 @@ export function getEffectiveReverb(): ReverbSettings {
   return loadOverrides().reverb ?? _committed.reverb ?? DEFAULT_REVERB_SETTINGS;
 }
 
-/** Subscribe to override changes from this tab OR any other tab. The listener
- *  receives no payload — call `loadOverrides()` to read the new state. */
+/** Subscribe to override changes. The listener receives no payload — call
+ *  `loadOverrides()` to read the new state. SessionStorage doesn't fire the
+ *  cross-tab `storage` event, so this only catches same-tab writes; signed-in
+ *  users get cross-device updates by re-fetching on sign-in (`cloud/sync.ts`). */
 export function subscribeToOverrides(listener: () => void): () => void {
   if (!isBrowser()) return () => {};
   const onCustom = () => listener();
-  const onStorage = (e: StorageEvent) => {
-    if (e.key === STORAGE_KEY) listener();
-  };
   window.addEventListener(CHANGE_EVENT, onCustom);
-  window.addEventListener('storage', onStorage);
   return () => {
     window.removeEventListener(CHANGE_EVENT, onCustom);
-    window.removeEventListener('storage', onStorage);
   };
 }
+
+/** Export the storage key for use by other modules (e.g., the cloud-sync
+ *  teardown path that clears sessionStorage on sign-out). */
+export const LAB_STORAGE_KEY = STORAGE_KEY;
+export const LAB_CHANGE_EVENT = CHANGE_EVENT;

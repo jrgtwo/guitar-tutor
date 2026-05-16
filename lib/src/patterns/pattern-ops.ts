@@ -14,7 +14,7 @@ import type {
   PatternTimeSignature,
   Tick,
 } from './types';
-import { generateId } from './ids';
+import { generateId, generateUuid } from './ids';
 import { defaultPatternDurationTicks } from './timebase';
 
 const DEFAULT_TS: PatternTimeSignature = { numerator: 4, denominator: 4 };
@@ -23,7 +23,8 @@ export function createEmptyPattern(name = 'Untitled pattern'): Pattern {
   const ts = { ...DEFAULT_TS };
   const now = Date.now();
   return {
-    id: generateId('pat'),
+    // UUID so the same id can be used as the Supabase row id when synced.
+    id: generateUuid(),
     name,
     durationTicks: defaultPatternDurationTicks(ts),
     timeSignature: ts,
@@ -40,7 +41,7 @@ export function clonePattern(p: Pattern, overrides: Partial<Pick<Pattern, 'name'
   const now = Date.now();
   return {
     ...p,
-    id: overrides.id ?? generateId('pat'),
+    id: overrides.id ?? generateUuid(),
     name: overrides.name ?? p.name,
     events: p.events.map((e) => ({ ...e, id: generateId('ev') })),
     lanes: p.lanes.map((l) => ({ ...l })),

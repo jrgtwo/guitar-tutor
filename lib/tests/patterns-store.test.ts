@@ -4,10 +4,12 @@ import { PPQ } from '../src/patterns';
 
 beforeEach(() => {
   // Reset state and clear persisted storage so each test starts clean.
+  // sessionStorage is the actual backend since the anon-privacy change;
+  // clear localStorage too for hygiene.
   localStorage.clear();
+  sessionStorage.clear();
   usePatternsStore.setState({
     ...DEFAULT_PATTERNS_STATE,
-    // Re-attach default actions (Zustand keeps them anyway, but be explicit).
   });
 });
 

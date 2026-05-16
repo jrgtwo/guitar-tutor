@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "preset": {
+    "id": "acoustic-guitar",
+    "name": "Acoustic Guitar",
+    "layer": {
+      "gainDb": -10,
+      "source": {
+        "kind": "fm-synth",
+        "params": {
+          "detune": 0,
+          "envelope": {
+            "decay": 0.5,
+            "attack": 0.005,
+            "release": 0.8,
+            "sustain": 0.3
+          },
+          "harmonicity": 0.5,
+          "carrierWaveform": "sine",
+          "modulationIndex": 2,
+          "modulatorWaveform": "sine",
+          "modulationEnvelope": {
+            "decay": 0.5,
+            "attack": 0.005,
+            "release": 0.7,
+            "sustain": 0.3
+          }
+        }
+      },
+      "detuneCents": 0,
+      "octaveOffset": 0
+    },
+    "level": {
+      "pan": 0,
+      "volumeDb": 0
+    },
+    "family": "acoustic",
+    "source": {
+      "kind": "fm-synth",
+      "params": {
+        "detune": 0,
+        "envelope": {
+          "decay": 0.44,
+          "attack": 0.005,
+          "release": 0.75,
+          "sustain": 0.06
+        },
+        "harmonicity": 1.95,
+        "carrierWaveform": "triangle",
+        "modulationIndex": 4,
+        "modulatorWaveform": "sine",
+        "modulationEnvelope": {
+          "decay": 0.5,
+          "attack": 0.002,
+          "release": 0.7,
+          "sustain": 0.2
+        }
+      }
+    },
+    "effects": {
+      "eq": {
+        "low": 0,
+        "mid": 0,
+        "high": 0,
+        "lowFrequency": 400,
+        "highFrequency": 2500
+      }
+    },
+    "compressor": {
+      "knee": 6,
+      "ratio": 4,
+      "attack": 0.005,
+      "release": 0.1,
+      "threshold": -18
+    },
+    "instrumentId": "guitar"
+  }
+}
