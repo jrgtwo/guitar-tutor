@@ -96,6 +96,19 @@ export interface PatternsActions {
   updatePatternMetadata(id: string, patch: PatternMetadataPatch): void;
   deletePattern(id: string): void;
   duplicatePattern(id: string): string;
+  /**
+   * Add a fork of someone else's pattern to the library. The source is passed by
+   * value (the viewer has already fetched it from cloud) so the action doesn't
+   * need to know about the source's owner. The new copy:
+   *   - gets a fresh UUID + fresh event ids (via clonePattern)
+   *   - sets `forkedFromId` for attribution
+   *   - starts private, never published
+   *   - inherits the source's instrument + musical content
+   *
+   * `created_by_display_name` is set automatically at the next sync INSERT
+   * using the forker's auth-store profile name — no special handling here.
+   */
+  forkPattern(source: Pattern): string;
   createComposition(name?: string): string;
   renameComposition(id: string, name: string): void;
   setCompositionInstrument(id: string, instrumentId: string): void;
@@ -355,6 +368,21 @@ export const usePatternsStore = create<PatternsStoreState>()(
           ...clearDraftIf(cur, id),
         }));
         return dup.id;
+      },
+      forkPattern(source) {
+        const fork = clonePattern(source, {
+          forkedFromId: source.id,
+          visibility: 'private',
+        });
+        set((cur) => ({
+          library: { ...cur.library, patterns: [...cur.library.patterns, fork] },
+          editingPatternId: fork.id,
+          editingPlacementId: null,
+          cursorTick: 0,
+          selectedEventIds: [],
+          activeTab: 'edit',
+        }));
+        return fork.id;
       },
       createComposition(name) {
         const c = createEmptyComposition(name, useFretworkStore.getState().instrumentId);

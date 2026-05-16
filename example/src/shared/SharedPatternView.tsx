@@ -26,9 +26,11 @@ import {
   isTag,
   selectIsSignedIn,
   useAuthStore,
+  useFretworkStore,
+  usePatternsStore,
 } from '@fretwork/lib';
 import type { Pattern } from '@fretwork/lib';
-import { Link } from '../router';
+import { Link, navigate } from '../router';
 import { MiniPatternSignature } from '../patterns/arranger/MiniPatternSignature';
 
 interface Props {
@@ -138,6 +140,8 @@ function NotFoundState() {
 function PatternView({ pattern, owner }: { pattern: Pattern; owner: OwnerDescriptor }) {
   const isSignedIn = useAuthStore(selectIsSignedIn);
   const openSignupModal = useAuthStore((s) => s.openSignupModal);
+  const forkPattern = usePatternsStore((s) => s.forkPattern);
+  const setFretworkInstrumentId = useFretworkStore((s) => s.setInstrumentId);
 
   const validDifficulty = isDifficulty(pattern.difficulty) ? pattern.difficulty : null;
   const validGenres = pattern.genres.filter(isGenre);
@@ -148,8 +152,11 @@ function PatternView({ pattern, owner }: { pattern: Pattern; owner: OwnerDescrip
       openSignupModal('fork-shared-pattern');
       return;
     }
-    // Real fork action wires in chunk 4d.
-    console.info('[SharedPatternView] fork (stub) — will land in chunk 4d');
+    forkPattern(pattern);
+    // Sync the fretboard to the fork's instrument so the editor view matches.
+    // Mirrors the pattern-picker behavior in `PatternPickerPanel`.
+    setFretworkInstrumentId(pattern.instrumentId);
+    navigate({ kind: 'patterns' });
   };
 
   return (
