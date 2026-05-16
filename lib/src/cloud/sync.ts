@@ -395,9 +395,14 @@ async function syncCollection<T extends SyncableItem>(
   let ok = true;
 
   if (inserts.length > 0) {
+    // Snapshot the current user's display name onto every new shareable row so
+    // attribution can render without a profiles join — anon viewers can read the
+    // row but not the profiles table (see migration 0009).
+    const displayName = useAuthStore.getState().profile?.displayName ?? null;
     const rows = inserts.map((item) => ({
       id: item.id,
       user_id: userId,
+      created_by_display_name: displayName,
       ...rowPayload(item),
     }));
     const { error } = await client.from(table).insert(rows);

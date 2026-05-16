@@ -111,6 +111,11 @@ export async function uploadSessionContent(): Promise<MigrationResult> {
   let uploadedVoicePresets = 0;
   let uploadedReverb = false;
 
+  // The user just completed signup so the profile row exists with the chosen
+  // display name. Snapshot it onto every shareable row we're about to insert
+  // (see migration 0009 for why attribution is denormalized).
+  const displayName = useAuthStore.getState().profile?.displayName ?? null;
+
   try {
     const client = getSupabaseClient();
 
@@ -120,6 +125,7 @@ export async function uploadSessionContent(): Promise<MigrationResult> {
         name: typeof p.name === 'string' && p.name.length > 0 ? p.name : 'Untitled pattern',
         data: p,
         instrument_id: (p as { instrumentId?: string }).instrumentId ?? DEFAULT_INSTRUMENT_ID,
+        created_by_display_name: displayName,
         visibility: 'private' as const,
       }));
       const { data, error } = await client.from('patterns').insert(rows).select();
@@ -141,6 +147,7 @@ export async function uploadSessionContent(): Promise<MigrationResult> {
         name: typeof c.name === 'string' && c.name.length > 0 ? c.name : 'Untitled composition',
         data: c,
         instrument_id: (c as { instrumentId?: string }).instrumentId ?? DEFAULT_INSTRUMENT_ID,
+        created_by_display_name: displayName,
         visibility: 'private' as const,
       }));
       const { data, error } = await client.from('compositions').insert(rows).select();
@@ -165,6 +172,7 @@ export async function uploadSessionContent(): Promise<MigrationResult> {
         instrument_id: preset.instrumentId,
         family: preset.family,
         data: preset,
+        created_by_display_name: displayName,
         visibility: 'private' as const,
       }));
       const { data, error } = await client.from('voice_presets').insert(rows).select();

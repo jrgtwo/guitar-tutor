@@ -13,7 +13,7 @@
  *   - Attribution shown as a non-clickable display name (profile-link wiring
  *     comes in chunk 4c)
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ChevronLeft } from 'lucide-react';
 import {
   DIFFICULTY_LABELS,
@@ -35,10 +35,27 @@ interface Props {
   patternId: string;
 }
 
+/**
+ * Two attribution states, derived purely from `row.created_by_display_name`
+ * (denormalized at write time — see migration 0009). Anon viewers can read this
+ * column even though they can't read the profiles table, so no profile fetch is
+ * needed for attribution.
+ *
+ *   - deleted: snapshot is null → either the creator's account was deleted (the
+ *     RPC also nulls this column when orphaning shared content) or the row was
+ *     written before the snapshot column existed. Render "[Deleted User]" plain.
+ *   - attributed: snapshot has a value → render the name as a Link to the
+ *     profile. Profile pages handle their own private / not-found states; we
+ *     don't gate the link.
+ */
+type OwnerDescriptor =
+  | { kind: 'deleted' }
+  | { kind: 'attributed'; displayName: string };
+
 type ViewState =
   | { kind: 'loading' }
   | { kind: 'not-found' }
-  | { kind: 'ok'; pattern: Pattern; ownerDisplayName: string | null };
+  | { kind: 'ok'; pattern: Pattern; owner: OwnerDescriptor };
 
 export function SharedPatternView({ patternId }: Props) {
   const [state, setState] = useState<ViewState>({ kind: 'loading' });
@@ -59,22 +76,11 @@ export function SharedPatternView({ patternId }: Props) {
         return;
       }
       const pattern = hydrateRow(row);
-
-      // Try to fetch the owner's profile for attribution. Anon clients are blocked
-      // by RLS on the profiles table, in which case we silently skip — attribution
-      // falls back to "another author." Deleted owners (user_id null) render as
-      // "[Deleted User]" regardless.
-      let ownerDisplayName: string | null = null;
-      if (row.user_id) {
-        const { data: prof } = await client
-          .from('profiles')
-          .select('display_name')
-          .eq('user_id', row.user_id)
-          .maybeSingle();
-        ownerDisplayName = (prof?.display_name as string | undefined) ?? null;
-      }
-      if (cancelled) return;
-      setState({ kind: 'ok', pattern, ownerDisplayName });
+      const snapshotName = (row.created_by_display_name as string | null) ?? null;
+      const owner: OwnerDescriptor = snapshotName
+        ? { kind: 'attributed', displayName: snapshotName }
+        : { kind: 'deleted' };
+      setState({ kind: 'ok', pattern, owner });
     }
     void load();
     return () => {
@@ -90,9 +96,7 @@ export function SharedPatternView({ patternId }: Props) {
           <p className="text-sm font-mono text-muted-foreground mt-12">Loading pattern…</p>
         )}
         {state.kind === 'not-found' && <NotFoundState />}
-        {state.kind === 'ok' && (
-          <PatternView pattern={state.pattern} ownerDisplayName={state.ownerDisplayName} />
-        )}
+        {state.kind === 'ok' && <PatternView pattern={state.pattern} owner={state.owner} />}
       </main>
     </div>
   );
@@ -131,23 +135,9 @@ function NotFoundState() {
   );
 }
 
-function PatternView({
-  pattern,
-  ownerDisplayName,
-}: {
-  pattern: Pattern;
-  ownerDisplayName: string | null;
-}) {
+function PatternView({ pattern, owner }: { pattern: Pattern; owner: OwnerDescriptor }) {
   const isSignedIn = useAuthStore(selectIsSignedIn);
   const openSignupModal = useAuthStore((s) => s.openSignupModal);
-
-  const attribution = useMemo(() => {
-    if (ownerDisplayName) return `Created by ${ownerDisplayName}`;
-    // Either anon-viewing-without-profile-access, or the creator has been deleted.
-    // Both render identically for now; chunk 4c will distinguish them properly using
-    // the `profiles.deleted` flag and a clickable profile link for live owners.
-    return 'Created by another author';
-  }, [ownerDisplayName]);
 
   const validDifficulty = isDifficulty(pattern.difficulty) ? pattern.difficulty : null;
   const validGenres = pattern.genres.filter(isGenre);
@@ -167,7 +157,7 @@ function PatternView({
       {/* Title + attribution */}
       <header className="flex flex-col gap-1">
         <h1 className="text-2xl font-bold tracking-tight">{pattern.name}</h1>
-        <p className="text-xs font-mono text-muted-foreground">{attribution}</p>
+        <Attribution owner={owner} />
       </header>
 
       {/* Quick chips: instrument + difficulty + visibility */}
@@ -229,6 +219,27 @@ function PatternView({
         </button>
       </div>
     </article>
+  );
+}
+
+function Attribution({ owner }: { owner: OwnerDescriptor }) {
+  if (owner.kind === 'deleted') {
+    return (
+      <p className="text-xs font-mono text-muted-foreground">
+        Created by <span className="italic">[Deleted User]</span>
+      </p>
+    );
+  }
+  return (
+    <p className="text-xs font-mono text-muted-foreground">
+      Created by{' '}
+      <Link
+        to={{ kind: 'profile', displayName: owner.displayName }}
+        className="text-foreground hover:underline"
+      >
+        {owner.displayName}
+      </Link>
+    </p>
   );
 }
 
