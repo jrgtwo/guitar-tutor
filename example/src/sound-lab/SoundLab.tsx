@@ -47,6 +47,7 @@ import {
 } from '@fretwork/lib';
 import { ParameterSlider } from './ParameterSlider';
 import { AuditionDeck } from './AuditionDeck';
+import { Link } from '../router';
 
 const OSCILLATOR_TYPES: OscillatorType[] = ['sine', 'square', 'sawtooth', 'triangle'];
 const CHORUS_TYPES: ChorusType[] = ['sine', 'square', 'sawtooth', 'triangle'];
@@ -296,9 +297,9 @@ export function SoundLab() {
           Tune voice presets · /?lab=1
         </span>
         <div className="ml-auto flex items-center gap-2">
-          <a href="/" className="text-xs font-mono uppercase tracking-wider text-muted-foreground hover:text-foreground">
+          <Link to={{ kind: 'home' }} className="text-xs font-mono uppercase tracking-wider text-muted-foreground hover:text-foreground">
             ← Back to app
-          </a>
+          </Link>
         </div>
       </header>
 

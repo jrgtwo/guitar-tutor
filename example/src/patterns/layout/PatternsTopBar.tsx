@@ -1,5 +1,6 @@
 import { ChevronRight } from 'lucide-react';
 import { usePatternsStore } from '@fretwork/lib';
+import { Link } from '../../router';
 
 /** Patterns-page top bar. Replicates the chrome of the placeholder, with a clear
  *  marker for the active page and a left-side toggle for the library sidebar. */
@@ -24,7 +25,7 @@ export function PatternsTopBar() {
         />
       </button>
 
-      <a href="/" className="flex items-center gap-2">
+      <Link to={{ kind: 'home' }} className="flex items-center gap-2">
         <div className="h-8 w-8 rounded-md bg-degree-root/90 flex items-center justify-center text-charcoal-deep font-bold tracking-tighter shadow-md text-sm">
           F
         </div>
@@ -34,22 +35,22 @@ export function PatternsTopBar() {
             patterns
           </span>
         </div>
-      </a>
+      </Link>
 
       <nav className="flex items-center gap-1 ml-auto">
-        <a
-          href="/"
+        <Link
+          to={{ kind: 'home' }}
           className="h-8 px-3 inline-flex items-center rounded-md text-xs font-mono uppercase tracking-wider text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors"
         >
           Practice
-        </a>
-        <a
-          href="?page=patterns"
+        </Link>
+        <Link
+          to={{ kind: 'patterns' }}
           className="h-8 px-3 inline-flex items-center rounded-md text-xs font-mono uppercase tracking-wider bg-white/5 text-foreground"
           aria-current="page"
         >
           Patterns
-        </a>
+        </Link>
       </nav>
     </header>
   );

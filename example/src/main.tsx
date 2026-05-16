@@ -6,6 +6,9 @@ import { PatternsPage } from './patterns/PatternsPage';
 import { seedCommittedPresets } from '@fretwork/lib';
 import { AuthCallbackHandler } from './auth/AuthCallbackHandler';
 import { ProfilePage } from './profile/ProfilePage';
+import { ProfileSettings } from './profile/ProfileSettings';
+import { useLocation } from './router';
+
 // Lib design tokens MUST be imported before the app's own stylesheet so Tailwind's
 // generated layers can reference the CSS variables.
 import '@fretwork/lib/styles/tokens.css';
@@ -14,8 +17,7 @@ import './styles/index.css';
 // Fire-and-forget: load committed preset tunings from `/presets/<id>.json`. The
 // fetch happens in parallel with React mounting; if files exist they fill the
 // committed-overrides cache and a `fretwork:overrides-changed` event prods
-// subscribers (lab + main app's usePlayback) to re-resolve. Failures (no files
-// committed yet, offline, etc.) are silent — callers fall through to localStorage
+// subscribers (lab + main app's usePlayback) to re-resolve. Failures are silent — callers fall through to localStorage
 // and then the shipped defaults in `presets.ts`.
 void seedCommittedPresets();
 
@@ -23,13 +25,17 @@ void seedCommittedPresets();
 //   ?lab=1            → Sound Lab (developer-facing audio tuning surface)
 //   ?page=patterns    → Patterns
 //   ?profile=<name>   → Public profile page (signed-in only)
+//   ?settings=1       → Profile Settings (signed-in only)
 //   (default)         → Main practice app
-const params = new URLSearchParams(window.location.search);
-const isSoundLab = params.get('lab') === '1';
-const isPatterns = params.get('page') === 'patterns';
-const profileName = params.get('profile');
-
 function Root() {
+  // useLocation subscribes to in-app navigation events (router.navigate) and
+  // browser back/forward, so changing routes re-renders without a page reload.
+  const { params } = useLocation();
+  const isSoundLab = params.get('lab') === '1';
+  const isPatterns = params.get('page') === 'patterns';
+  const profileName = params.get('profile');
+  const isSettings = params.get('settings') === '1';
+
   // AuthCallbackHandler must mount alongside every route — it manages the
   // singleton auth subscription and overlays the SignupForm / SignupModal as
   // needed. Without it, no auth state is ever read.
@@ -37,6 +43,7 @@ function Root() {
   if (isSoundLab) page = <SoundLab />;
   else if (isPatterns) page = <PatternsPage />;
   else if (profileName) page = <ProfilePage displayName={profileName} />;
+  else if (isSettings) page = <ProfileSettings />;
   else page = <App />;
   return (
     <>

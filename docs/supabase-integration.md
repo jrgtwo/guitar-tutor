@@ -15,13 +15,13 @@ A long-running implementation effort. Use the **Implementation Checklist** secti
 | E — Patterns/Compositions cloud sync | ✅ Done | Diff-sync, hydration, sign-out cleanup. UUIDs for DB-bound IDs. |
 | F.1 — Sound Lab cloud sync | ✅ Done | Storage swap, hydration, lab override sync, migration prompt extension. Migration-deferred-hydration fix. |
 | F.2 — Multi-variant Sound Lab UI | ⏳ Deferred | Save As / Rename / Delete in the lab; UX upgrade rather than foundation. |
-| G — Sharing, forking, profile editor, account deletion | ⏳ Next | Biggest remaining chunk. Plan to split into G.1 (profile editor + account deletion), G.2 (share-by-link + viewer routes), G.3 (fork action + attribution). |
+|| G — Sharing, forking, profile editor, account deletion | ⏳ In Progress | Account deletion implemented (RPC + Edge Function). Remaining: Profile Editor, Sharing, and Forking. |
 | H — Teaching workflows | ⏳ Pending | Invites, relationships, assignments, scoped notes. |
 | I — Help button + per-page walkthroughs | ⏳ Pending | Lightweight UX layer. |
 | J — Tier scaffolding | ⏳ Pending | Free/pro/teacher caps in code; Stripe integration deferred. |
 | K — Final verification & cleanup | ⏳ Pending | Manual E2E flows + automated tests + legacy-localStorage shim removal. |
 
-**Where to pick up tomorrow:** Group G, starting with G.1 (profile editor at `?settings=1` + account deletion RPC + DeleteAccountFlow component). The Settings link in the UserMenu currently points to `?settings=1` which 404s back to the practice page; building the editor unblocks that.
+**Where to pick up tomorrow:** Group G, starting with G.1 (Profile Editor at `?settings=1`). Account deletion is complete.
 
 ---
 
@@ -79,6 +79,15 @@ A single user is often more than one persona at different times. UI affordances 
 | Account deletion | Immediate hard-delete of private content + account; shared content stays orphaned with "Created by [Deleted User]" attribution; teacher-sent assignments orphan but remain readable; student deletion preserves anonymized aggregate stats in teacher roster. |
 | Notes after account deletion | Body preserved, author shown as "[Deleted User]" |
 | Session lifecycle | Supabase defaults — 1h JWT, 30d refresh, silent refresh, sliding window |
+| Catalog-forward metadata | Every shared row carries `description`, `difficulty`, `genres`, `tags`, `instrument_id`, `published_at`. User-typed fields are captured at authoring time so the eventual catalog page has data to filter on. Stored as plain `text` / `text[]`; no Postgres ENUMs (project convention). |
+| Genres / tags vocabulary | Curated lists exported from lib code (not free-form, not DB enums). Genres = musical style; tags = pattern role/context (solo, backing-track, intro, …). Exact word lists deferred. |
+| Patterns page layout | No sidebars in fretboard views. Pattern library + metadata + visibility all live in a single full-width top-controls bar above the editor. |
+| Top-controls-bar interaction | Closed bar = read-only summary (one giant button). Click → single popover containing all editable fields, parity with the practice page's `HeadstockMenu`. Inside the popover, the name field doubles as the pattern picker. |
+| Empty-state in editor | Auto-seed an in-memory "Untitled" draft on page load so the user can start authoring immediately. Persist (insert DB row, add to library) only on the first real edit. |
+
+## Design Decisions
+
+**Profile vs. Profile Settings separation**: To maintain a clear distinction between a **Public View** (read-only profile page for others) and a **Private Command Center** (management dashboard for the owner), the implementation uses two separate routes: `/?profile=<name>` and `?settings=1`. This prevents complex conditional rendering within a single component and maintains a clean separation of concerns. A 'Edit Profile' button on the Public View will link to the Private View.
 
 ---
 
@@ -418,6 +427,98 @@ On signup, the **migration prompt** captures any session content the anon user c
 
 ---
 
+## Catalog-forward metadata
+
+Shared content (patterns, compositions, voice presets) will eventually live in a browseable catalog. The browse page itself is deferred (see "Explicit deferrals"), but the metadata the catalog needs to filter on has to exist on every shared row from day one — backfilling user-typed fields after the fact is impossible.
+
+### Schema additions
+
+```sql
+alter table patterns
+  add column description    text,
+  add column difficulty     text,                 -- 'beginner' | 'intermediate' | 'advanced'
+  add column genres         text[] default '{}',  -- curated list
+  add column tags           text[] default '{}',  -- curated list
+  add column instrument_id  text,                 -- denormalized from data jsonb for filter perf
+  add column published_at   timestamptz;          -- set when visibility first leaves 'private'
+
+create index patterns_catalog_idx on patterns
+  (visibility, instrument_id, difficulty, published_at desc)
+  where visibility != 'private';
+create index patterns_tags_gin   on patterns using gin (tags)   where visibility != 'private';
+create index patterns_genres_gin on patterns using gin (genres) where visibility != 'private';
+```
+
+Same migration applies to `compositions` and (minus `instrument_id`, which already exists) to `voice_presets`.
+
+### Field semantics
+
+| Field | Source | Notes |
+|---|---|---|
+| `description` | User-typed | Free-form text. |
+| `difficulty` | User-typed | App-level enum: `beginner` / `intermediate` / `advanced`. Plain `text`. |
+| `genres` | User-typed | Curated list (musical styles: blues, jazz, rock, classical, …). `text[]`. |
+| `tags` | User-typed | Curated list (pattern role/context: solo, backing-track, intro, practice, warm-up, …). `text[]`. |
+| `instrument_id` | Derived from `data` jsonb at write time | Denormalized for filter queries. |
+| `published_at` | App-set when visibility transitions out of `private`. Cleared if it returns to `private`. | Used for "recently published" sorting. |
+
+### Convention notes
+
+- **No Postgres ENUMs.** Every existing categorical column in the schema (`visibility`, `status`, `tier`, `skill_level`) is plain `text` validated at the app layer; new fields follow that pattern. ENUMs are sticky (`ALTER TYPE ADD VALUE` is irreversible, can't be reordered) and these lists will evolve.
+- **Curated lists live in lib code** (e.g. `lib/src/catalog/genres.ts`, `lib/src/catalog/tags.ts`) — exported constants used for both UI rendering and write-time validation. Adding a value is a code change, not a migration.
+- **Pattern attributes already in the `data` jsonb** (key, scale, tuning, CAGED shape) are *not* duplicated as columns yet. When the catalog browse page lands, those can be extracted via a one-time backfill — they're deterministically derivable from each row's `data`. Only user-typed fields need columns now.
+
+---
+
+## Patterns page — top controls bar
+
+The patterns page (`?page=patterns`) gets a new full-width top controls bar that replaces the old `LibrarySidebar` and houses all per-item metadata and visibility editing. Sidebars are removed from any view that has a fretboard, to give the fretboard the horizontal room it needs.
+
+### Layout
+
+```
+┌── PatternsTopBar (page-level global nav) ───────────────────────────────┐
+├── Top Controls Bar (new) ───────────────────────────────────────────────┤
+│  Name   Difficulty   Genres   Tags   Visibility   (all read-only here) │
+├── WorkspaceTabs  [Edit | Arrange] ──────────────────────────────────────┤
+├── EditorToolbar ────────────────────────────────────────────────────────┤
+│                                                                         │
+│            [ FretboardInput — full page width ]                         │
+│                                                                         │
+│            [ PatternTimeline — full page width ]                        │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+The bar always reflects the currently-active item: a pattern on the Edit tab, a composition on the Arrange tab. Same UI, same fields, polymorphic source.
+
+### Interaction model
+
+Parity with the practice page's `HeadstockMenu`:
+
+- **Closed bar** = a single giant button with read-only summary text. No clickable sub-regions.
+- **Click anywhere on the bar** → opens *one* popover containing all editable fields (name, description, difficulty, genres, tags, visibility + share link).
+- **Inside the popover**, the name field doubles as the pattern picker — click it to switch to a different pattern.
+
+### Components
+
+```
+SimplePopover (lib — exists)
+  ├─ HeadstockMenu content   (practice page — tuning + labels)             ← exists
+  ├─ ItemMetadataPanel       (patterns + compositions — name/desc/         ← new
+  │                            difficulty/genres/tags/visibility/link)
+  └─ PatternPickerPanel      (patterns library — search + select)          ← new
+```
+
+`ItemMetadataPanel` takes the active item (`Pattern | Composition`) and reads/writes the corresponding store and DB table. One component, both tabs.
+
+### Empty state
+
+On page load with no pattern open, an in-memory "Untitled" draft is auto-seeded with default values. The metadata bar shows it immediately. Nothing persists until the first real change — first note added, first field edited. If the user navigates away without editing, no DB row is created and the library stays uncluttered.
+
+(Future polish recorded in "Design follow-ups": per-chip popovers as an alternative to the single-popover model, applied consistently across the practice and patterns pages.)
+
+---
+
 ## Teacher / student workflows
 
 ### Establishing the relationship
@@ -612,8 +713,18 @@ example/src/auth/
 
 example/src/profile/
 ├── ProfilePage.tsx                # /?profile=<display-name> or /u/<name>
-├── ProfileEditor.tsx              # Edit own profile
+├── ProfileSettings.tsx            # Edit own profile (at ?settings=1)
 └── DeleteAccountFlow.tsx          # Account deletion confirmation + execution
+
+example/src/patterns/layout/
+├── PatternControlsBar.tsx         # Full-width top controls bar (replaces LibrarySidebar)
+├── ItemMetadataPanel.tsx          # Popover content: name/desc/difficulty/genres/tags/visibility
+└── PatternPickerPanel.tsx         # Popover content: switch active pattern
+
+lib/src/catalog/
+├── genres.ts                      # Curated genre list
+├── tags.ts                        # Curated tag list
+└── difficulty.ts                  # Difficulty enum + helpers
 
 example/src/teaching/
 ├── StudentRoster.tsx              # Teacher's view of all their students
@@ -738,26 +849,26 @@ Split into two sub-groups for shipping clarity.
 - [ ] `user_settings.active_presets` map of `{instrumentId-family}-{variantId}` driving `findEffectivePreset`
 - [ ] Migration of existing single-override data into the variant model (one "Imported" variant per preset_id, marked active)
 
-### Group G — Profile + sharing + forking
+### Group G — Sharing, forking, profile editor, account deletion | ⏳ In Progress | Account deletion implemented (RPC + Edge Function). Remaining: Profile Editor, Sharing, and Forking. |
 
-- [ ] Build `example/src/profile/ProfilePage.tsx` — public profile view at `/?profile=<displayname>` showing public fields, public content, and follow/contact affordances (when those exist)
-- [ ] Build `example/src/profile/ProfileEditor.tsx` — edit form for all editable profile fields
-- [ ] Add visibility toggle UI to patterns/compositions/voice presets (sidebar or item header)
-- [ ] Add "Share" button that copies a link `/?pattern=<uuid>` etc.
-- [ ] Build shared-content viewer routes: `?pattern=<uuid>`, `?composition=<uuid>`, `?voice-preset=<uuid>` — render read-only with "Fork to my library" CTA
-- [ ] Fork action: signed-in only; gated by tier cap; insert into respective table with `forked_from_id` set; show "Forked from [Creator]" attribution
-- [ ] Attribution display: clickable link to profile if profile is public; non-clickable label if private; "[Deleted User]" if deleted
-- [ ] Build `example/src/profile/DeleteAccountFlow.tsx`:
-  - Confirmation step (type display name)
-  - Trigger Supabase admin RPC for cascading deletion + orphan handling
-  - Backend RPC `delete_account(user_id)`:
-    - Cascade-delete profile, user_settings, subscriptions, private patterns/compositions/voice_presets
-    - Update `user_id = null` and set `display_name = '[Deleted User]'` (or similar) on shared (non-private) patterns/compositions/voice_presets
-    - Set `orphaned = true` on assignments where this user is teacher
-    - Cascade-delete assignment_recipients where this user is student (after archiving aggregate stats into the relationship row)
-    - Update relationship rows: if user was student, set `student_deleted = true`, `student_id = null`; preserve aggregate stats columns
-    - Anonymize assignment_notes authored by this user
-    - Finally call `supabase.auth.admin.deleteUser(user_id)`
+- [x] Build `example/src/profile/DeleteAccountFlow.tsx`:
+  - Multi-step UI (Confirmation + Success)
+  - Trigger `delete_account_cleanup()` RPC (database cleanup)
+  - Trigger `delete-user` Edge Function (auth.admin.deleteUser via Service Role)
+  - Securely identifies user via JWT (prevents hijacking)
+- [x] Build `example/src/profile/ProfilePage.tsx` — public profile view at `/?profile=<displayname>` showing public fields, public content, and follow/contact affordances (when those exist)
+- [x] Build `example/src/profile/ProfileSettings.tsx` — the profile editor surface at `?settings=1` (replaces the originally-planned `ProfileEditor.tsx` name).
+- [ ] Add migration `0008_catalog_metadata.sql` — `description` / `difficulty` / `genres` / `tags` / `instrument_id` / `published_at` columns + indexes on `patterns`, `compositions`, `voice_presets`. Backfill `instrument_id` from existing `data` jsonb.
+- [ ] Build curated vocabulary modules: `lib/src/catalog/genres.ts`, `lib/src/catalog/tags.ts`, `lib/src/catalog/difficulty.ts` — exported constants used for UI + write-time validation.
+- [ ] Remove `LibrarySidebar` from `PatternsPage.tsx`. Delete or repurpose the sidebar component.
+- [ ] Build `example/src/patterns/layout/PatternControlsBar.tsx` — full-width top controls bar with read-only summary. Wires `SimplePopover` to open the metadata panel and the pattern picker.
+- [ ] Build `example/src/patterns/layout/ItemMetadataPanel.tsx` — popover content panel: name, description, difficulty, genres, tags, visibility, share link. Polymorphic over `Pattern | Composition`.
+- [ ] Build `example/src/patterns/layout/PatternPickerPanel.tsx` — popover content panel for switching the active pattern; filter input + list.
+- [ ] Auto-seed: when the editor mounts and no pattern is active, materialize an in-memory `Untitled` draft. Persist on first real change.
+- [ ] Wire `published_at` lifecycle: app sets it when visibility transitions out of `private`; clears it when returning to `private`.
+- [ ] Build shared-content viewer routes: `?pattern=<uuid>`, `?composition=<uuid>`, `?voice-preset=<uuid>` — read-only render with "Fork to my library" CTA.
+- [ ] Fork action: signed-in only; insert into the same table with `forked_from_id` set. (Tier-cap gating defers to Group J.)
+- [ ] Attribution display: clickable link to profile if profile is public; non-clickable label if private; "[Deleted User]" when `user_id is null`.
 
 ### Group H — Teacher / student workflows
 
@@ -826,6 +937,21 @@ Split into two sub-groups for shipping clarity.
 13. **Student deletes account.** Same setup. Student deletes. Teacher's roster shows "[Deleted User #abcd]" with preserved aggregate stats (e.g., "completed 5 of 7 assignments").
 14. **Tier cap enforcement.** Free user at 25 patterns. Try to create another. Upgrade modal blocks.
 15. **Sound Lab variants.** Sign in. Open Lab. Save 2 variants for (guitar, acoustic). Switch between them; Practice page audio reflects each. Variants persist across reload. Sign out — variants disappear locally.
+
+---
+
+## Design follow-ups (revisit later)
+
+- **Menu interaction model — single popover vs. per-chip popovers.** The practice page (`HeadstockMenu`)
+  and the patterns page top-controls bar both use the same shape: a compact read-only chip/bar that
+  opens *one* popover containing all the editable controls. This keeps the two pages consistent for v1.
+  Open question worth revisiting: should each chip in a multi-field bar (name, difficulty, genres, tags,
+  visibility) be its own click-target popover instead, so the user only edits the field they're
+  pointing at? Pros: more granular, less visual noise per edit. Cons: more popovers to manage, more
+  code, breaks parity if applied to only one page. If we adopt per-chip popovers on the patterns page,
+  we should retrofit the practice page to match so the interaction model stays unified across the app.
+  Defer until after Group G ships and the catalog browse surface lands — we'll have more real usage
+  to judge from.
 
 ---
 

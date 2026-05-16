@@ -15,6 +15,7 @@ import {
 import { SimplePopover } from './ui/SimplePopover';
 import { useContextSummary } from './useContextSummary';
 import { SignInButton } from '@/auth/SignInButton';
+import { Link } from '@/router';
 
 const DESKTOP_QUERY = '(min-width: 768px)';
 
@@ -63,19 +64,19 @@ export function TopBar() {
             <InstrumentPills />
           </div>
           <nav className="flex items-center gap-1">
-            <a
-              href="/"
+            <Link
+              to={{ kind: 'home' }}
               aria-current="page"
               className="h-8 px-3 inline-flex items-center rounded-md text-xs font-mono uppercase tracking-wider bg-white/5 text-foreground"
             >
               Practice
-            </a>
-            <a
-              href="?page=patterns"
+            </Link>
+            <Link
+              to={{ kind: 'patterns' }}
               className="h-8 px-3 inline-flex items-center rounded-md text-xs font-mono uppercase tracking-wider text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors"
             >
               Patterns
-            </a>
+            </Link>
           </nav>
           <div className="flex items-center gap-2 shrink-0">
             <SettingsDialog audioSection={<SoundLabLink />} />
@@ -139,8 +140,8 @@ function ConfigSections() {
 
 function SoundLabLink() {
   return (
-    <a
-      href="?lab=1"
+    <Link
+      to={{ kind: 'lab' }}
       className="inline-flex items-center justify-between gap-2 rounded-md border border-border/60 bg-charcoal-deep/40 hover:bg-white/5 px-3 py-2 text-sm transition-colors"
     >
       <span className="flex flex-col leading-tight">
@@ -150,7 +151,7 @@ function SoundLabLink() {
         </span>
       </span>
       <span className="text-muted-foreground text-xs" aria-hidden>→</span>
-    </a>
+    </Link>
   );
 }
 

@@ -277,7 +277,7 @@ async function performSync(patterns: Pattern[], compositions: Composition[]): Pr
  * retried on the next mutation. This is intentionally simple at the cost of
  * eventually consistent only.
  */
-async function syncCollection<T extends { id: string; name: string; updatedAt: number }>(
+async function syncCollection<T extends { id: string; name: string; instrumentId: string; updatedAt: number }>(
   table: 'patterns' | 'compositions',
   userId: string,
   current: T[],
@@ -309,6 +309,7 @@ async function syncCollection<T extends { id: string; name: string; updatedAt: n
       user_id: userId,
       name: item.name,
       data: item,
+      instrument_id: item.instrumentId,
       visibility: 'private' as const,
     }));
     const { error } = await client.from(table).insert(rows);

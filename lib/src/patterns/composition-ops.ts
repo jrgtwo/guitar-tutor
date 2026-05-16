@@ -14,16 +14,21 @@ import type {
 } from './types';
 import { generateId, generateUuid } from './ids';
 import { snapshotPatternForPlacement } from './pattern-ops';
+import { DEFAULT_INSTRUMENT_ID } from '../lib/instruments';
 
 const DEFAULT_TS: PatternTimeSignature = { numerator: 4, denominator: 4 };
 const DEFAULT_BPM = 120;
 
-export function createEmptyComposition(name = 'Untitled composition'): Composition {
+export function createEmptyComposition(
+  name = 'Untitled composition',
+  instrumentId: string = DEFAULT_INSTRUMENT_ID,
+): Composition {
   const now = Date.now();
   return {
     // UUID so the same id can be used as the Supabase row id when synced.
     id: generateUuid(),
     name,
+    instrumentId,
     bpm: DEFAULT_BPM,
     timeSignature: { ...DEFAULT_TS },
     placements: [],

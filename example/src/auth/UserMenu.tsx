@@ -5,6 +5,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { LogOut, User as UserIcon, Settings } from 'lucide-react';
 import { useAuthStore, useAuth, type Profile } from '@fretwork/lib';
+import { Link } from '../router';
 
 function initialsOf(name: string): string {
   const trimmed = name.trim();
@@ -69,20 +70,20 @@ export function UserMenu({ profile }: Props) {
           role="menu"
           className="absolute top-full right-0 mt-1 z-30 w-44 rounded-md border border-border/60 bg-charcoal-raised shadow-xl py-1"
         >
-          <a
-            href={`?profile=${encodeURIComponent(profile.displayName)}`}
+          <Link
+            to={{ kind: 'profile', displayName: profile.displayName }}
             className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] font-mono text-muted-foreground hover:bg-white/5 hover:text-foreground transition-colors"
           >
             <UserIcon size={12} className="opacity-70" />
             Profile
-          </a>
-          <a
-            href="?settings=1"
+          </Link>
+          <Link
+            to={{ kind: 'settings' }}
             className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] font-mono text-muted-foreground hover:bg-white/5 hover:text-foreground transition-colors"
           >
             <Settings size={12} className="opacity-70" />
             Settings
-          </a>
+          </Link>
           <hr className="border-border/40 my-1" />
           <button
             type="button"

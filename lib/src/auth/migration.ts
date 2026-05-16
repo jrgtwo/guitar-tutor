@@ -14,6 +14,7 @@
 import { getSupabaseClient } from './supabaseClient';
 import { useAuthStore } from './useAuthStore';
 import { loadOverrides } from '../playback/voices/preset-overrides';
+import { DEFAULT_INSTRUMENT_ID } from '../lib/instruments';
 
 const SESSION_STORAGE_KEY = 'fretwork:patterns:v1';
 const LAB_STORAGE_KEY = 'fretwork:lab-presets:v1';
@@ -118,6 +119,7 @@ export async function uploadSessionContent(): Promise<MigrationResult> {
         user_id: user.id,
         name: typeof p.name === 'string' && p.name.length > 0 ? p.name : 'Untitled pattern',
         data: p,
+        instrument_id: (p as { instrumentId?: string }).instrumentId ?? DEFAULT_INSTRUMENT_ID,
         visibility: 'private' as const,
       }));
       const { data, error } = await client.from('patterns').insert(rows).select();
@@ -138,6 +140,7 @@ export async function uploadSessionContent(): Promise<MigrationResult> {
         user_id: user.id,
         name: typeof c.name === 'string' && c.name.length > 0 ? c.name : 'Untitled composition',
         data: c,
+        instrument_id: (c as { instrumentId?: string }).instrumentId ?? DEFAULT_INSTRUMENT_ID,
         visibility: 'private' as const,
       }));
       const { data, error } = await client.from('compositions').insert(rows).select();

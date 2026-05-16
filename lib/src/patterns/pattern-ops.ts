@@ -16,16 +16,21 @@ import type {
 } from './types';
 import { generateId, generateUuid } from './ids';
 import { defaultPatternDurationTicks } from './timebase';
+import { DEFAULT_INSTRUMENT_ID } from '../lib/instruments';
 
 const DEFAULT_TS: PatternTimeSignature = { numerator: 4, denominator: 4 };
 
-export function createEmptyPattern(name = 'Untitled pattern'): Pattern {
+export function createEmptyPattern(
+  name = 'Untitled pattern',
+  instrumentId: string = DEFAULT_INSTRUMENT_ID,
+): Pattern {
   const ts = { ...DEFAULT_TS };
   const now = Date.now();
   return {
     // UUID so the same id can be used as the Supabase row id when synced.
     id: generateUuid(),
     name,
+    instrumentId,
     durationTicks: defaultPatternDurationTicks(ts),
     timeSignature: ts,
     events: [],

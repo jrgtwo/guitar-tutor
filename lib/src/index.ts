@@ -354,3 +354,19 @@ export type {
   VoicePreset,
   ReverbSettings,
 } from './playback';
+
+// Catalog vocabulary (difficulty, genres, tags) for shareable content
+export {
+  DIFFICULTY_LEVELS,
+  DIFFICULTY_LABELS,
+  isDifficulty,
+  GENRES,
+  GENRE_LABELS,
+  isGenre,
+  filterValidGenres,
+  TAGS,
+  TAG_LABELS,
+  isTag,
+  filterValidTags,
+} from './catalog';
+export type { Difficulty, Genre, Tag } from './catalog';

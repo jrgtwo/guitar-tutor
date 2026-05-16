@@ -42,6 +42,7 @@ import {
   setPlacementRepeat as opsSetPlacementRepeat,
   setPlacementSnapshot as opsSetPlacementSnapshot,
 } from '../composition-ops';
+import { useFretworkStore } from '../../store/useFretworkStore';
 
 export type WorkspaceTab = 'edit' | 'arrange';
 export type SelectionMode = 'replace' | 'add' | 'toggle';
@@ -215,7 +216,7 @@ export const usePatternsStore = create<PatternsStoreState>()(
 
       // ─── Library ─────────────────────────────────────────────────────────────
       createPattern(name) {
-        const p = createEmptyPattern(name);
+        const p = createEmptyPattern(name, useFretworkStore.getState().instrumentId);
         set((s) => ({
           library: { ...s.library, patterns: [...s.library.patterns, p] },
           editingPatternId: p.id,
@@ -256,7 +257,7 @@ export const usePatternsStore = create<PatternsStoreState>()(
         return dup.id;
       },
       createComposition(name) {
-        const c = createEmptyComposition(name);
+        const c = createEmptyComposition(name, useFretworkStore.getState().instrumentId);
         set((s) => ({
           library: { ...s.library, compositions: [...s.library.compositions, c] },
           editingCompositionId: c.id,

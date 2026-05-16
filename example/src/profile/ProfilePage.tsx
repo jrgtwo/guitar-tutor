@@ -12,6 +12,7 @@
  */
 import { useEffect, useState } from 'react';
 import { ExternalLink, Mail, ChevronLeft, Pencil } from 'lucide-react';
+import { Link } from '../router';
 import {
   getSupabaseClient,
   rowToProfile,
@@ -105,12 +106,12 @@ export function ProfilePage({ displayName }: Props) {
 function Header() {
   return (
     <header className="sticky top-0 z-10 flex items-center gap-3 px-4 sm:px-6 py-3 bg-charcoal-raised/70 backdrop-blur border-b border-border/40">
-      <a
-        href="/"
+      <Link
+        to={{ kind: 'home' }}
         className="h-8 px-2.5 inline-flex items-center gap-1.5 rounded-md text-xs font-mono text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors"
       >
         <ChevronLeft size={14} /> Back
-      </a>
+      </Link>
       <span className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
         Profile
       </span>
@@ -211,13 +212,13 @@ function ProfileView({ profile, isOwn }: { profile: Profile; isOwn: boolean }) {
         </div>
 
         {isOwn && (
-          <a
-            href="?settings=1"
+          <Link
+            to={{ kind: 'settings' }}
             className="h-8 px-3 inline-flex items-center gap-1.5 rounded-md border border-border/60 text-xs font-mono text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors"
             title="Edit profile"
           >
             <Pencil size={12} /> Edit
-          </a>
+          </Link>
         )}
       </header>
 

@@ -43,6 +43,7 @@ export interface PatternTimeSignature {
 export interface Pattern {
   id: string;
   name: string;
+  instrumentId: string;
   /** Editor-defined; defaults to 4 bars at the current time signature on creation. */
   durationTicks: Tick;
   timeSignature: PatternTimeSignature;
@@ -66,6 +67,7 @@ export interface Placement {
 export interface Composition {
   id: string;
   name: string;
+  instrumentId: string;
   /** Pushed into the metronome on play; not the metronome's current value until play. */
   bpm: number;
   timeSignature: PatternTimeSignature;
