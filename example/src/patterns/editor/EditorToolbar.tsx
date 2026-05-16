@@ -1,4 +1,4 @@
-import { Play, Square, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
+import { Play, Square, ChevronDown, ChevronUp, Trash2, Volume2, VolumeX } from 'lucide-react';
 import {
   usePatternsStore,
   useMetronome,
@@ -19,7 +19,7 @@ export function EditorToolbar() {
   const pattern = usePatternsStore(selectEditingPattern);
   const setEditingPatternDuration = usePatternsStore((s) => s.setEditingPatternDuration);
 
-  const { metronome, bpm, setBpm } = useMetronome();
+  const { metronome, bpm, setBpm, clickMuted, toggleClickMuted } = useMetronome();
   const playback = usePatternsPlayback();
 
   const tpb = pattern ? ticksPerBar(pattern.timeSignature) : 0;
@@ -88,6 +88,22 @@ export function EditorToolbar() {
       )}
 
       <div className="ml-auto flex items-center gap-2">
+        <button
+          type="button"
+          onClick={toggleClickMuted}
+          className={[
+            'h-7 w-7 inline-flex items-center justify-center rounded-md border text-[11px] transition-colors',
+            clickMuted
+              ? 'border-border/60 bg-charcoal-deep/40 text-muted-foreground hover:text-foreground'
+              : 'border-degree-root/40 bg-degree-root/10 text-degree-root hover:bg-degree-root/20',
+          ].join(' ')}
+          aria-pressed={!clickMuted}
+          aria-label={clickMuted ? 'Unmute metronome click' : 'Mute metronome click'}
+          title={clickMuted ? 'Metronome click is muted — click to enable' : 'Click to mute metronome click'}
+        >
+          {clickMuted ? <VolumeX size={13} /> : <Volume2 size={13} />}
+        </button>
+
         <label className="inline-flex items-center gap-1 text-[11px] font-mono text-muted-foreground">
           <span>Bars</span>
           <input

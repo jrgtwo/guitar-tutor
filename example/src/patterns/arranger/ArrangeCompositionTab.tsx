@@ -1,4 +1,4 @@
-import { Play, Square } from 'lucide-react';
+import { Play, Square, Volume2, VolumeX } from 'lucide-react';
 import { usePatternsStore, selectEditingComposition, useMetronome } from '@fretwork/lib';
 import { AddPlacementPopover } from './AddPlacementPopover';
 import { CompositionTimeline } from './CompositionTimeline';
@@ -11,7 +11,7 @@ export function ArrangeCompositionTab() {
   const createComposition = usePatternsStore((s) => s.createComposition);
   const setCompositionBpm = usePatternsStore((s) => s.setCompositionBpm);
   const renameComposition = usePatternsStore((s) => s.renameComposition);
-  const { metronome } = useMetronome();
+  const { metronome, clickMuted, toggleClickMuted } = useMetronome();
   const playback = usePatternsPlayback();
 
   if (!composition) {
@@ -56,6 +56,21 @@ export function ArrangeCompositionTab() {
           {playback.isPlaying ? <Square size={13} fill="currentColor" /> : <Play size={13} fill="currentColor" />}
         </button>
         <AddPlacementPopover />
+        <button
+          type="button"
+          onClick={toggleClickMuted}
+          className={[
+            'h-7 w-7 inline-flex items-center justify-center rounded-md border text-[11px] transition-colors',
+            clickMuted
+              ? 'border-border/60 bg-charcoal-deep/40 text-muted-foreground hover:text-foreground'
+              : 'border-degree-root/40 bg-degree-root/10 text-degree-root hover:bg-degree-root/20',
+          ].join(' ')}
+          aria-pressed={!clickMuted}
+          aria-label={clickMuted ? 'Unmute metronome click' : 'Mute metronome click'}
+          title={clickMuted ? 'Metronome click is muted — click to enable' : 'Click to mute metronome click'}
+        >
+          {clickMuted ? <VolumeX size={13} /> : <Volume2 size={13} />}
+        </button>
         <label className="inline-flex items-center gap-1 text-[11px] font-mono text-muted-foreground">
           <span>Name</span>
           <input
