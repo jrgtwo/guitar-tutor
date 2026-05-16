@@ -35,6 +35,13 @@ export function createEmptyPattern(
     timeSignature: ts,
     events: [],
     lanes: [],
+    description: null,
+    difficulty: null,
+    genres: [],
+    tags: [],
+    visibility: 'private',
+    publishedAt: null,
+    forkedFromId: null,
     createdAt: now,
     updatedAt: now,
   };
@@ -42,7 +49,10 @@ export function createEmptyPattern(
 
 /** Deep clone of a pattern with a fresh id and current timestamps. Used by both the
  *  library "duplicate" action and the composition's snapshot-on-place behavior. */
-export function clonePattern(p: Pattern, overrides: Partial<Pick<Pattern, 'name' | 'id'>> = {}): Pattern {
+export function clonePattern(
+  p: Pattern,
+  overrides: Partial<Pick<Pattern, 'name' | 'id' | 'visibility' | 'forkedFromId'>> = {},
+): Pattern {
   const now = Date.now();
   return {
     ...p,
@@ -50,6 +60,13 @@ export function clonePattern(p: Pattern, overrides: Partial<Pick<Pattern, 'name'
     name: overrides.name ?? p.name,
     events: p.events.map((e) => ({ ...e, id: generateId('ev') })),
     lanes: p.lanes.map((l) => ({ ...l })),
+    visibility: overrides.visibility ?? p.visibility,
+    // New copies haven't been published yet; the catalog "recently published" sort
+    // only sees them once they're transitioned out of private.
+    publishedAt: null,
+    // Default to not-a-fork; callers (e.g. the catalog viewer's "Fork to my library"
+    // CTA) explicitly set this to track attribution.
+    forkedFromId: overrides.forkedFromId ?? null,
     createdAt: now,
     updatedAt: now,
   };
@@ -224,6 +241,47 @@ export function addLane(pattern: Pattern, lane: Lane): Pattern {
 /** Update pattern metadata. */
 export function setPatternName(pattern: Pattern, name: string): Pattern {
   return { ...pattern, name, updatedAt: Date.now() };
+}
+
+export function setPatternInstrument(pattern: Pattern, instrumentId: string): Pattern {
+  return { ...pattern, instrumentId, updatedAt: Date.now() };
+}
+
+/** Patch shape for catalog metadata mutations on a Pattern. Each key is independently
+ *  optional; `undefined` means "leave alone." Use `null` for description/difficulty to
+ *  clear those fields explicitly. */
+export interface PatternMetadataPatch {
+  description?: string | null;
+  difficulty?: string | null;
+  genres?: string[];
+  tags?: string[];
+  visibility?: string;
+}
+
+/**
+ * Apply a metadata patch and manage the `publishedAt` lifecycle:
+ *   - private → non-private  ⇒ set publishedAt = now
+ *   - non-private → private  ⇒ clear publishedAt
+ *   - any other transition   ⇒ leave publishedAt untouched
+ *
+ * No-op transitions (visibility unchanged) skip the lifecycle entirely.
+ */
+export function applyPatternMetadata(pattern: Pattern, patch: PatternMetadataPatch): Pattern {
+  const now = Date.now();
+  const next: Pattern = { ...pattern, updatedAt: now };
+  if (patch.description !== undefined) next.description = patch.description;
+  if (patch.difficulty !== undefined) next.difficulty = patch.difficulty;
+  if (patch.genres !== undefined) next.genres = patch.genres;
+  if (patch.tags !== undefined) next.tags = patch.tags;
+  if (patch.visibility !== undefined && patch.visibility !== pattern.visibility) {
+    next.visibility = patch.visibility;
+    if (pattern.visibility === 'private' && patch.visibility !== 'private') {
+      next.publishedAt = now;
+    } else if (patch.visibility === 'private') {
+      next.publishedAt = null;
+    }
+  }
+  return next;
 }
 
 export function setPatternDuration(pattern: Pattern, durationTicks: Tick): Pattern {

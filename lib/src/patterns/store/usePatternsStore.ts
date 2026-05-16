@@ -22,6 +22,7 @@ import type {
 } from '../types';
 import { stepLengthToTicks } from '../timebase';
 import {
+  applyPatternMetadata,
   clonePattern,
   createEmptyPattern,
   deleteEvents as opsDeleteEvents,
@@ -29,18 +30,23 @@ import {
   resizeEvent as opsResizeEvent,
   setEventFret as opsSetEventFret,
   setPatternDuration as opsSetPatternDuration,
+  setPatternInstrument,
   setPatternName,
   stampEvent,
+  type PatternMetadataPatch,
 } from '../pattern-ops';
 import {
   addPlacement as opsAddPlacement,
+  applyCompositionMetadata,
   createEmptyComposition,
   removePlacement as opsRemovePlacement,
   reorderPlacement as opsReorderPlacement,
   setCompositionBpm,
+  setCompositionInstrument,
   setCompositionName,
   setPlacementRepeat as opsSetPlacementRepeat,
   setPlacementSnapshot as opsSetPlacementSnapshot,
+  type CompositionMetadataPatch,
 } from '../composition-ops';
 import { useFretworkStore } from '../../store/useFretworkStore';
 
@@ -60,6 +66,13 @@ export interface PatternsState {
   sidebarCollapsed: boolean;
   fretboardCollapsed: boolean;
   stepLength: StepLength;
+  /**
+   * Id of the auto-seeded "Untitled" draft created by `ensureEditingPattern` when the
+   * user enters the patterns page with no pattern open. The draft is invisible to cloud
+   * sync until any mutation promotes it (clears this id). `discardUnpersistedDraft` is
+   * called on page unmount to evict pristine drafts so they don't linger in the library.
+   */
+  unpersistedDraftId: string | null;
 
   // Ephemeral (not persisted)
   editingPatternId: string | null;
@@ -72,13 +85,21 @@ export interface PatternsState {
 }
 
 export interface PatternsActions {
+  // Lifecycle: idempotent guards used by PatternsPage on mount/unmount.
+  ensureEditingPattern(): void;
+  discardUnpersistedDraft(): void;
+
   // Library actions
   createPattern(name?: string): string;
   renamePattern(id: string, name: string): void;
+  setPatternInstrument(id: string, instrumentId: string): void;
+  updatePatternMetadata(id: string, patch: PatternMetadataPatch): void;
   deletePattern(id: string): void;
   duplicatePattern(id: string): string;
   createComposition(name?: string): string;
   renameComposition(id: string, name: string): void;
+  setCompositionInstrument(id: string, instrumentId: string): void;
+  updateCompositionMetadata(id: string, patch: CompositionMetadataPatch): void;
   setCompositionBpm(id: string, bpm: number): void;
   deleteComposition(id: string): void;
 
@@ -126,6 +147,7 @@ export const DEFAULT_PATTERNS_STATE: PatternsState = {
   sidebarCollapsed: false,
   fretboardCollapsed: false,
   stepLength: 'eighth',
+  unpersistedDraftId: null,
 
   editingPatternId: null,
   editingPlacementId: null,
@@ -143,7 +165,7 @@ export const DEFAULT_PATTERNS_STATE: PatternsState = {
 // One-time migration: if a user has an existing localStorage entry from before
 // this swap, copy it to sessionStorage on first load so they don't lose work.
 // See `migrateLegacyLocalStorage()` below; called on module import.
-const persistOptions: PersistOptions<PatternsStoreState, Pick<PatternsStoreState, 'library' | 'activeTab' | 'sidebarCollapsed' | 'fretboardCollapsed' | 'stepLength'>> = {
+const persistOptions: PersistOptions<PatternsStoreState, Pick<PatternsStoreState, 'library' | 'activeTab' | 'sidebarCollapsed' | 'fretboardCollapsed' | 'stepLength' | 'unpersistedDraftId'>> = {
   name: PERSIST_KEY,
   version: 1,
   storage: createJSONStorage(() => (typeof sessionStorage !== 'undefined' ? sessionStorage : memoryStorage())),
@@ -153,6 +175,9 @@ const persistOptions: PersistOptions<PatternsStoreState, Pick<PatternsStoreState
     sidebarCollapsed: state.sidebarCollapsed,
     fretboardCollapsed: state.fretboardCollapsed,
     stepLength: state.stepLength,
+    // Persisted so a refresh-within-tab keeps the draft as a draft rather than
+    // accidentally promoting it on next load.
+    unpersistedDraftId: state.unpersistedDraftId,
   }),
   // Migration stub for future schema changes.
   migrate: (persisted, _version) => persisted as PatternsState,
@@ -214,6 +239,56 @@ export const usePatternsStore = create<PatternsStoreState>()(
     (set, get) => ({
       ...DEFAULT_PATTERNS_STATE,
 
+      // ─── Lifecycle ───────────────────────────────────────────────────────────
+      // Idempotent guarantee that the editor has a pattern to render. Called by
+      // PatternsPage on mount + whenever editingPatternId becomes null. Picks the
+      // most-recent existing pattern, or auto-seeds an "Untitled" draft when the
+      // library is empty. Drafts are marked via `unpersistedDraftId` so cloud sync
+      // ignores them until promoted by any real edit.
+      ensureEditingPattern() {
+        const s = get();
+        if (s.editingPatternId !== null) {
+          const stillExists = s.library.patterns.some((p) => p.id === s.editingPatternId);
+          if (stillExists) return;
+        }
+        if (s.library.patterns.length > 0) {
+          // Pick most-recent existing.
+          let mostRecent = s.library.patterns[0];
+          for (const p of s.library.patterns) {
+            if (p.updatedAt > mostRecent.updatedAt) mostRecent = p;
+          }
+          set({ editingPatternId: mostRecent.id });
+          return;
+        }
+        // Empty library — auto-seed an Untitled draft.
+        const draft = createEmptyPattern('Untitled pattern', useFretworkStore.getState().instrumentId);
+        set((cur) => ({
+          library: { ...cur.library, patterns: [draft] },
+          editingPatternId: draft.id,
+          editingPlacementId: null,
+          unpersistedDraftId: draft.id,
+          cursorTick: 0,
+          selectedEventIds: [],
+          activeTab: 'edit',
+        }));
+      },
+      // Remove a pristine auto-seeded draft from the library. Called when the user
+      // leaves the patterns page without ever touching the draft, so the library
+      // doesn't accumulate empty Untitled rows.
+      discardUnpersistedDraft() {
+        const s = get();
+        if (!s.unpersistedDraftId) return;
+        const draftId = s.unpersistedDraftId;
+        set((cur) => ({
+          library: {
+            ...cur.library,
+            patterns: cur.library.patterns.filter((p) => p.id !== draftId),
+          },
+          unpersistedDraftId: null,
+          editingPatternId: cur.editingPatternId === draftId ? null : cur.editingPatternId,
+        }));
+      },
+
       // ─── Library ─────────────────────────────────────────────────────────────
       createPattern(name) {
         const p = createEmptyPattern(name, useFretworkStore.getState().instrumentId);
@@ -235,6 +310,29 @@ export const usePatternsStore = create<PatternsStoreState>()(
               p.id === id ? setPatternName(p, name) : p,
             ),
           },
+          ...clearDraftIf(s, id),
+        }));
+      },
+      setPatternInstrument(id, instrumentId) {
+        set((s) => ({
+          library: {
+            ...s.library,
+            patterns: s.library.patterns.map((p) =>
+              p.id === id ? setPatternInstrument(p, instrumentId) : p,
+            ),
+          },
+          ...clearDraftIf(s, id),
+        }));
+      },
+      updatePatternMetadata(id, patch) {
+        set((s) => ({
+          library: {
+            ...s.library,
+            patterns: s.library.patterns.map((p) =>
+              p.id === id ? applyPatternMetadata(p, patch) : p,
+            ),
+          },
+          ...clearDraftIf(s, id),
         }));
       },
       deletePattern(id) {
@@ -244,6 +342,7 @@ export const usePatternsStore = create<PatternsStoreState>()(
             patterns: s.library.patterns.filter((p) => p.id !== id),
           },
           editingPatternId: s.editingPatternId === id ? null : s.editingPatternId,
+          ...clearDraftIf(s, id),
         }));
       },
       duplicatePattern(id) {
@@ -253,6 +352,7 @@ export const usePatternsStore = create<PatternsStoreState>()(
         const dup = clonePattern(src, { name: `${src.name} (copy)` });
         set((cur) => ({
           library: { ...cur.library, patterns: [...cur.library.patterns, dup] },
+          ...clearDraftIf(cur, id),
         }));
         return dup.id;
       },
@@ -274,6 +374,26 @@ export const usePatternsStore = create<PatternsStoreState>()(
             ...s.library,
             compositions: s.library.compositions.map((c) =>
               c.id === id ? setCompositionName(c, name) : c,
+            ),
+          },
+        }));
+      },
+      setCompositionInstrument(id, instrumentId) {
+        set((s) => ({
+          library: {
+            ...s.library,
+            compositions: s.library.compositions.map((c) =>
+              c.id === id ? setCompositionInstrument(c, instrumentId) : c,
+            ),
+          },
+        }));
+      },
+      updateCompositionMetadata(id, patch) {
+        set((s) => ({
+          library: {
+            ...s.library,
+            compositions: s.library.compositions.map((c) =>
+              c.id === id ? applyCompositionMetadata(c, patch) : c,
             ),
           },
         }));
@@ -546,6 +666,11 @@ function currentEditTarget(s: PatternsState): {
 
 /** Build a state patch that writes the updated pattern back to its source — either to
  *  the library or to the placement's snapshot. */
+/**
+ * Single chokepoint for content mutations on the currently-edited pattern. Also clears
+ * `unpersistedDraftId` when the editing target is the draft, so any real edit promotes
+ * the draft into a regular library pattern.
+ */
 function updateTarget(
   s: PatternsState,
   next: Pattern,
@@ -571,10 +696,22 @@ function updateTarget(
         ...s.library,
         patterns: s.library.patterns.map((p) => (p.id === patternId ? next : p)),
       },
+      ...clearDraftIf(s, patternId),
       ...extra,
     };
   }
   return extra;
+}
+
+/**
+ * Returns `{ unpersistedDraftId: null }` if the given id matches the currently-pending
+ * draft, otherwise `{}`. Spread into the result of a `set()` call to promote the draft
+ * (i.e. flag it as a real, syncable pattern) on first mutation.
+ */
+function clearDraftIf(s: PatternsState, id: string | null): { unpersistedDraftId: null } | Record<string, never> {
+  return s.unpersistedDraftId !== null && s.unpersistedDraftId === id
+    ? { unpersistedDraftId: null }
+    : {};
 }
 
 function applyComposition(

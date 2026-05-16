@@ -12,6 +12,9 @@ interface Props {
   options: readonly Option[];
   onChange: (value: string) => void;
   triggerClassName?: string;
+  /** Placeholder shown when `value` is empty (no item matches). Radix renders this
+   *  in the trigger when no selection is active. */
+  placeholder?: string;
 }
 
 const ITEM_CLASS = 'font-mono uppercase tracking-wider text-xs';
@@ -22,14 +25,25 @@ const ITEM_CLASS = 'font-mono uppercase tracking-wider text-xs';
  * individual controls don't have to remember to apply the className to each
  * `<SelectItem>`. Callers handle conditional rendering, option derivation, and
  * any non-string ↔ string coercion themselves.
+ *
+ * For optional/nullable values, pass `value=""` plus a `placeholder` — Radix will
+ * render the placeholder text in the trigger when no item matches. Never include
+ * an empty-string option in `options`; Radix forbids it.
  */
-export function SelectControl({ label, value, options, onChange, triggerClassName }: Props) {
+export function SelectControl({
+  label,
+  value,
+  options,
+  onChange,
+  triggerClassName,
+  placeholder,
+}: Props) {
   const triggerClass = triggerClassName ? `${ITEM_CLASS} ${triggerClassName}` : ITEM_CLASS;
   return (
     <ControlGroup label={label}>
       <Select value={value} onValueChange={onChange}>
         <SelectTrigger className={triggerClass}>
-          <SelectValue />
+          <SelectValue placeholder={placeholder} />
         </SelectTrigger>
         <SelectContent>
           {options.map((o) => (

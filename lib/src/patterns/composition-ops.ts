@@ -32,6 +32,13 @@ export function createEmptyComposition(
     bpm: DEFAULT_BPM,
     timeSignature: { ...DEFAULT_TS },
     placements: [],
+    description: null,
+    difficulty: null,
+    genres: [],
+    tags: [],
+    visibility: 'private',
+    publishedAt: null,
+    forkedFromId: null,
     createdAt: now,
     updatedAt: now,
   };
@@ -131,6 +138,42 @@ export function removePlacement(comp: Composition, placementId: string): Composi
 
 export function setCompositionName(comp: Composition, name: string): Composition {
   return { ...comp, name, updatedAt: Date.now() };
+}
+
+export function setCompositionInstrument(comp: Composition, instrumentId: string): Composition {
+  return { ...comp, instrumentId, updatedAt: Date.now() };
+}
+
+/** Patch shape for catalog metadata mutations on a Composition. Mirrors the
+ *  PatternMetadataPatch shape exactly. */
+export interface CompositionMetadataPatch {
+  description?: string | null;
+  difficulty?: string | null;
+  genres?: string[];
+  tags?: string[];
+  visibility?: string;
+}
+
+/** See `applyPatternMetadata` for lifecycle rules — this is the composition analog. */
+export function applyCompositionMetadata(
+  comp: Composition,
+  patch: CompositionMetadataPatch,
+): Composition {
+  const now = Date.now();
+  const next: Composition = { ...comp, updatedAt: now };
+  if (patch.description !== undefined) next.description = patch.description;
+  if (patch.difficulty !== undefined) next.difficulty = patch.difficulty;
+  if (patch.genres !== undefined) next.genres = patch.genres;
+  if (patch.tags !== undefined) next.tags = patch.tags;
+  if (patch.visibility !== undefined && patch.visibility !== comp.visibility) {
+    next.visibility = patch.visibility;
+    if (comp.visibility === 'private' && patch.visibility !== 'private') {
+      next.publishedAt = now;
+    } else if (patch.visibility === 'private') {
+      next.publishedAt = null;
+    }
+  }
+  return next;
 }
 
 export function setCompositionBpm(comp: Composition, bpm: number): Composition {

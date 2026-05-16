@@ -50,6 +50,30 @@ export interface Pattern {
   events: PatternEvent[];
   /** Empty in Phase 1. */
   lanes: Lane[];
+
+  // ─── Catalog metadata ──────────────────────────────────────────────────────
+  // Authoring-time fields the catalog filter eventually reads. Stored alongside
+  // musical content in this object; cloud sync extracts them into top-level row
+  // columns for efficient WHERE-clauses while leaving them in `data` for the
+  // jsonb-canonical reader. See `docs/supabase-integration.md`.
+  description: string | null;
+  /** 'beginner' | 'intermediate' | 'advanced' — see catalog/difficulty. */
+  difficulty: string | null;
+  /** Curated values from catalog/genres. */
+  genres: string[];
+  /** Curated values from catalog/tags. */
+  tags: string[];
+  /** 'private' | 'unlisted' | 'public' — see catalog/visibility. */
+  visibility: string;
+  /**
+   * Unix-ms timestamp recording when this pattern most-recently transitioned out of
+   * private. Cleared on return to private and re-set on the next departure. Used by
+   * the catalog's "recently published" sort.
+   */
+  publishedAt: number | null;
+  /** UUID of the pattern this was forked from, or null. */
+  forkedFromId: string | null;
+
   createdAt: number;
   updatedAt: number;
 }
@@ -72,6 +96,16 @@ export interface Composition {
   bpm: number;
   timeSignature: PatternTimeSignature;
   placements: Placement[];
+
+  // ─── Catalog metadata (parallel to Pattern; see notes there) ──────────────
+  description: string | null;
+  difficulty: string | null;
+  genres: string[];
+  tags: string[];
+  visibility: string;
+  publishedAt: number | null;
+  forkedFromId: string | null;
+
   createdAt: number;
   updatedAt: number;
 }

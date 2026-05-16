@@ -41,9 +41,12 @@ export {
   deleteEvents,
   addLane,
   setPatternName,
+  setPatternInstrument,
   setPatternDuration,
   setPatternTimeSignature,
+  applyPatternMetadata,
 } from './pattern-ops';
+export type { PatternMetadataPatch } from './pattern-ops';
 
 export {
   createEmptyComposition,
@@ -53,8 +56,11 @@ export {
   setPlacementRepeat,
   removePlacement,
   setCompositionName,
+  setCompositionInstrument,
   setCompositionBpm,
   setPlacementSnapshot,
   flattenComposition,
+  applyCompositionMetadata,
 } from './composition-ops';
+export type { CompositionMetadataPatch } from './composition-ops';
 export type { FlattenedEvent } from './composition-ops';

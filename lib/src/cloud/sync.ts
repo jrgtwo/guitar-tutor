@@ -175,6 +175,54 @@ function teardownSync(): void {
 
 // ─── Hydration: cloud → store ─────────────────────────────────────────────
 
+/**
+ * Reconstruct a Pattern from a Supabase row. The Pattern body lives in `data`
+ * jsonb; we defensively fall back to top-level columns + safe defaults for
+ * any catalog-metadata field that's missing (older rows written before the
+ * schema landed had a slimmer Pattern shape). The DB row id always wins over
+ * any id stored in data, so migrated anon content with legacy `pat_xxx` ids
+ * gets re-mapped to its UUID row id.
+ */
+function hydratePatternRow(row: Record<string, unknown>): Pattern {
+  const data = (row.data as Partial<Pattern>) ?? ({} as Partial<Pattern>);
+  return {
+    ...(data as Pattern),
+    id: row.id as string,
+    description: data.description ?? (row.description as string | null) ?? null,
+    difficulty: data.difficulty ?? (row.difficulty as string | null) ?? null,
+    genres: data.genres ?? ((row.genres as string[] | null) ?? []),
+    tags: data.tags ?? ((row.tags as string[] | null) ?? []),
+    visibility: data.visibility ?? (row.visibility as string | null) ?? 'private',
+    publishedAt: data.publishedAt ?? coerceTimestamp(row.published_at),
+    forkedFromId: data.forkedFromId ?? (row.forked_from_id as string | null) ?? null,
+  };
+}
+
+function hydrateCompositionRow(row: Record<string, unknown>): Composition {
+  const data = (row.data as Partial<Composition>) ?? ({} as Partial<Composition>);
+  return {
+    ...(data as Composition),
+    id: row.id as string,
+    description: data.description ?? (row.description as string | null) ?? null,
+    difficulty: data.difficulty ?? (row.difficulty as string | null) ?? null,
+    genres: data.genres ?? ((row.genres as string[] | null) ?? []),
+    tags: data.tags ?? ((row.tags as string[] | null) ?? []),
+    visibility: data.visibility ?? (row.visibility as string | null) ?? 'private',
+    publishedAt: data.publishedAt ?? coerceTimestamp(row.published_at),
+    forkedFromId: data.forkedFromId ?? (row.forked_from_id as string | null) ?? null,
+  };
+}
+
+/** Postgres returns timestamptz as an ISO 8601 string; in-memory we use unix-ms. */
+function coerceTimestamp(v: unknown): number | null {
+  if (typeof v === 'string') {
+    const parsed = Date.parse(v);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  if (typeof v === 'number') return v;
+  return null;
+}
+
 async function hydrateFromCloud(userId: string): Promise<void> {
   isHydrating = true;
   try {
@@ -193,21 +241,24 @@ async function hydrateFromCloud(userId: string): Promise<void> {
         .order('updated_at', { ascending: false }),
     ]);
 
-    const patterns: Pattern[] = (patternsResult.data ?? []).map((row) => {
-      const data = row.data as Pattern;
-      // Override the Pattern's id with the DB row id. This handles migrated
-      // anon content where the Pattern.id inside data is still the old
-      // `pat_xxx` format — we need it to match the DB row UUID for syncs.
-      return { ...data, id: row.id as string };
-    });
+    const patterns: Pattern[] = (patternsResult.data ?? []).map((row) =>
+      hydratePatternRow(row),
+    );
 
-    const compositions: Composition[] = (compositionsResult.data ?? []).map((row) => {
-      const data = row.data as Composition;
-      return { ...data, id: row.id as string };
-    });
+    const compositions: Composition[] = (compositionsResult.data ?? []).map((row) =>
+      hydrateCompositionRow(row),
+    );
+
+    // Preserve any pristine local draft so the user doesn't lose their auto-seeded
+    // pattern across sign-in. The draft sits alongside hydrated cloud rows; it stays
+    // invisible to subsequent syncs until promoted.
+    const prevState = usePatternsStore.getState();
+    const draftId = prevState.unpersistedDraftId;
+    const draft = draftId ? prevState.library.patterns.find((p) => p.id === draftId) : null;
+    const mergedPatterns = draft ? [...patterns, draft] : patterns;
 
     usePatternsStore.setState({
-      library: { patterns, compositions },
+      library: { patterns: mergedPatterns, compositions },
     });
 
     lastPatternsSnapshot = patterns;
@@ -233,7 +284,13 @@ function installStoreSubscription(): void {
   storeUnsubscribe = usePatternsStore.subscribe((state) => {
     if (isHydrating) return;
     if (!currentUserId) return;
-    scheduleSync(state.library.patterns, state.library.compositions);
+    // Pristine auto-seeded drafts are excluded from sync until the user touches them
+    // (any real mutation clears `unpersistedDraftId`, which lets the pattern flow through).
+    const draftId = state.unpersistedDraftId;
+    const patterns = draftId
+      ? state.library.patterns.filter((p) => p.id !== draftId)
+      : state.library.patterns;
+    scheduleSync(patterns, state.library.compositions);
   });
 }
 
@@ -277,7 +334,41 @@ async function performSync(patterns: Pattern[], compositions: Composition[]): Pr
  * retried on the next mutation. This is intentionally simple at the cost of
  * eventually consistent only.
  */
-async function syncCollection<T extends { id: string; name: string; instrumentId: string; updatedAt: number }>(
+/** Minimum surface a row-shaped item needs to expose to flow through syncCollection.
+ *  Both Pattern and Composition satisfy this; the constraint is kept narrow so the
+ *  function stays generic across the two tables. */
+type SyncableItem = {
+  id: string;
+  name: string;
+  instrumentId: string;
+  description: string | null;
+  difficulty: string | null;
+  genres: string[];
+  tags: string[];
+  visibility: string;
+  publishedAt: number | null;
+  forkedFromId: string | null;
+  updatedAt: number;
+};
+
+function rowPayload<T extends SyncableItem>(item: T) {
+  return {
+    name: item.name,
+    data: item,
+    instrument_id: item.instrumentId,
+    description: item.description,
+    difficulty: item.difficulty,
+    genres: item.genres,
+    tags: item.tags,
+    visibility: item.visibility,
+    // `published_at` is a timestamptz column. We store unix-ms in memory and convert
+    // to ISO for the wire; Postgres parses ISO 8601 strings into timestamptz.
+    published_at: item.publishedAt !== null ? new Date(item.publishedAt).toISOString() : null,
+    forked_from_id: item.forkedFromId,
+  };
+}
+
+async function syncCollection<T extends SyncableItem>(
   table: 'patterns' | 'compositions',
   userId: string,
   current: T[],
@@ -307,10 +398,7 @@ async function syncCollection<T extends { id: string; name: string; instrumentId
     const rows = inserts.map((item) => ({
       id: item.id,
       user_id: userId,
-      name: item.name,
-      data: item,
-      instrument_id: item.instrumentId,
-      visibility: 'private' as const,
+      ...rowPayload(item),
     }));
     const { error } = await client.from(table).insert(rows);
     if (error) {
@@ -324,7 +412,7 @@ async function syncCollection<T extends { id: string; name: string; instrumentId
     for (const item of updates) {
       const { error } = await client
         .from(table)
-        .update({ name: item.name, data: item })
+        .update(rowPayload(item))
         .eq('id', item.id);
       if (error) {
         console.error(`[cloud sync] ${table} UPDATE failed for ${item.id}:`, error);

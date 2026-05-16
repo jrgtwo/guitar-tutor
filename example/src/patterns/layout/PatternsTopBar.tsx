@@ -1,30 +1,11 @@
-import { ChevronRight } from 'lucide-react';
-import { usePatternsStore } from '@fretwork/lib';
 import { Link } from '../../router';
 
-/** Patterns-page top bar. Replicates the chrome of the placeholder, with a clear
- *  marker for the active page and a left-side toggle for the library sidebar. */
+/** Patterns-page top bar. Page-level chrome only: brand, primary nav between
+ *  Practice and Patterns. Per-item editing controls live in PatternControlsBar
+ *  directly below this. */
 export function PatternsTopBar() {
-  const sidebarCollapsed = usePatternsStore((s) => s.sidebarCollapsed);
-  const setSidebarCollapsed = usePatternsStore((s) => s.setSidebarCollapsed);
   return (
     <header className="sticky top-0 z-30 flex items-center gap-3 px-3 sm:px-5 py-2.5 bg-charcoal-raised/70 backdrop-blur border-b border-border/40">
-      <button
-        type="button"
-        onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-        className="h-8 w-8 inline-flex items-center justify-center rounded-md hover:bg-white/5 text-muted-foreground"
-        aria-label={sidebarCollapsed ? 'Open library' : 'Close library'}
-        title={sidebarCollapsed ? 'Open library' : 'Close library'}
-      >
-        <ChevronRight
-          size={16}
-          style={{
-            transform: sidebarCollapsed ? 'rotate(0deg)' : 'rotate(180deg)',
-            transition: 'transform 160ms ease',
-          }}
-        />
-      </button>
-
       <Link to={{ kind: 'home' }} className="flex items-center gap-2">
         <div className="h-8 w-8 rounded-md bg-degree-root/90 flex items-center justify-center text-charcoal-deep font-bold tracking-tighter shadow-md text-sm">
           F

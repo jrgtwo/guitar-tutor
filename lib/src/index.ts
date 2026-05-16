@@ -91,6 +91,8 @@ export { RadioGroup, RadioGroupItem } from './components/ui/radio-group';
 export { Label } from './components/ui/label';
 
 // Individual control components (for consumers wanting their own control surface)
+export { SelectControl } from './components/controls/SelectControl';
+export { ControlGroup } from './components/controls/ControlGroup';
 export { InstrumentSelect } from './components/controls/InstrumentSelect';
 export { ModeSelect } from './components/controls/ModeSelect';
 export { KeySelect } from './components/controls/KeySelect';
@@ -175,8 +177,10 @@ export {
   setEventFret,
   deleteEvents,
   setPatternName,
+  setPatternInstrument,
   setPatternDuration,
   setPatternTimeSignature,
+  applyPatternMetadata,
   createEmptyComposition,
   totalDurationTicks,
   addPlacement,
@@ -184,7 +188,9 @@ export {
   setPlacementRepeat,
   removePlacement,
   setCompositionName,
+  setCompositionInstrument,
   setCompositionBpm,
+  applyCompositionMetadata,
   flattenComposition,
 } from './patterns';
 export type {
@@ -199,6 +205,8 @@ export type {
   Composition,
   Library,
   FlattenedEvent,
+  PatternMetadataPatch,
+  CompositionMetadataPatch,
 } from './patterns';
 export {
   usePatternsStore,
@@ -355,8 +363,9 @@ export type {
   ReverbSettings,
 } from './playback';
 
-// Catalog vocabulary (difficulty, genres, tags) for shareable content
+// Catalog vocabulary + constants for shareable content
 export {
+  DESCRIPTION_MAX_LENGTH,
   DIFFICULTY_LEVELS,
   DIFFICULTY_LABELS,
   isDifficulty,
@@ -368,5 +377,9 @@ export {
   TAG_LABELS,
   isTag,
   filterValidTags,
+  VISIBILITIES,
+  VISIBILITY_LABELS,
+  VISIBILITY_DESCRIPTIONS,
+  isVisibility,
 } from './catalog';
-export type { Difficulty, Genre, Tag } from './catalog';
+export type { Difficulty, Genre, Tag, Visibility } from './catalog';

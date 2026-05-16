@@ -2,15 +2,15 @@ import { useEffect } from 'react';
 import { usePatternsStore } from '@fretwork/lib';
 import { useMetronome, usePlaybackStore } from '@fretwork/lib';
 import { PatternsTopBar } from './layout/PatternsTopBar';
-import { LibrarySidebar } from './layout/LibrarySidebar';
+import { PatternControlsBar } from './layout/PatternControlsBar';
 import { WorkspaceTabs } from './layout/WorkspaceTabs';
-import { useResponsiveSidebar } from './hooks/useResponsiveSidebar';
 import { EditPatternTab } from './editor/EditPatternTab';
 import { ArrangeCompositionTab } from './arranger/ArrangeCompositionTab';
 
 export function PatternsPage() {
-  useResponsiveSidebar();
   const activeTab = usePatternsStore((s) => s.activeTab);
+  const editingPatternId = usePatternsStore((s) => s.editingPatternId);
+  const libraryCount = usePatternsStore((s) => s.library.patterns.length);
   const { metronome } = useMetronome();
   const setPlaybackEnabled = usePlaybackStore((s) => s.setEnabled);
 
@@ -29,18 +29,30 @@ export function PatternsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [metronome]);
 
+  // Auto-seed lifecycle: guarantee an editing pattern exists on mount + whenever
+  // the editor loses its target (e.g. last pattern deleted, hydration restored
+  // a library without an active id). On unmount, drop any pristine auto-seeded
+  // draft so the library doesn't accumulate empty Untitled rows across visits.
+  useEffect(() => {
+    usePatternsStore.getState().ensureEditingPattern();
+  }, [editingPatternId, libraryCount]);
+
+  useEffect(() => {
+    return () => {
+      usePatternsStore.getState().discardUnpersistedDraft();
+    };
+  }, []);
+
   return (
     <div className="min-h-screen flex flex-col bg-charcoal-deep text-foreground">
       <PatternsTopBar />
-      <div className="flex-1 flex overflow-hidden">
-        <LibrarySidebar />
-        <main className="flex-1 flex flex-col overflow-hidden">
-          <WorkspaceTabs />
-          <div className="flex-1 overflow-auto">
-            {activeTab === 'edit' ? <EditPatternTab /> : <ArrangeCompositionTab />}
-          </div>
-        </main>
-      </div>
+      <PatternControlsBar />
+      <main className="flex-1 flex flex-col overflow-hidden">
+        <WorkspaceTabs />
+        <div className="flex-1 overflow-auto">
+          {activeTab === 'edit' ? <EditPatternTab /> : <ArrangeCompositionTab />}
+        </div>
+      </main>
     </div>
   );
 }
