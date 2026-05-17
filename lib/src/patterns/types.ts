@@ -73,6 +73,11 @@ export interface Pattern {
   publishedAt: number | null;
   /** UUID of the pattern this was forked from, or null. */
   forkedFromId: string | null;
+  /** Display name of the user who created the source pattern at fork-time.
+   *  Denormalized snapshot — set once when the fork is created, never mutated.
+   *  Null when this row isn't a fork (or when the source had no attribution
+   *  snapshot, e.g. its creator's account was already deleted). */
+  forkedFromCreatorName: string | null;
 
   /** Containing folder id, or null for library root. See `Collection`. */
   collectionId: string | null;
@@ -108,6 +113,8 @@ export interface Composition {
   visibility: string;
   publishedAt: number | null;
   forkedFromId: string | null;
+  /** Denormalized creator-name snapshot for fork attribution. See Pattern. */
+  forkedFromCreatorName: string | null;
 
   /** Containing folder id, or null for library root. See `Collection`. */
   collectionId: string | null;

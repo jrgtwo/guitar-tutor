@@ -58,6 +58,7 @@ import {
   wouldCreateCycle,
   type CollectionMetadataPatch,
 } from '../collection-ops';
+import { generateId, generateUuid } from '../ids';
 import { useFretworkStore } from '../../store/useFretworkStore';
 import { useAuthStore } from '../../auth/useAuthStore';
 import { canCreate, DEFAULT_SUBSCRIPTION } from '../../subscription';
@@ -114,18 +115,30 @@ export interface PatternsActions {
    * need to know about the source's owner. The new copy:
    *   - gets a fresh UUID + fresh event ids (via clonePattern)
    *   - sets `forkedFromId` for attribution
+   *   - snapshots `forkedFromCreatorName` if the caller knows the source
+   *     creator's display name (e.g. from the shared-pattern viewer's owner
+   *     descriptor) so "Forked from X" survives even if the source row later
+   *     turns private or its creator's account is deleted
    *   - starts private, never published
    *   - inherits the source's instrument + musical content
    *
    * `created_by_display_name` is set automatically at the next sync INSERT
    * using the forker's auth-store profile name — no special handling here.
    */
-  forkPattern(source: Pattern): string;
+  forkPattern(source: Pattern, sourceCreatorName?: string | null): string;
   createComposition(name?: string, collectionId?: string | null): string;
   renameComposition(id: string, name: string): void;
   setCompositionInstrument(id: string, instrumentId: string): void;
   updateCompositionMetadata(id: string, patch: CompositionMetadataPatch): void;
   setCompositionBpm(id: string, bpm: number): void;
+  /**
+   * Fork a (typically public/unlisted) composition into the user's library.
+   * Mirrors `forkPattern` semantics — fresh uuid, fresh placement ids, fresh
+   * pattern-snapshot event ids; sets `forkedFromId`; snapshots the source
+   * creator's display name when provided; resets visibility to private and
+   * `collectionId` to null. Gated by the compositions tier cap.
+   */
+  forkComposition(source: Composition, sourceCreatorName?: string | null): string;
   deleteComposition(id: string): void;
 
   // Tab & layout
@@ -368,10 +381,11 @@ export const usePatternsStore = create<PatternsStoreState>()(
         }));
         return dup.id;
       },
-      forkPattern(source) {
+      forkPattern(source, sourceCreatorName) {
         if (!gateCreate('patterns', get().library.patterns.length)) return '';
         const fork = clonePattern(source, {
           forkedFromId: source.id,
+          forkedFromCreatorName: sourceCreatorName ?? null,
           visibility: 'private',
           // The source's collectionId points at the *source owner's* folder. Forks
           // land at the forker's library root; they can move it into a folder later.
@@ -442,6 +456,39 @@ export const usePatternsStore = create<PatternsStoreState>()(
             ),
           },
         }));
+      },
+      forkComposition(source, sourceCreatorName) {
+        if (!gateCreate('compositions', get().library.compositions.length)) return '';
+        const now = Date.now();
+        const fork: Composition = {
+          ...source,
+          id: generateUuid(),
+          // Deep-clone every placement: fresh placement id, fresh patternSnapshot
+          // event ids (via clonePattern so the snapshot becomes a self-contained
+          // copy with no shared references back to the source).
+          placements: source.placements.map((p) => ({
+            id: generateId('place'),
+            startTick: p.startTick,
+            repeat: p.repeat,
+            patternSnapshot: clonePattern(p.patternSnapshot),
+          })),
+          visibility: 'private',
+          publishedAt: null,
+          forkedFromId: source.id,
+          forkedFromCreatorName: sourceCreatorName ?? null,
+          collectionId: null,
+          createdAt: now,
+          updatedAt: now,
+        };
+        set((cur) => ({
+          library: { ...cur.library, compositions: [...cur.library.compositions, fork] },
+          editingCompositionId: fork.id,
+          editingPatternId: null,
+          editingPlacementId: null,
+          selectedPlacementId: null,
+          activeTab: 'arrange',
+        }));
+        return fork.id;
       },
       deleteComposition(id) {
         set((s) => ({

@@ -195,6 +195,8 @@ function hydratePatternRow(row: Record<string, unknown>): Pattern {
     visibility: data.visibility ?? (row.visibility as string | null) ?? 'private',
     publishedAt: data.publishedAt ?? coerceTimestamp(row.published_at),
     forkedFromId: data.forkedFromId ?? (row.forked_from_id as string | null) ?? null,
+    forkedFromCreatorName:
+      data.forkedFromCreatorName ?? (row.forked_from_creator_name as string | null) ?? null,
     collectionId: data.collectionId ?? (row.collection_id as string | null) ?? null,
   };
 }
@@ -211,6 +213,8 @@ function hydrateCompositionRow(row: Record<string, unknown>): Composition {
     visibility: data.visibility ?? (row.visibility as string | null) ?? 'private',
     publishedAt: data.publishedAt ?? coerceTimestamp(row.published_at),
     forkedFromId: data.forkedFromId ?? (row.forked_from_id as string | null) ?? null,
+    forkedFromCreatorName:
+      data.forkedFromCreatorName ?? (row.forked_from_creator_name as string | null) ?? null,
     collectionId: data.collectionId ?? (row.collection_id as string | null) ?? null,
   };
 }
@@ -384,6 +388,7 @@ type SyncableItem = {
   visibility: string;
   publishedAt: number | null;
   forkedFromId: string | null;
+  forkedFromCreatorName: string | null;
   collectionId: string | null;
   updatedAt: number;
 };
@@ -402,6 +407,7 @@ function rowPayload<T extends SyncableItem>(item: T) {
     // to ISO for the wire; Postgres parses ISO 8601 strings into timestamptz.
     published_at: item.publishedAt !== null ? new Date(item.publishedAt).toISOString() : null,
     forked_from_id: item.forkedFromId,
+    forked_from_creator_name: item.forkedFromCreatorName,
     collection_id: item.collectionId,
   };
 }

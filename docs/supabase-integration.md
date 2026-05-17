@@ -983,19 +983,23 @@ Deferred (need to do):
 
 ### Group K — Verification & cleanup
 
-- [ ] Cross-device sync test
+Manual verification (run these in browsers before any production cutover):
+- [ ] Cross-device sync test (Chrome ↔ Firefox or two profiles): patterns, compositions, voice variants
 - [ ] Anon → signup → migration test (Add path and Discard path)
-- [ ] Account deletion test: verify orphan handling for shared content + ghosting for student
-- [ ] Teacher / student end-to-end: invite → accept → assign → progress → notes → end relationship
+- [ ] Account deletion test: verify orphan handling for shared content
 - [ ] Public-computer leak test: anon use, close tab, verify next tab is clean
-- [ ] Sign-out clears state correctly
-- [ ] All existing `lib/tests/*` tests still pass (206+ as of this writing)
-- [ ] Add new tests:
-  - `lib/tests/auth-migration.test.ts` — migration payload builder
-  - `lib/tests/cloud-sync.test.ts` — debounced upserts with mocked Supabase client
-  - `lib/tests/tier-limits.test.ts` — cap enforcement
-  - `lib/tests/assignment-snapshot.test.ts` — assignment item snapshot semantics
-- [ ] Delete legacy `localStorage` key reads from `usePatternsStore` and `preset-overrides` (after the one-time-migration shim is no longer needed — probably 30 days post-launch)
+- [ ] Sign-out clears state correctly (patterns + compositions + voice variants + active-variant refs)
+
+Automated test follow-ups:
+- [ ] `lib/tests/auth-migration.test.ts` — migration payload builder (patterns + compositions + variants + active refs)
+- [ ] `lib/tests/cloud-sync.test.ts` — upserts with mocked Supabase client; covers patterns, compositions, voice variants
+- [ ] `lib/tests/tier-limits.test.ts` — cap enforcement at the boundary for all three kinds (patterns / compositions / voice variants)
+
+Completed in earlier chunks (kept here for the audit trail):
+- [x] All existing `lib/tests/*` tests still pass — 228 lib tests + 5 example tests as of F.2 closeout.
+- [x] Legacy `localStorage` migration shims removed (`migrateLegacyLocalStorage` in `usePatternsStore.ts` and the equivalent in the old `preset-overrides.ts` — both deleted in the F.2 dead-code sweep).
+
+Note: the teacher/student end-to-end verification was parked along with that whole workflow per the Group H pivot. When (if) teacher/student is revived on top of collections + access codes, fresh verification scenarios will live with that work.
 
 ---
 

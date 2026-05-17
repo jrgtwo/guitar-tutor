@@ -15,6 +15,9 @@ import type { Collection } from '@fretwork/lib';
 import { MAX_FOLDER_DEPTH } from '@fretwork/lib';
 import { Section } from '../components/ui/Section';
 import { buildBreadcrumb, subfoldersOf, itemsInFolder } from './folder-helpers';
+import { FolderSettingsDialog } from './FolderSettingsDialog';
+import { MoveFolderDialog } from './MoveFolderDialog';
+import { DeleteFolderDialog } from './DeleteFolderDialog';
 
 export interface LibraryItem {
   id: string;
@@ -73,6 +76,12 @@ export function LibraryPickerPanel<T extends LibraryItem>(props: LibraryPickerPa
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(initialFolderId);
   const [filter, setFilter] = useState('');
   const [folderDraftName, setFolderDraftName] = useState<string | null>(null);
+  // Per-folder action targets — one of these is non-null while the matching
+  // dialog is open. Captured at the click site so the dialog gets the right
+  // Collection even if the hover row changes.
+  const [renameTarget, setRenameTarget] = useState<Collection | null>(null);
+  const [moveTarget, setMoveTarget] = useState<Collection | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Collection | null>(null);
 
   const collectionsById = useMemo(
     () => new Map(collections.map((c) => [c.id, c])),
@@ -149,15 +158,62 @@ export function LibraryPickerPanel<T extends LibraryItem>(props: LibraryPickerPa
           {filteredFolders.length > 0 && (
             <ul className="flex flex-col mb-1">
               {filteredFolders.map((f) => (
-                <li key={f.id}>
+                <li
+                  key={f.id}
+                  className="group flex items-center gap-1 px-2 py-1.5 rounded-md hover:bg-white/5 text-muted-foreground hover:text-foreground transition-colors"
+                >
                   <button
                     type="button"
                     onClick={() => navigateTo(f.id)}
-                    className="w-full text-left px-2 py-1.5 rounded-md flex items-center gap-2 hover:bg-white/5 text-muted-foreground hover:text-foreground transition-colors"
+                    className="flex-1 min-w-0 text-left flex items-center gap-2"
                   >
                     <Folder size={14} className="shrink-0 opacity-70" />
                     <span className="text-sm truncate flex-1">{f.name}</span>
-                    <ChevronRight size={12} className="opacity-50 shrink-0" />
+                  </button>
+                  {/* Hover-revealed folder actions. Stop propagation so the
+                      row's navigation click doesn't fire. */}
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      type="button"
+                      title="Folder settings"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setRenameTarget(f);
+                      }}
+                      className="text-muted-foreground hover:text-foreground px-1"
+                    >
+                      ✎
+                    </button>
+                    <button
+                      type="button"
+                      title="Move folder"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setMoveTarget(f);
+                      }}
+                      className="text-muted-foreground hover:text-foreground px-1"
+                    >
+                      ↪
+                    </button>
+                    <button
+                      type="button"
+                      title="Delete folder"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDeleteTarget(f);
+                      }}
+                      className="text-muted-foreground hover:text-destructive px-1"
+                    >
+                      🗑
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => navigateTo(f.id)}
+                    aria-label={`Open folder ${f.name}`}
+                    className="shrink-0 px-1"
+                  >
+                    <ChevronRight size={12} className="opacity-50" />
                   </button>
                 </li>
               ))}
@@ -241,6 +297,16 @@ export function LibraryPickerPanel<T extends LibraryItem>(props: LibraryPickerPa
           </button>
         </div>
       </Section>
+
+      {renameTarget && (
+        <FolderSettingsDialog folder={renameTarget} onClose={() => setRenameTarget(null)} />
+      )}
+      {moveTarget && (
+        <MoveFolderDialog folder={moveTarget} onClose={() => setMoveTarget(null)} />
+      )}
+      {deleteTarget && (
+        <DeleteFolderDialog folder={deleteTarget} onClose={() => setDeleteTarget(null)} />
+      )}
     </div>
   );
 }

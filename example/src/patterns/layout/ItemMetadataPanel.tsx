@@ -34,6 +34,7 @@ import { MultiSelectChips } from '../../components/ui/MultiSelectChips';
 import { PatternPickerPanel } from './PatternPickerPanel';
 import { CompositionPickerPanel } from './CompositionPickerPanel';
 import { DeleteItemDialog } from './DeleteItemDialog';
+import { Link } from '../../router';
 
 /** UI-layer token for the "None" difficulty option. Never reaches the DB —
  *  translated to/from `null` at the store boundary. Lives here (not in lib) because
@@ -187,6 +188,23 @@ function MetadataView({
           options={instrumentOptions}
           onChange={handleInstrument}
         />
+        {item.forkedFromId !== null && (
+          <div className="flex items-center justify-between gap-2 text-xs">
+            <span className="text-[10px] font-mono uppercase tracking-[0.16em] text-muted-foreground/80">
+              Forked from
+            </span>
+            {item.forkedFromCreatorName ? (
+              <Link
+                to={{ kind: 'profile', displayName: item.forkedFromCreatorName }}
+                className="text-foreground hover:underline truncate"
+              >
+                {item.forkedFromCreatorName}
+              </Link>
+            ) : (
+              <span className="text-muted-foreground">[Deleted User]</span>
+            )}
+          </div>
+        )}
       </Section>
 
       {/* ── CATALOG ──────────────────────────────────────────────────────── */}

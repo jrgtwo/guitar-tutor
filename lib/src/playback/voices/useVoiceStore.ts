@@ -21,6 +21,10 @@ interface VoiceState {
   renameVariant(id: string, name: string): void;
   setVariantCollection(id: string, collectionId: string | null): void;
   deleteVariant(id: string): void;
+  /** Re-parent every variant that lives in `folderId` to root. Called from
+   *  the folder-delete flow so variants don't end up orphaned with a stale
+   *  collectionId after the patterns-store deletes the collection itself. */
+  orphanVariantsInFolder(folderId: string): void;
 
   setActiveVariantRef(instrumentId: FretInstrumentId, ref: VariantRef): void;
   setReverb(reverb: ReverbSettings | null): void;
@@ -59,6 +63,14 @@ export const useVoiceStore = create<VoiceState>()(
 
       setVariantCollection(id, collectionId) {
         get().updateVariant(id, { collectionId });
+      },
+
+      orphanVariantsInFolder(folderId) {
+        set((s) => ({
+          variants: s.variants.map((v) =>
+            v.collectionId === folderId ? { ...v, collectionId: null } : v,
+          ),
+        }));
       },
 
       deleteVariant(id) {

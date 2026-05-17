@@ -187,14 +187,17 @@ export function SoundLab() {
     return window.confirm(`Discard unsaved edits to "${pendingPreset.name}"?`);
   };
 
-  const settingsJson = useMemo(
-    () => JSON.stringify({ preset: pendingPreset, reverb: pendingReverb }, null, 2),
-    [pendingPreset, pendingReverb],
+  // Per-variant export payload. Reverb is intentionally excluded — it's a
+  // global setting, not part of any individual variant, so it shouldn't
+  // travel with copy/paste workflows (back-up, share, paste-into-presets.ts).
+  const variantJson = useMemo(
+    () => JSON.stringify(pendingPreset, null, 2),
+    [pendingPreset],
   );
 
   const copyJson = async () => {
     try {
-      await navigator.clipboard.writeText(settingsJson);
+      await navigator.clipboard.writeText(variantJson);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1500);
     } catch {
@@ -421,18 +424,24 @@ export function SoundLab() {
           />
         </Section>
 
-        {/* JSON readout */}
+        {/* Variant JSON readout — copy/paste payload for backing up or
+            promoting a tuning into presets.ts. Reverb is global and excluded. */}
         <section className="rounded-lg border border-border/50 bg-card/60 p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-[10px] font-mono uppercase tracking-[0.16em] text-muted-foreground/80">
-              Settings JSON
-            </h2>
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex flex-col gap-0.5">
+              <h2 className="text-[10px] font-mono uppercase tracking-[0.16em] text-muted-foreground/80">
+                Variant JSON
+              </h2>
+              <p className="text-[10px] font-mono text-muted-foreground/60">
+                Copy to back up the active voice or paste into <code>presets.ts</code> to ship as a baseline.
+              </p>
+            </div>
             <Button size="sm" variant="secondary" onClick={copyJson}>
               {copied ? 'Copied ✓' : 'Copy'}
             </Button>
           </div>
           <pre className="text-[11px] font-mono leading-relaxed bg-charcoal-deep/60 border border-border/30 rounded p-3 overflow-x-auto max-h-[420px]">
-            {settingsJson}
+            {variantJson}
           </pre>
         </section>
       </main>

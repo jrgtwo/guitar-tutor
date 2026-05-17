@@ -42,6 +42,7 @@ export function createEmptyPattern(
     visibility: 'private',
     publishedAt: null,
     forkedFromId: null,
+    forkedFromCreatorName: null,
     collectionId: null,
     createdAt: now,
     updatedAt: now,
@@ -52,7 +53,7 @@ export function createEmptyPattern(
  *  library "duplicate" action and the composition's snapshot-on-place behavior. */
 export function clonePattern(
   p: Pattern,
-  overrides: Partial<Pick<Pattern, 'name' | 'id' | 'visibility' | 'forkedFromId' | 'collectionId'>> = {},
+  overrides: Partial<Pick<Pattern, 'name' | 'id' | 'visibility' | 'forkedFromId' | 'forkedFromCreatorName' | 'collectionId'>> = {},
 ): Pattern {
   const now = Date.now();
   return {
@@ -68,6 +69,10 @@ export function clonePattern(
     // Default to not-a-fork; callers (e.g. the catalog viewer's "Fork to my library"
     // CTA) explicitly set this to track attribution.
     forkedFromId: overrides.forkedFromId ?? null,
+    // Snapshot of the source creator's display name at fork-time. Only set
+    // when this is a fork (forkedFromId non-null); a plain duplicate within
+    // the user's own library shouldn't carry attribution.
+    forkedFromCreatorName: overrides.forkedFromCreatorName ?? null,
     // Default: preserve the source's folder (duplicate-in-place semantics). Forks
     // of someone else's pattern must explicitly reset this to null since the
     // source's folder belongs to a different user's library.
