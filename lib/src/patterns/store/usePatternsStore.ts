@@ -100,7 +100,7 @@ export interface PatternsActions {
   discardUnpersistedDraft(): void;
 
   // Library actions
-  createPattern(name?: string): string;
+  createPattern(name?: string, collectionId?: string | null): string;
   renamePattern(id: string, name: string): void;
   setPatternInstrument(id: string, instrumentId: string): void;
   updatePatternMetadata(id: string, patch: PatternMetadataPatch): void;
@@ -119,7 +119,7 @@ export interface PatternsActions {
    * using the forker's auth-store profile name — no special handling here.
    */
   forkPattern(source: Pattern): string;
-  createComposition(name?: string): string;
+  createComposition(name?: string, collectionId?: string | null): string;
   renameComposition(id: string, name: string): void;
   setCompositionInstrument(id: string, instrumentId: string): void;
   updateCompositionMetadata(id: string, patch: CompositionMetadataPatch): void;
@@ -324,8 +324,14 @@ export const usePatternsStore = create<PatternsStoreState>()(
       },
 
       // ─── Library ─────────────────────────────────────────────────────────────
-      createPattern(name) {
+      createPattern(name, collectionId) {
         const p = createEmptyPattern(name, useFretworkStore.getState().instrumentId);
+        // `collectionId` defaults to null (root); the in-memory Pattern from
+        // createEmptyPattern already has collectionId: null, only override if
+        // a folder was passed.
+        if (collectionId !== undefined && collectionId !== null) {
+          p.collectionId = collectionId;
+        }
         set((s) => ({
           library: { ...s.library, patterns: [...s.library.patterns, p] },
           editingPatternId: p.id,
@@ -408,8 +414,11 @@ export const usePatternsStore = create<PatternsStoreState>()(
         }));
         return fork.id;
       },
-      createComposition(name) {
+      createComposition(name, collectionId) {
         const c = createEmptyComposition(name, useFretworkStore.getState().instrumentId);
+        if (collectionId !== undefined && collectionId !== null) {
+          c.collectionId = collectionId;
+        }
         set((s) => ({
           library: { ...s.library, compositions: [...s.library.compositions, c] },
           editingCompositionId: c.id,
