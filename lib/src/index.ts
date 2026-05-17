@@ -191,6 +191,13 @@ export {
   setCompositionInstrument,
   setCompositionBpm,
   applyCompositionMetadata,
+  MAX_FOLDER_DEPTH,
+  createEmptyCollection,
+  setCollectionName,
+  setCollectionParent,
+  applyCollectionMetadata,
+  getCollectionDepth,
+  wouldCreateCycle,
   flattenComposition,
 } from './patterns';
 export type {
@@ -203,10 +210,12 @@ export type {
   Pattern,
   Placement,
   Composition,
+  Collection,
   Library,
   FlattenedEvent,
   PatternMetadataPatch,
   CompositionMetadataPatch,
+  CollectionMetadataPatch,
 } from './patterns';
 export {
   usePatternsStore,

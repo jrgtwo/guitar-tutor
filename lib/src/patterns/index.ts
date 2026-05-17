@@ -11,6 +11,7 @@ export type {
   Pattern,
   Placement,
   Composition,
+  Collection,
   Library,
 } from './types';
 
@@ -63,4 +64,15 @@ export {
   applyCompositionMetadata,
 } from './composition-ops';
 export type { CompositionMetadataPatch } from './composition-ops';
+
+export {
+  MAX_FOLDER_DEPTH,
+  createEmptyCollection,
+  setCollectionName,
+  setCollectionParent,
+  applyCollectionMetadata,
+  getCollectionDepth,
+  wouldCreateCycle,
+} from './collection-ops';
+export type { CollectionMetadataPatch } from './collection-ops';
 export type { FlattenedEvent } from './composition-ops';

@@ -39,6 +39,7 @@ export function createEmptyComposition(
     visibility: 'private',
     publishedAt: null,
     forkedFromId: null,
+    collectionId: null,
     createdAt: now,
     updatedAt: now,
   };

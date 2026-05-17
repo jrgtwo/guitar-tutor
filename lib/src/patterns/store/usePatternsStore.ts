@@ -48,6 +48,16 @@ import {
   setPlacementSnapshot as opsSetPlacementSnapshot,
   type CompositionMetadataPatch,
 } from '../composition-ops';
+import {
+  MAX_FOLDER_DEPTH,
+  applyCollectionMetadata,
+  createEmptyCollection,
+  getCollectionDepth,
+  setCollectionName as opsSetCollectionName,
+  setCollectionParent as opsSetCollectionParent,
+  wouldCreateCycle,
+  type CollectionMetadataPatch,
+} from '../collection-ops';
 import { useFretworkStore } from '../../store/useFretworkStore';
 
 export type WorkspaceTab = 'edit' | 'arrange';
@@ -148,6 +158,17 @@ export interface PatternsActions {
   setPlacementRepeat(placementId: string, repeat: number): void;
   removePlacement(placementId: string): void;
   selectPlacement(id: string | null): void;
+
+  // Collections (nested folders). Returned id is the new/affected collection id;
+  // returns null when a create is refused (e.g. max depth).
+  createCollection(name: string, parentId: string | null): string | null;
+  renameCollection(id: string, name: string): void;
+  moveCollection(id: string, newParentId: string | null): void;
+  deleteCollection(id: string): void;
+  updateCollectionMetadata(id: string, patch: CollectionMetadataPatch): void;
+  /** Move a pattern or composition into a folder (or to root via null). */
+  setPatternCollection(id: string, collectionId: string | null): void;
+  setCompositionCollection(id: string, collectionId: string | null): void;
 }
 
 export type PatternsStoreState = PatternsState & PatternsActions;
@@ -155,7 +176,7 @@ export type PatternsStoreState = PatternsState & PatternsActions;
 const PERSIST_KEY = 'fretwork:patterns:v1';
 
 export const DEFAULT_PATTERNS_STATE: PatternsState = {
-  library: { patterns: [], compositions: [] },
+  library: { patterns: [], compositions: [], collections: [] },
   activeTab: 'edit',
   sidebarCollapsed: false,
   fretboardCollapsed: false,
@@ -373,6 +394,9 @@ export const usePatternsStore = create<PatternsStoreState>()(
         const fork = clonePattern(source, {
           forkedFromId: source.id,
           visibility: 'private',
+          // The source's collectionId points at the *source owner's* folder. Forks
+          // land at the forker's library root; they can move it into a folder later.
+          collectionId: null,
         });
         set((cur) => ({
           library: { ...cur.library, patterns: [...cur.library.patterns, fork] },
@@ -444,6 +468,97 @@ export const usePatternsStore = create<PatternsStoreState>()(
           },
           editingCompositionId: s.editingCompositionId === id ? null : s.editingCompositionId,
           editingPlacementId: s.editingCompositionId === id ? null : s.editingPlacementId,
+        }));
+      },
+
+      // ─── Collections ─────────────────────────────────────────────────────────
+      createCollection(name, parentId) {
+        const s = get();
+        const parentDepth = parentId === null ? -1 : getCollectionDepth(s.library.collections, parentId);
+        // Root is depth -1; a folder directly under root is depth 0; etc. So a new
+        // folder under `parentId` would be at depth `parentDepth + 1`. Refuse if
+        // that would exceed MAX_FOLDER_DEPTH.
+        if (parentDepth + 1 >= MAX_FOLDER_DEPTH) return null;
+        const c = createEmptyCollection(name, parentId);
+        set((cur) => ({
+          library: { ...cur.library, collections: [...cur.library.collections, c] },
+        }));
+        return c.id;
+      },
+      renameCollection(id, name) {
+        set((s) => ({
+          library: {
+            ...s.library,
+            collections: s.library.collections.map((c) =>
+              c.id === id ? opsSetCollectionName(c, name) : c,
+            ),
+          },
+        }));
+      },
+      moveCollection(id, newParentId) {
+        const s = get();
+        // Refuse to move a folder into itself or any of its descendants.
+        if (wouldCreateCycle(s.library.collections, id, newParentId)) return;
+        // Refuse if the move would exceed depth (computed from the new parent).
+        const newParentDepth = newParentId === null ? -1 : getCollectionDepth(s.library.collections, newParentId);
+        if (newParentDepth + 1 >= MAX_FOLDER_DEPTH) return;
+        set((cur) => ({
+          library: {
+            ...cur.library,
+            collections: cur.library.collections.map((c) =>
+              c.id === id ? opsSetCollectionParent(c, newParentId) : c,
+            ),
+          },
+        }));
+      },
+      deleteCollection(id) {
+        // The FK is `on delete set null` on both parent_id and the item collection_id,
+        // so deleting a folder at the DB layer leaves subfolders + items at root. Mirror
+        // that locally so the UI stays consistent with what cloud sync will produce.
+        set((s) => ({
+          library: {
+            ...s.library,
+            collections: s.library.collections
+              .filter((c) => c.id !== id)
+              .map((c) => (c.parentId === id ? { ...c, parentId: null, updatedAt: Date.now() } : c)),
+            patterns: s.library.patterns.map((p) =>
+              p.collectionId === id ? { ...p, collectionId: null, updatedAt: Date.now() } : p,
+            ),
+            compositions: s.library.compositions.map((cm) =>
+              cm.collectionId === id ? { ...cm, collectionId: null, updatedAt: Date.now() } : cm,
+            ),
+          },
+        }));
+      },
+      updateCollectionMetadata(id, patch) {
+        set((s) => ({
+          library: {
+            ...s.library,
+            collections: s.library.collections.map((c) =>
+              c.id === id ? applyCollectionMetadata(c, patch) : c,
+            ),
+          },
+        }));
+      },
+      setPatternCollection(id, collectionId) {
+        set((s) => ({
+          library: {
+            ...s.library,
+            patterns: s.library.patterns.map((p) =>
+              p.id === id ? { ...p, collectionId, updatedAt: Date.now() } : p,
+            ),
+          },
+          ...clearDraftIf(s, id),
+        }));
+      },
+      setCompositionCollection(id, collectionId) {
+        set((s) => ({
+          library: {
+            ...s.library,
+            compositions: s.library.compositions.map((cm) =>
+              cm.id === id ? { ...cm, collectionId, updatedAt: Date.now() } : cm,
+            ),
+          },
         }));
       },
 

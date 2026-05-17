@@ -4,24 +4,24 @@ A long-running implementation effort. Use the **Implementation Checklist** secti
 
 ---
 
-## Current status (last touched 2026-05-15)
+## Current status (last touched 2026-05-16)
 
 | Group | State | Notes |
 |---|---|---|
 | A — Foundation (client, env, OAuth) | ✅ Done |  |
-| B — Database schema | ✅ Done | Migrations 0001–0005 applied. Manual RLS verification still optional. |
+| B — Database schema | ✅ Done | Migrations 0001–0009 applied. Manual RLS verification still optional. |
 | C — Auth state + sign-in UX | ✅ Done | Modal, button, user menu, signup form, RPC. ProfilePage (read-only) jumped ahead from Group G. |
 | D — Anon → signed-in migration | ✅ Done | sessionStorage swap + migration prompt + migration-done flag fix. |
 | E — Patterns/Compositions cloud sync | ✅ Done | Diff-sync, hydration, sign-out cleanup. UUIDs for DB-bound IDs. |
 | F.1 — Sound Lab cloud sync | ✅ Done | Storage swap, hydration, lab override sync, migration prompt extension. Migration-deferred-hydration fix. |
 | F.2 — Multi-variant Sound Lab UI | ⏳ Deferred | Save As / Rename / Delete in the lab; UX upgrade rather than foundation. |
-|| G — Sharing, forking, profile editor, account deletion | ⏳ In Progress | Account deletion implemented (RPC + Edge Function). Remaining: Profile Editor, Sharing, and Forking. |
+| G — Sharing, forking, profile editor, account deletion | ✅ Done | Account deletion (RPC + Edge Function), profile editor at `?settings=1`, catalog metadata schema, sidebar-free patterns page with top controls bar + metadata popover, auto-seed drafts, shared pattern viewer at `?pattern=<uuid>`, denormalized attribution, fork action, visibility-aware delete confirm, SPA in-app navigation. Composition / voice-preset viewers still deferred (data model ready). |
 | H — Teaching workflows | ⏳ Pending | Invites, relationships, assignments, scoped notes. |
 | I — Help button + per-page walkthroughs | ⏳ Pending | Lightweight UX layer. |
 | J — Tier scaffolding | ⏳ Pending | Free/pro/teacher caps in code; Stripe integration deferred. |
 | K — Final verification & cleanup | ⏳ Pending | Manual E2E flows + automated tests + legacy-localStorage shim removal. |
 
-**Where to pick up tomorrow:** Group G, starting with G.1 (Profile Editor at `?settings=1`). Account deletion is complete.
+**Where to pick up next:** Group H — start with the invite flow (`teacher_student_relationships` rows + `/?invite=<token>` route).
 
 ---
 
@@ -849,26 +849,41 @@ Split into two sub-groups for shipping clarity.
 - [ ] `user_settings.active_presets` map of `{instrumentId-family}-{variantId}` driving `findEffectivePreset`
 - [ ] Migration of existing single-override data into the variant model (one "Imported" variant per preset_id, marked active)
 
-### Group G — Sharing, forking, profile editor, account deletion | ⏳ In Progress | Account deletion implemented (RPC + Edge Function). Remaining: Profile Editor, Sharing, and Forking. |
+### Group G — Sharing, forking, profile editor, account deletion ✅ Done
 
-- [x] Build `example/src/profile/DeleteAccountFlow.tsx`:
-  - Multi-step UI (Confirmation + Success)
-  - Trigger `delete_account_cleanup()` RPC (database cleanup)
-  - Trigger `delete-user` Edge Function (auth.admin.deleteUser via Service Role)
-  - Securely identifies user via JWT (prevents hijacking)
-- [x] Build `example/src/profile/ProfilePage.tsx` — public profile view at `/?profile=<displayname>` showing public fields, public content, and follow/contact affordances (when those exist)
-- [x] Build `example/src/profile/ProfileSettings.tsx` — the profile editor surface at `?settings=1` (replaces the originally-planned `ProfileEditor.tsx` name).
-- [ ] Add migration `0008_catalog_metadata.sql` — `description` / `difficulty` / `genres` / `tags` / `instrument_id` / `published_at` columns + indexes on `patterns`, `compositions`, `voice_presets`. Backfill `instrument_id` from existing `data` jsonb.
-- [ ] Build curated vocabulary modules: `lib/src/catalog/genres.ts`, `lib/src/catalog/tags.ts`, `lib/src/catalog/difficulty.ts` — exported constants used for UI + write-time validation.
-- [ ] Remove `LibrarySidebar` from `PatternsPage.tsx`. Delete or repurpose the sidebar component.
-- [ ] Build `example/src/patterns/layout/PatternControlsBar.tsx` — full-width top controls bar with read-only summary. Wires `SimplePopover` to open the metadata panel and the pattern picker.
-- [ ] Build `example/src/patterns/layout/ItemMetadataPanel.tsx` — popover content panel: name, description, difficulty, genres, tags, visibility, share link. Polymorphic over `Pattern | Composition`.
-- [ ] Build `example/src/patterns/layout/PatternPickerPanel.tsx` — popover content panel for switching the active pattern; filter input + list.
-- [ ] Auto-seed: when the editor mounts and no pattern is active, materialize an in-memory `Untitled` draft. Persist on first real change.
-- [ ] Wire `published_at` lifecycle: app sets it when visibility transitions out of `private`; clears it when returning to `private`.
-- [ ] Build shared-content viewer routes: `?pattern=<uuid>`, `?composition=<uuid>`, `?voice-preset=<uuid>` — read-only render with "Fork to my library" CTA.
-- [ ] Fork action: signed-in only; insert into the same table with `forked_from_id` set. (Tier-cap gating defers to Group J.)
-- [ ] Attribution display: clickable link to profile if profile is public; non-clickable label if private; "[Deleted User]" when `user_id is null`.
+Profile + account deletion:
+- [x] Build `example/src/profile/DeleteAccountFlow.tsx` — multi-step UI; triggers `delete_account_cleanup()` RPC + `delete-user` Edge Function; identifies user via JWT.
+- [x] Build `example/src/profile/ProfilePage.tsx` — public profile view at `?profile=<displayname>`.
+- [x] Build `example/src/profile/ProfileSettings.tsx` — profile editor surface at `?settings=1` (named ProfileSettings instead of the originally-planned ProfileEditor).
+- [x] Migration `0007_relationship_aggregate_stats.sql` — adds aggregate-stats columns to teacher-student rows; `delete_account_cleanup()` archives student stats before cascade so deleted-student rosters can render aggregate counts.
+
+Catalog metadata schema + UI:
+- [x] Migration `0008_catalog_metadata.sql` — `description` / `difficulty` / `genres` / `tags` / `instrument_id` / `published_at` columns + GIN indexes on `patterns`, `compositions`, `voice_presets`. Pre-launch truncate of patterns/compositions to allow `instrument_id NOT NULL`.
+- [x] Curated vocabulary modules: `lib/src/catalog/{description,difficulty,genres,tags,visibility}.ts` — exported constants used for UI + write-time validation; no Postgres enums (per project convention).
+- [x] `Pattern` and `Composition` TS types extended with the catalog metadata fields; `createEmpty*` and `clonePattern` default + reset semantics; `applyPatternMetadata` / `applyCompositionMetadata` patch helpers with the visibility → `publishedAt` lifecycle.
+
+Patterns-page UI redesign:
+- [x] Removed `LibrarySidebar`, `LibraryItemRow`, `useResponsiveSidebar` — no sidebars in fretboard views.
+- [x] `example/src/patterns/layout/PatternControlsBar.tsx` — full-width top controls bar; uses the practice page's `chipButton` style + `SimplePopover`. Extracted `Section` from `TopBar` into a shared primitive (`example/src/components/ui/Section.tsx`) so the two surfaces share one visual language.
+- [x] `example/src/patterns/layout/ItemMetadataPanel.tsx` — popover content (Pattern / Catalog / Sharing sections + delete affordance). Polymorphic over `Pattern | Composition`.
+- [x] `example/src/patterns/layout/PatternPickerPanel.tsx` — secondary view of the same popover for switching the active pattern.
+- [x] `example/src/components/ui/MultiSelectChips.tsx` — reusable multi-select primitive for genres + tags.
+- [x] Auto-seed: `usePatternsStore.ensureEditingPattern()` + `discardUnpersistedDraft()`; cloud sync filters out the draft until any mutation promotes it; persisted across refresh-within-tab.
+- [x] `published_at` lifecycle wired via `applyPatternMetadata` / `applyCompositionMetadata`.
+
+Sharing, viewer, fork:
+- [x] SPA in-app navigation: `example/src/router.tsx` with `Link` / `navigate` / `useLocation`; all `<a href>` inside the example app converted (a memory note records: never use bare `<a href>` for in-app navigation — wipes URL-persisted store state on reload).
+- [x] Shared pattern viewer route `?pattern=<uuid>` (`example/src/shared/SharedPatternView.tsx`) — fetch + hydrate + metadata + read-only `MiniPatternSignature` preview + Fork CTA + anon SignupModal gate. RLS-public-row read confirmed.
+- [x] Migration `0009_attribution_snapshot.sql` — `created_by_display_name` denormalized onto shareable rows; backfill from current profiles; `delete_account_cleanup()` nulls the snapshot alongside `user_id` on orphaning. Lets anon viewers see attribution without joining the auth-gated profiles table.
+- [x] Attribution display: `[Deleted User]` when snapshot is null, otherwise a clickable Link to `?profile=<name>` (profile page handles its own private / not-found states; viewer doesn't double-gate).
+- [x] Fork action: `usePatternsStore.forkPattern(source)` deep-clones via `clonePattern` (fresh UUID + event ids; `forkedFromId` set; `visibility` reset to private; `publishedAt` null). Forker's display name snapshotted at next sync INSERT. Anon viewers hit SignupModal.
+- [x] Visibility-aware delete confirmation: `example/src/patterns/layout/DeleteItemDialog.tsx`. Adapts copy based on private vs shared. Reuses existing `Dialog` primitive; `forked_from_id ON DELETE SET NULL` handles fork survival.
+
+Deferred (data model ready, UI surface pending):
+- [ ] Composition viewer route (`?composition=<uuid>`) — same shape as the pattern viewer.
+- [ ] Voice-preset viewer route (`?voice-preset=<uuid>`).
+- [ ] "Forked from [Original Creator]" attribution surface — `forkedFromId` data is captured; lands when library cards or catalog listings exist.
+- [ ] Tier-cap gating on fork insertions — defers to Group J.
 
 ### Group H — Teacher / student workflows
 

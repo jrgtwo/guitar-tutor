@@ -74,6 +74,9 @@ export interface Pattern {
   /** UUID of the pattern this was forked from, or null. */
   forkedFromId: string | null;
 
+  /** Containing folder id, or null for library root. See `Collection`. */
+  collectionId: string | null;
+
   createdAt: number;
   updatedAt: number;
 }
@@ -106,6 +109,26 @@ export interface Composition {
   publishedAt: number | null;
   forkedFromId: string | null;
 
+  /** Containing folder id, or null for library root. See `Collection`. */
+  collectionId: string | null;
+
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
+ * A folder. Kind-agnostic — a single collection can hold patterns, compositions,
+ * and voice presets (via their `collectionId` FK). `parentId` is the containing
+ * folder (or null for root); nested arbitrarily up to MAX_FOLDER_DEPTH.
+ *
+ * Visibility is independent of contained-item visibility — see migration 0010.
+ */
+export interface Collection {
+  id: string;
+  name: string;
+  parentId: string | null;
+  visibility: string;
+  publishedAt: number | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -113,4 +136,5 @@ export interface Composition {
 export interface Library {
   patterns: Pattern[];
   compositions: Composition[];
+  collections: Collection[];
 }

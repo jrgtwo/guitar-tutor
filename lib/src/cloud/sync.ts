@@ -25,7 +25,7 @@ import {
   usePatternsStore,
   DEFAULT_PATTERNS_STATE,
 } from '../patterns/store/usePatternsStore';
-import type { Composition, Pattern } from '../patterns';
+import type { Collection, Composition, Pattern } from '../patterns';
 import {
   loadOverrides,
   saveOverrides,
@@ -40,6 +40,7 @@ import type { VoicePreset, ReverbSettings } from '../playback/voices/types';
 let isHydrating = false;
 let lastPatternsSnapshot: Pattern[] = [];
 let lastCompositionsSnapshot: Composition[] = [];
+let lastCollectionsSnapshot: Collection[] = [];
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 let storeUnsubscribe: (() => void) | null = null;
 let currentUserId: string | null = null;
@@ -152,6 +153,7 @@ function teardownSync(): void {
   currentUserId = null;
   lastPatternsSnapshot = [];
   lastCompositionsSnapshot = [];
+  lastCollectionsSnapshot = [];
   labRowIdByPresetId = new Map();
   lastReverbSnapshot = null;
   lastLabPresetsSnapshot = {};
@@ -195,6 +197,7 @@ function hydratePatternRow(row: Record<string, unknown>): Pattern {
     visibility: data.visibility ?? (row.visibility as string | null) ?? 'private',
     publishedAt: data.publishedAt ?? coerceTimestamp(row.published_at),
     forkedFromId: data.forkedFromId ?? (row.forked_from_id as string | null) ?? null,
+    collectionId: data.collectionId ?? (row.collection_id as string | null) ?? null,
   };
 }
 
@@ -210,6 +213,19 @@ function hydrateCompositionRow(row: Record<string, unknown>): Composition {
     visibility: data.visibility ?? (row.visibility as string | null) ?? 'private',
     publishedAt: data.publishedAt ?? coerceTimestamp(row.published_at),
     forkedFromId: data.forkedFromId ?? (row.forked_from_id as string | null) ?? null,
+    collectionId: data.collectionId ?? (row.collection_id as string | null) ?? null,
+  };
+}
+
+function hydrateCollectionRow(row: Record<string, unknown>): Collection {
+  return {
+    id: row.id as string,
+    name: row.name as string,
+    parentId: (row.parent_id as string | null) ?? null,
+    visibility: (row.visibility as string | null) ?? 'private',
+    publishedAt: coerceTimestamp(row.published_at),
+    createdAt: coerceTimestamp(row.created_at) ?? Date.now(),
+    updatedAt: coerceTimestamp(row.updated_at) ?? Date.now(),
   };
 }
 
@@ -228,7 +244,7 @@ async function hydrateFromCloud(userId: string): Promise<void> {
   try {
     const client = getSupabaseClient();
 
-    const [patternsResult, compositionsResult] = await Promise.all([
+    const [patternsResult, compositionsResult, collectionsResult] = await Promise.all([
       client
         .from('patterns')
         .select('*')
@@ -236,6 +252,11 @@ async function hydrateFromCloud(userId: string): Promise<void> {
         .order('updated_at', { ascending: false }),
       client
         .from('compositions')
+        .select('*')
+        .eq('user_id', userId)
+        .order('updated_at', { ascending: false }),
+      client
+        .from('collections')
         .select('*')
         .eq('user_id', userId)
         .order('updated_at', { ascending: false }),
@@ -249,6 +270,10 @@ async function hydrateFromCloud(userId: string): Promise<void> {
       hydrateCompositionRow(row),
     );
 
+    const collections: Collection[] = (collectionsResult.data ?? []).map((row) =>
+      hydrateCollectionRow(row),
+    );
+
     // Preserve any pristine local draft so the user doesn't lose their auto-seeded
     // pattern across sign-in. The draft sits alongside hydrated cloud rows; it stays
     // invisible to subsequent syncs until promoted.
@@ -258,17 +283,21 @@ async function hydrateFromCloud(userId: string): Promise<void> {
     const mergedPatterns = draft ? [...patterns, draft] : patterns;
 
     usePatternsStore.setState({
-      library: { patterns: mergedPatterns, compositions },
+      library: { patterns: mergedPatterns, compositions, collections },
     });
 
     lastPatternsSnapshot = patterns;
     lastCompositionsSnapshot = compositions;
+    lastCollectionsSnapshot = collections;
 
     if (patternsResult.error) {
       console.error('[cloud sync] fetch patterns error:', patternsResult.error);
     }
     if (compositionsResult.error) {
       console.error('[cloud sync] fetch compositions error:', compositionsResult.error);
+    }
+    if (collectionsResult.error) {
+      console.error('[cloud sync] fetch collections error:', collectionsResult.error);
     }
   } catch (e) {
     console.error('[cloud sync] hydrateFromCloud threw:', e);
@@ -290,19 +319,27 @@ function installStoreSubscription(): void {
     const patterns = draftId
       ? state.library.patterns.filter((p) => p.id !== draftId)
       : state.library.patterns;
-    scheduleSync(patterns, state.library.compositions);
+    scheduleSync(patterns, state.library.compositions, state.library.collections);
   });
 }
 
-function scheduleSync(patterns: Pattern[], compositions: Composition[]): void {
+function scheduleSync(
+  patterns: Pattern[],
+  compositions: Composition[],
+  collections: Collection[],
+): void {
   if (debounceTimer) clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
     debounceTimer = null;
-    void performSync(patterns, compositions);
+    void performSync(patterns, compositions, collections);
   }, DEBOUNCE_MS);
 }
 
-async function performSync(patterns: Pattern[], compositions: Composition[]): Promise<void> {
+async function performSync(
+  patterns: Pattern[],
+  compositions: Composition[],
+  collections: Collection[],
+): Promise<void> {
   const userId = currentUserId;
   if (!userId) return;
 
@@ -314,6 +351,7 @@ async function performSync(patterns: Pattern[], compositions: Composition[]): Pr
       syncCollection('compositions', userId, compositions, lastCompositionsSnapshot, (next) => {
         lastCompositionsSnapshot = next;
       }),
+      syncCollections(userId, collections),
     ]);
   } catch (e) {
     console.error('[cloud sync] performSync threw:', e);
@@ -348,6 +386,7 @@ type SyncableItem = {
   visibility: string;
   publishedAt: number | null;
   forkedFromId: string | null;
+  collectionId: string | null;
   updatedAt: number;
 };
 
@@ -365,6 +404,7 @@ function rowPayload<T extends SyncableItem>(item: T) {
     // to ISO for the wire; Postgres parses ISO 8601 strings into timestamptz.
     published_at: item.publishedAt !== null ? new Date(item.publishedAt).toISOString() : null,
     forked_from_id: item.forkedFromId,
+    collection_id: item.collectionId,
   };
 }
 
@@ -436,6 +476,82 @@ async function syncCollection<T extends SyncableItem>(
 
   if (ok) {
     updateSnapshot(current);
+  }
+}
+
+/**
+ * Diff-and-sync for the `collections` table. Collections have a different shape
+ * than patterns/compositions (no instrument/difficulty/genres/tags, plus a
+ * `parent_id`), so they need their own row mapper. Same diff logic by id +
+ * updatedAt; same snapshot-on-success behavior.
+ */
+async function syncCollections(userId: string, current: Collection[]): Promise<void> {
+  const client = getSupabaseClient();
+  const snapshot = lastCollectionsSnapshot;
+  const currentById = new Map(current.map((c) => [c.id, c]));
+  const snapshotById = new Map(snapshot.map((c) => [c.id, c]));
+
+  const inserts: Collection[] = [];
+  const updates: Collection[] = [];
+  const deletes: string[] = [];
+
+  for (const item of current) {
+    const prev = snapshotById.get(item.id);
+    if (!prev) inserts.push(item);
+    else if (prev.updatedAt !== item.updatedAt) updates.push(item);
+  }
+  for (const id of snapshotById.keys()) {
+    if (!currentById.has(id)) deletes.push(id);
+  }
+
+  let ok = true;
+  const displayName = useAuthStore.getState().profile?.displayName ?? null;
+
+  if (inserts.length > 0) {
+    const rows = inserts.map((c) => ({
+      id: c.id,
+      user_id: userId,
+      parent_id: c.parentId,
+      name: c.name,
+      visibility: c.visibility,
+      published_at: c.publishedAt !== null ? new Date(c.publishedAt).toISOString() : null,
+      created_by_display_name: displayName,
+    }));
+    const { error } = await client.from('collections').insert(rows);
+    if (error) {
+      console.error('[cloud sync] collections INSERT failed:', error);
+      ok = false;
+    }
+  }
+
+  if (updates.length > 0) {
+    for (const c of updates) {
+      const { error } = await client
+        .from('collections')
+        .update({
+          parent_id: c.parentId,
+          name: c.name,
+          visibility: c.visibility,
+          published_at: c.publishedAt !== null ? new Date(c.publishedAt).toISOString() : null,
+        })
+        .eq('id', c.id);
+      if (error) {
+        console.error(`[cloud sync] collections UPDATE failed for ${c.id}:`, error);
+        ok = false;
+      }
+    }
+  }
+
+  if (deletes.length > 0) {
+    const { error } = await client.from('collections').delete().in('id', deletes);
+    if (error) {
+      console.error('[cloud sync] collections DELETE failed:', error);
+      ok = false;
+    }
+  }
+
+  if (ok) {
+    lastCollectionsSnapshot = current;
   }
 }
 
