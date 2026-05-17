@@ -21,7 +21,9 @@ A long-running implementation effort. Use the **Implementation Checklist** secti
 | J — Monetization tier scaffolding | ✅ Done (billing deferred) | Free / Pro tiers with 200/100/20 caps. `gateCreate` enforces on create / duplicate / fork / auto-seed. Anon → SignupModal at cap; signed-in → UpgradePrompt. Stripe wiring, real upgrade flow, feature-gating for Pro-only features, and a TierBadge UI are all deferred until Pro has real unlocks. |
 | K — Final verification & cleanup | ⏳ Pending | Manual E2E flows + automated tests + legacy-localStorage shim removal + doc consolidation. |
 
-**Where to pick up next:** Group K — verification + cleanup pass. After that, the "need to do" lists at the end of each group's checklist are the queue for the post-MVP polish phase.
+**Where to pick up next:** Group K — verification + cleanup pass.
+
+**Start tomorrow with:** the Group K checklist near the bottom of this doc needs a refresh first — several items reference the old teacher/student flow (e.g. "Teacher / student E2E," ghost-student stats) which the Group H pivot made obsolete, and new items belong in the list (collections sync verification, the catalog migrations 0008–0010 cross-device test, attribution snapshot smoke, tier-cap behavior at boundary values). Re-scope K, then execute it. After that, the "Deferred (need to do)" lists at the end of Groups G / H / I / J are the queue for the post-MVP polish phase.
 
 ---
 
