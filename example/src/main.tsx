@@ -9,6 +9,8 @@ import { ProfilePage } from './profile/ProfilePage';
 import { ProfileSettings } from './profile/ProfileSettings';
 import { SharedPatternView } from './shared/SharedPatternView';
 import { SharedCompositionView } from './shared/SharedCompositionView';
+import { SharedVoicePresetView } from './shared/SharedVoicePresetView';
+import { SharedFolderView } from './shared/SharedFolderView';
 import { useLocation } from './router';
 
 // Lib design tokens MUST be imported before the app's own stylesheet so Tailwind's
@@ -22,9 +24,11 @@ import './styles/index.css';
 //   ?page=catalog       → Library catalog (cross-kind browser)
 //   ?profile=<name>     → Public profile page (signed-in only)
 //   ?settings=1         → Profile Settings (signed-in only)
-//   ?pattern=<uuid>     → Shared pattern viewer (anon-accessible for non-private rows)
-//   ?composition=<uuid> → Shared composition viewer (anon-accessible for non-private rows)
-//   (default)           → Main practice app
+//   ?pattern=<uuid>      → Shared pattern viewer (anon-accessible for non-private rows)
+//   ?composition=<uuid>  → Shared composition viewer (anon-accessible for non-private rows)
+//   ?voice-preset=<uuid> → Shared voice variant viewer (anon-accessible for non-private rows)
+//   ?folder=<uuid>       → Shared folder viewer (anon-accessible for non-private folders)
+//   (default)            → Main practice app
 function Root() {
   // useLocation subscribes to in-app navigation events (router.navigate) and
   // browser back/forward, so changing routes re-renders without a page reload.
@@ -37,6 +41,8 @@ function Root() {
   const isSettings = params.get('settings') === '1';
   const sharedPatternId = params.get('pattern');
   const sharedCompositionId = params.get('composition');
+  const sharedVoicePresetId = params.get('voice-preset');
+  const sharedFolderId = params.get('folder');
 
   // AuthCallbackHandler must mount alongside every route — it manages the
   // singleton auth subscription and overlays the SignupForm / SignupModal as
@@ -44,6 +50,8 @@ function Root() {
   let body;
   if (sharedPatternId) body = <SharedPatternView patternId={sharedPatternId} />;
   else if (sharedCompositionId) body = <SharedCompositionView compositionId={sharedCompositionId} />;
+  else if (sharedVoicePresetId) body = <SharedVoicePresetView presetId={sharedVoicePresetId} />;
+  else if (sharedFolderId) body = <SharedFolderView folderId={sharedFolderId} />;
   else if (isSoundLab) body = <SoundLab />;
   else if (isPatterns) body = <PatternsPage />;
   else if (isCatalog) body = <CatalogPage />;

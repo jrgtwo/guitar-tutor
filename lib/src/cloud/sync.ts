@@ -590,6 +590,8 @@ async function hydrateLabFromCloud(userId: string): Promise<void> {
         family: row.family as VoiceFamily,
         collectionId: (row.collection_id as string | null) ?? null,
         preset,
+        forkedFromId: (row.forked_from_id as string | null) ?? null,
+        forkedFromCreatorName: (row.forked_from_creator_name as string | null) ?? null,
       };
       variants.push(variant);
       rowIdMap.set(variant.id, row.id as string);
@@ -703,6 +705,8 @@ async function performLabSync(): Promise<void> {
         collection_id: v.collectionId,
         data: v.preset,
         visibility: 'private' as const,
+        forked_from_id: v.forkedFromId,
+        forked_from_creator_name: v.forkedFromCreatorName,
       }));
       const { error } = await client.from('voice_presets').insert(rows);
       if (error) {
@@ -721,6 +725,8 @@ async function performLabSync(): Promise<void> {
           family: v.family,
           collection_id: v.collectionId,
           data: v.preset,
+          forked_from_id: v.forkedFromId,
+          forked_from_creator_name: v.forkedFromCreatorName,
         })
         .eq('id', v.id);
       if (error) {

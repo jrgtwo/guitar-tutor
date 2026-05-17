@@ -174,6 +174,8 @@ export async function uploadSessionContent(): Promise<MigrationResult> {
         data: v.preset,
         created_by_display_name: displayName,
         visibility: 'private' as const,
+        forked_from_id: v.forkedFromId,
+        forked_from_creator_name: v.forkedFromCreatorName,
       }));
       const { data, error } = await client.from('voice_presets').insert(rows).select();
       if (error) {

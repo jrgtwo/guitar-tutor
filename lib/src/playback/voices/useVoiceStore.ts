@@ -16,7 +16,13 @@ interface VoiceState {
   activeVariants: ActiveVariantsMap;
   reverb: ReverbSettings | null;
 
-  addVariant(input: Omit<Variant, 'id'>): string;
+  /** Create a new non-fork variant. Fork fields are auto-defaulted to null;
+   *  forks must go through `forkVariant`. */
+  addVariant(input: Omit<Variant, 'id' | 'forkedFromId' | 'forkedFromCreatorName'>): string;
+  /** Fork a (typically public/unlisted) variant into the user's library. Mirrors
+   *  forkPattern / forkComposition: fresh uuid, fork fields set, collectionId
+   *  reset to null. Gated by the voice-variants tier cap. */
+  forkVariant(source: Variant, sourceCreatorName?: string | null): string;
   updateVariant(id: string, patch: Partial<Omit<Variant, 'id'>>): void;
   renameVariant(id: string, name: string): void;
   setVariantCollection(id: string, collectionId: string | null): void;
@@ -47,7 +53,32 @@ export const useVoiceStore = create<VoiceState>()(
         // `createPattern` / `createComposition` semantics.
         if (!gateCreate('voiceVariants', get().variants.length)) return '';
         const id = generateUuid();
-        set((s) => ({ variants: [...s.variants, { ...input, id }] }));
+        const variant: Variant = {
+          ...input,
+          id,
+          forkedFromId: null,
+          forkedFromCreatorName: null,
+        };
+        set((s) => ({ variants: [...s.variants, variant] }));
+        return id;
+      },
+
+      forkVariant(source, sourceCreatorName) {
+        if (!gateCreate('voiceVariants', get().variants.length)) return '';
+        const id = generateUuid();
+        const fork: Variant = {
+          id,
+          name: source.name,
+          instrumentId: source.instrumentId,
+          family: source.family,
+          // Forks land at the forker's root; the source's collectionId belongs
+          // to a different user's library.
+          collectionId: null,
+          preset: source.preset,
+          forkedFromId: source.id,
+          forkedFromCreatorName: sourceCreatorName ?? null,
+        };
+        set((s) => ({ variants: [...s.variants, fork] }));
         return id;
       },
 

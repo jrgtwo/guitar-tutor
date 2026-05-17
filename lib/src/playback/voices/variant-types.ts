@@ -9,6 +9,12 @@ export interface Variant {
   readonly family: VoiceFamily;
   readonly collectionId: string | null;
   readonly preset: VoicePreset;
+  /** UUID of the variant this was forked from, or null. */
+  readonly forkedFromId: string | null;
+  /** Display name of the user who created the source variant at fork-time.
+   *  Denormalized snapshot, set once when the fork is created. Null when this
+   *  variant isn't a fork or when the source had no attribution snapshot. */
+  readonly forkedFromCreatorName: string | null;
 }
 
 /** Reference to whatever variant is currently active for an instrument. */

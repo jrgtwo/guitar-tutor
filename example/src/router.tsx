@@ -22,7 +22,7 @@ export type Route =
 /** Routing-only keys. All other query params (instrument, key, scale, …) are preserved across navigation.
  *  Includes the shared-content viewer keys (`pattern`, `composition`, `voice-preset`) so an in-app
  *  navigation cleanly leaves the viewer. */
-const ROUTING_KEYS = ['page', 'lab', 'profile', 'settings', 'pattern', 'composition', 'voice-preset'] as const;
+const ROUTING_KEYS = ['page', 'lab', 'profile', 'settings', 'pattern', 'composition', 'voice-preset', 'folder'] as const;
 
 function routeToUrl(route: Route): URL {
   const url = new URL(window.location.href);
