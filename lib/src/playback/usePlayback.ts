@@ -29,9 +29,11 @@ import { getArpeggio } from '../lib/arpeggios';
 import { buildGrid, computeHighlights } from '../lib/fretboard';
 import type { IntervalSet } from '../types';
 import { Voice } from './voices/Voice';
-import { ACOUSTIC_GUITAR_PRESET } from './voices/presets';
-import { findEffectivePreset, getEffectiveReverb, subscribeToOverrides } from './voices/preset-overrides';
+import { resolveActiveVoice } from './voices/resolve-active-voice';
+import { useVoiceStore } from './voices/useVoiceStore';
+import { getCommittedReverb } from './voices/preset-overrides';
 import { MasterBus } from './voices/MasterBus';
+import { DEFAULT_REVERB_SETTINGS } from './voices/types';
 import { resolveShapeAbsoluteCells } from './patterns/caged';
 import { isCagedShapeId } from './patterns/caged-shapes-data';
 import type { FretInstrumentId, VoiceFamily } from './voices/types';
@@ -251,18 +253,28 @@ export function usePlayback(): UsePlaybackReturn {
   }, [playback, resolveInput]);
 
 
-  // ─── React to lab-driven preset overrides ────────────────────────────────────
-  // The Sound Lab writes per-preset overrides to localStorage. Bumping a counter
-  // when those change forces the voice-swap effect below to re-resolve.
-  const [overridesVersion, setOverridesVersion] = useState(0);
+  // ─── React to voice-store changes ────────────────────────────────────────────
+  // The Sound Lab writes variants + the active variant ref to useVoiceStore.
+  // Bumping a counter when either changes forces the voice-swap effect below to
+  // re-resolve.
+  const [voiceVersion, setVoiceVersion] = useState(0);
   useEffect(() => {
-    return subscribeToOverrides(() => setOverridesVersion((v) => v + 1));
+    const sig = (s: ReturnType<typeof useVoiceStore.getState>) =>
+      `${JSON.stringify(s.activeVariants)}::${s.variants.length}::${s.reverb ? 'r' : 'n'}`;
+    let prev = sig(useVoiceStore.getState());
+    const unsub = useVoiceStore.subscribe((state) => {
+      const next = sig(state);
+      if (next !== prev) {
+        prev = next;
+        setVoiceVersion((n) => n + 1);
+      }
+    });
+    return unsub;
   }, []);
 
-  // ─── Swap the playback voice when fretboard instrument, family, or overrides change ─
-  // Looks up the effective preset (override > shipped default), builds a fresh
-  // `Voice`, and pushes it into the Playback singleton. Falls back to acoustic
-  // guitar if the lookup fails (shouldn't happen with the shipped preset set).
+  // ─── Swap the playback voice when fretboard instrument or voice state changes ─
+  // Resolves the active preset (user variant > default slot), builds a fresh
+  // `Voice`, and pushes it into the Playback singleton.
   useEffect(() => {
     if (!playback) return;
     const fretInst = (['guitar', 'bass', 'ukulele'] as FretInstrumentId[]).includes(
@@ -270,19 +282,17 @@ export function usePlayback(): UsePlaybackReturn {
     )
       ? (fretInstrumentId as FretInstrumentId)
       : 'guitar';
-    const family: VoiceFamily =
-      fretInst === 'ukulele'
-        ? 'acoustic'
-        : voiceFamily[fretInst];
-    const preset = findEffectivePreset(fretInst, family) ?? ACOUSTIC_GUITAR_PRESET;
+    const preset = resolveActiveVoice(fretInst);
     const next = new Voice(preset);
     playback.setInstrument(next);
-    // Apply any reverb override at the same time so reverb tweaks in the lab
+    // Apply the active reverb at the same time so reverb tweaks in the lab
     // propagate without requiring a separate effect.
-    MasterBus.setReverbSettings(getEffectiveReverb());
+    MasterBus.setReverbSettings(
+      useVoiceStore.getState().reverb ?? getCommittedReverb() ?? DEFAULT_REVERB_SETTINGS,
+    );
     // The Playback class disposes the previously-set instrument when a new one is
     // installed, so we don't need to track or dispose `next` ourselves on cleanup.
-  }, [playback, fretInstrumentId, voiceFamily, overridesVersion]);
+  }, [playback, fretInstrumentId, voiceFamily, voiceVersion]);
 
   // Custom-sequence membership lookup, useful for the programming UI.
   const customSequenceIndexOf = useCallback(

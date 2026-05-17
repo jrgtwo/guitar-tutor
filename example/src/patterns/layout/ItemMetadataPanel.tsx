@@ -32,6 +32,7 @@ import type { Composition, Pattern } from '@fretwork/lib';
 import { Section } from '../../components/ui/Section';
 import { MultiSelectChips } from '../../components/ui/MultiSelectChips';
 import { PatternPickerPanel } from './PatternPickerPanel';
+import { CompositionPickerPanel } from './CompositionPickerPanel';
 import { DeleteItemDialog } from './DeleteItemDialog';
 
 /** UI-layer token for the "None" difficulty option. Never reaches the DB —
@@ -51,7 +52,11 @@ export function ItemMetadataPanel({ item, kind, onClose }: Props) {
   const [mode, setMode] = useState<Mode>('metadata');
 
   if (mode === 'picker') {
-    return <PatternPickerPanel kind={kind} onClose={onClose} onBack={() => setMode('metadata')} />;
+    return kind === 'composition' ? (
+      <CompositionPickerPanel onClose={onClose} onBack={() => setMode('metadata')} />
+    ) : (
+      <PatternPickerPanel onClose={onClose} onBack={() => setMode('metadata')} />
+    );
   }
 
   return (

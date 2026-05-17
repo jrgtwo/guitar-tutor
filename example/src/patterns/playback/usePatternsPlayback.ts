@@ -20,14 +20,20 @@ import {
   getTuning,
   useFretworkStore,
   useMetronome,
+  useVoiceStore,
   usePatternsStore,
-  usePlaybackStore,
   selectEditingPattern,
   selectEditingComposition,
-  subscribeToOverrides,
 } from '@fretwork/lib';
-import type { GuitarInstrument } from '@fretwork/lib';
+import type { FretInstrumentId, GuitarInstrument } from '@fretwork/lib';
 import { PluckSynthInstrument } from '@fretwork/lib';
+
+const FRET_INSTRUMENT_IDS = ['guitar', 'bass', 'ukulele'] as const;
+function asFretInstrumentId(id: string): FretInstrumentId {
+  return (FRET_INSTRUMENT_IDS as readonly string[]).includes(id)
+    ? (id as FretInstrumentId)
+    : 'guitar';
+}
 
 interface UsePatternsPlaybackReturn {
   isPlaying: boolean;
@@ -53,10 +59,9 @@ function ensureScheduler(metronome: ReturnType<typeof useMetronome>['metronome']
   const fretState = useFretworkStore.getState();
   const tuning = getTuning(fretState.tuning);
   if (!tuning) return null;
-  const playbackState = usePlaybackStore.getState();
   let instrument: GuitarInstrument;
   try {
-    instrument = buildEffectiveVoice(fretState.instrumentId, playbackState.voiceFamily);
+    instrument = buildEffectiveVoice(asFretInstrumentId(fretState.instrumentId)).voice;
   } catch {
     // Fallback to a no-frills PluckSynth so the scheduler can still construct.
     instrument = new PluckSynthInstrument();
@@ -115,7 +120,6 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
   const tuningId = useFretworkStore((s) => s.tuning);
   const capo = useFretworkStore((s) => s.capo);
   const instrumentId = useFretworkStore((s) => s.instrumentId);
-  const voiceFamily = usePlaybackStore((s) => s.voiceFamily);
 
   useEffect(() => {
     if (!scheduler) return;
@@ -125,20 +129,32 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
     }
   }, [scheduler, tuningId, capo]);
 
-  // Swap the instrument when fretboard instrument, family, or overrides change.
+  // Swap the instrument when fretboard instrument or voice store state changes.
   // Mirrors usePlayback's logic, just routed at the scheduler.
-  const [overridesVersion, setOverridesVersion] = useState(0);
-  useEffect(() => subscribeToOverrides(() => setOverridesVersion((v) => v + 1)), []);
+  const [voiceVersion, setVoiceVersion] = useState(0);
+  useEffect(() => {
+    const sig = (s: ReturnType<typeof useVoiceStore.getState>) =>
+      `${JSON.stringify(s.activeVariants)}::${s.variants.length}::${s.reverb ? 'r' : 'n'}`;
+    let prev = sig(useVoiceStore.getState());
+    const unsub = useVoiceStore.subscribe((state) => {
+      const next = sig(state);
+      if (next !== prev) {
+        prev = next;
+        setVoiceVersion((n) => n + 1);
+      }
+    });
+    return unsub;
+  }, []);
   useEffect(() => {
     if (!scheduler) return;
     try {
-      const next = buildEffectiveVoice(instrumentId, voiceFamily);
-      scheduler.setInstrument(next);
+      const { voice } = buildEffectiveVoice(asFretInstrumentId(instrumentId));
+      scheduler.setInstrument(voice);
     } catch {
       // Voice construction can throw if the audio context isn't ready — that's fine,
       // we'll try again on the next render.
     }
-  }, [scheduler, instrumentId, voiceFamily, overridesVersion]);
+  }, [scheduler, instrumentId, voiceVersion]);
 
   const playEditingPattern = useCallback(() => {
     if (!scheduler || !metronome) return;

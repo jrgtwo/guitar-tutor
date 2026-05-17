@@ -13,11 +13,10 @@
  */
 import { getSupabaseClient } from './supabaseClient';
 import { useAuthStore } from './useAuthStore';
-import { loadOverrides } from '../playback/voices/preset-overrides';
+import { useVoiceStore, VOICE_STORAGE_KEY } from '../playback/voices/useVoiceStore';
 import { DEFAULT_INSTRUMENT_ID } from '../lib/instruments';
 
 const SESSION_STORAGE_KEY = 'fretwork:patterns:v1';
-const LAB_STORAGE_KEY = 'fretwork:lab-presets:v1';
 /** Tab-scoped flag that says "the migration prompt has already been resolved
  *  for this tab session." Survives reloads within the same tab; clears on
  *  tab close (sessionStorage lifetime). Without this, after Add/Discard, the
@@ -40,8 +39,8 @@ interface SessionLibrary {
 export interface MigrationCounts {
   patterns: number;
   compositions: number;
-  /** Voice preset overrides authored in the Sound Lab during the anon session. */
-  voicePresets: number;
+  /** User-authored voice variants in the Sound Lab during the anon session. */
+  voiceVariants: number;
   /** Whether reverb has a custom override (counted as 1 if non-default). */
   reverbCustomized: boolean;
   total: number;
@@ -50,7 +49,7 @@ export interface MigrationCounts {
 export interface MigrationResult {
   uploadedPatterns: number;
   uploadedCompositions: number;
-  uploadedVoicePresets: number;
+  uploadedVoiceVariants: number;
   uploadedReverb: boolean;
   error: string | null;
 }
@@ -76,15 +75,15 @@ export function readSessionContent(): { patterns: SessionLibraryItem[]; composit
 /** Count what's available to migrate. Returns zeros when nothing is staged. */
 export function countSessionContent(): MigrationCounts {
   const c = readSessionContent();
-  const lab = loadOverrides();
-  const voicePresets = Object.keys(lab.presets ?? {}).length;
-  const reverbCustomized = lab.reverb != null;
+  const voiceState = useVoiceStore.getState();
+  const voiceVariants = voiceState.variants.length;
+  const reverbCustomized = voiceState.reverb !== null;
   return {
     patterns: c.patterns.length,
     compositions: c.compositions.length,
-    voicePresets,
+    voiceVariants,
     reverbCustomized,
-    total: c.patterns.length + c.compositions.length + voicePresets + (reverbCustomized ? 1 : 0),
+    total: c.patterns.length + c.compositions.length + voiceVariants + (reverbCustomized ? 1 : 0),
   };
 }
 
@@ -94,13 +93,13 @@ export function countSessionContent(): MigrationCounts {
  *  compositions fail). */
 export async function uploadSessionContent(): Promise<MigrationResult> {
   const content = readSessionContent();
-  const lab = loadOverrides();
+  const voiceState = useVoiceStore.getState();
   const user = useAuthStore.getState().user;
   if (!user) {
     return {
       uploadedPatterns: 0,
       uploadedCompositions: 0,
-      uploadedVoicePresets: 0,
+      uploadedVoiceVariants: 0,
       uploadedReverb: false,
       error: 'Not signed in',
     };
@@ -108,7 +107,7 @@ export async function uploadSessionContent(): Promise<MigrationResult> {
 
   let uploadedPatterns = 0;
   let uploadedCompositions = 0;
-  let uploadedVoicePresets = 0;
+  let uploadedVoiceVariants = 0;
   let uploadedReverb = false;
 
   // The user just completed signup so the profile row exists with the chosen
@@ -133,7 +132,7 @@ export async function uploadSessionContent(): Promise<MigrationResult> {
         return {
           uploadedPatterns,
           uploadedCompositions,
-          uploadedVoicePresets,
+          uploadedVoiceVariants,
           uploadedReverb,
           error: `Patterns upload failed: ${error.message}`,
         };
@@ -155,7 +154,7 @@ export async function uploadSessionContent(): Promise<MigrationResult> {
         return {
           uploadedPatterns,
           uploadedCompositions,
-          uploadedVoicePresets,
+          uploadedVoiceVariants,
           uploadedReverb,
           error: `Compositions upload failed: ${error.message}`,
         };
@@ -163,15 +162,16 @@ export async function uploadSessionContent(): Promise<MigrationResult> {
       uploadedCompositions = data?.length ?? 0;
     }
 
-    // Lab voice-preset overrides.
-    const presetEntries = Object.entries(lab.presets ?? {});
-    if (presetEntries.length > 0) {
-      const rows = presetEntries.map(([presetId, preset]) => ({
+    // User-authored voice variants → voice_presets rows.
+    if (voiceState.variants.length > 0) {
+      const rows = voiceState.variants.map((v) => ({
+        id: v.id,
         user_id: user.id,
-        name: presetId,
-        instrument_id: preset.instrumentId,
-        family: preset.family,
-        data: preset,
+        name: v.name,
+        instrument_id: v.instrumentId,
+        family: v.family,
+        collection_id: v.collectionId,
+        data: v.preset,
         created_by_display_name: displayName,
         visibility: 'private' as const,
       }));
@@ -180,36 +180,36 @@ export async function uploadSessionContent(): Promise<MigrationResult> {
         return {
           uploadedPatterns,
           uploadedCompositions,
-          uploadedVoicePresets,
+          uploadedVoiceVariants,
           uploadedReverb,
-          error: `Voice presets upload failed: ${error.message}`,
+          error: `Voice variants upload failed: ${error.message}`,
         };
       }
-      uploadedVoicePresets = data?.length ?? 0;
+      uploadedVoiceVariants = data?.length ?? 0;
     }
 
-    // Reverb override → user_settings singleton (upsert by user_id PK).
-    if (lab.reverb) {
-      const { error } = await client.from('user_settings').upsert({
-        user_id: user.id,
-        reverb: lab.reverb,
-      });
-      if (error) {
-        return {
-          uploadedPatterns,
-          uploadedCompositions,
-          uploadedVoicePresets,
-          uploadedReverb,
-          error: `Reverb upload failed: ${error.message}`,
-        };
-      }
-      uploadedReverb = true;
+    // active_variants + reverb come along with the upload via user_settings
+    // singleton (upsert by user_id PK).
+    const { error: settingsErr } = await client.from('user_settings').upsert({
+      user_id: user.id,
+      active_presets: voiceState.activeVariants,
+      reverb: voiceState.reverb,
+    });
+    if (settingsErr) {
+      return {
+        uploadedPatterns,
+        uploadedCompositions,
+        uploadedVoiceVariants,
+        uploadedReverb,
+        error: `User settings upload failed: ${settingsErr.message}`,
+      };
     }
+    uploadedReverb = voiceState.reverb !== null;
 
     return {
       uploadedPatterns,
       uploadedCompositions,
-      uploadedVoicePresets,
+      uploadedVoiceVariants,
       uploadedReverb,
       error: null,
     };
@@ -217,21 +217,22 @@ export async function uploadSessionContent(): Promise<MigrationResult> {
     return {
       uploadedPatterns,
       uploadedCompositions,
-      uploadedVoicePresets,
+      uploadedVoiceVariants,
       uploadedReverb,
       error: e instanceof Error ? e.message : String(e),
     };
   }
 }
 
-/** Clear the session-storage patterns library + lab overrides. Idempotent —
+/** Clear the session-storage patterns library + voice variants. Idempotent —
  *  safe to call when the user picks Discard, or after a successful Add to
  *  prevent re-prompting. */
 export function clearSessionContent(): void {
   if (typeof sessionStorage === 'undefined') return;
   try {
     sessionStorage.removeItem(SESSION_STORAGE_KEY);
-    sessionStorage.removeItem(LAB_STORAGE_KEY);
+    useVoiceStore.getState().reset();
+    sessionStorage.removeItem(VOICE_STORAGE_KEY);
   } catch {
     // Storage may throw in private-browsing modes or quota-exceeded states.
   }

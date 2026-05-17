@@ -8,23 +8,19 @@
  *
  * Reach this page via `?lab=1` (handled in `main.tsx`).
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Button,
   Switch,
   Label,
   Voice,
-  VOICE_PRESETS,
   MasterBus,
   DEFAULT_REVERB_SETTINGS,
   startAudio,
-  loadOverrides,
-  saveOverrides,
-  clearPresetOverride,
-  clearAllOverrides,
-  getPresetSource,
-  subscribeToOverrides,
-  type PresetSource,
+  resolveActiveVoice,
+  useVoiceStore,
+  getCommittedReverb,
+  type FretInstrumentId,
   type AutoWahParams,
   type BodyFilterEnvelope,
   type BodyFilterParams,
@@ -48,142 +44,105 @@ import {
 import { ParameterSlider } from './ParameterSlider';
 import { AuditionDeck } from './AuditionDeck';
 import { Link } from '../router';
+import { VoicePickerChip } from '../voices/VoicePickerChip';
+import { SaveAsVariantDialog } from '../voices/SaveAsVariantDialog';
 
 const OSCILLATOR_TYPES: OscillatorType[] = ['sine', 'square', 'sawtooth', 'triangle'];
 const CHORUS_TYPES: ChorusType[] = ['sine', 'square', 'sawtooth', 'triangle'];
 const OVERSAMPLE_OPTIONS: DistortionOversample[] = ['none', '2x', '4x'];
 
+const INSTRUMENT_TABS: readonly FretInstrumentId[] = ['guitar', 'bass', 'ukulele'];
+
 export function SoundLab() {
-  // Hydrate from localStorage on mount: any preset that has an override is used in
-  // place of the shipped default. Same for reverb.
-  const [presets, setPresets] = useState<VoicePreset[]>(() => {
-    const overrides = loadOverrides();
-    return VOICE_PRESETS.map((p) => overrides.presets[p.id] ?? { ...p });
-  });
-  const [activeId, setActiveId] = useState<string>(presets[0].id);
+  // ─── Lab-local state ──────────────────────────────────────────────────────
+  // The active variant for the current instrument lives in `useVoiceStore`; the
+  // lab subscribes to it so changing the active variant elsewhere (or via the
+  // chip) updates what we're editing here. Slider edits land in `pendingPreset`
+  // (ephemeral) and require an explicit Save to persist.
+  const [labInstrumentId, setLabInstrumentId] = useState<FretInstrumentId>('guitar');
+  const activeRef = useVoiceStore((s) => s.activeVariants[labInstrumentId]);
+  const variants = useVoiceStore((s) => s.variants);
+  const updateVariant = useVoiceStore((s) => s.updateVariant);
+  const storedReverb = useVoiceStore((s) => s.reverb);
+  const setReverbInStore = useVoiceStore((s) => s.setReverb);
+
+  const baseVariantPreset = useMemo(
+    () => resolveActiveVoice(labInstrumentId),
+    // Track the bits of store state that change the resolved preset.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [labInstrumentId, activeRef, variants],
+  );
+
+  const [pendingPreset, setPendingPreset] = useState<VoicePreset>(baseVariantPreset);
+  const [pendingReverb, setPendingReverb] = useState<ReverbSettings>(
+    storedReverb ?? getCommittedReverb() ?? DEFAULT_REVERB_SETTINGS,
+  );
+  const [isDirty, setIsDirty] = useState(false);
+  const [saveAsOpen, setSaveAsOpen] = useState(false);
   const [testNote, setTestNote] = useState<string>('A3');
-  const [reverb, setReverb] = useState<ReverbSettings>(() => {
-    const overrides = loadOverrides();
-    return overrides.reverb ?? DEFAULT_REVERB_SETTINGS;
-  });
   const [copied, setCopied] = useState(false);
-  const [importOpen, setImportOpen] = useState(false);
-  const [importText, setImportText] = useState('');
-  const [importError, setImportError] = useState<string | null>(null);
-  /** UI flag for the save-status pill: 'idle' (last save synced) | 'pending'
-   *  (a debounce timer is still counting down) | 'saved' (just flushed). */
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'pending' | 'saved'>('idle');
 
-  // Tick a counter whenever the overrides change (localStorage write, custom
-  // event, or seedCommittedPresets resolving). Forces the source-indicator pill
-  // to re-evaluate `getPresetSource` for the active preset.
-  const [, forceSourceTick] = useState(0);
+  // When the active variant changes (or instrument tab switches), drop unsaved
+  // edits and snap to the new variant's preset.
   useEffect(() => {
-    return subscribeToOverrides(() => forceSourceTick((n) => n + 1));
-  }, []);
+    setPendingPreset(baseVariantPreset);
+    setIsDirty(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [labInstrumentId, activeRef.kind === 'user' ? activeRef.id : activeRef.slotId]);
 
-  /** Build the override blob from the current preset/reverb state, persist it
-   *  to localStorage, and (in dev) POST it to `/api/lab-presets` so the Vite
-   *  plugin reconciles `example/public/presets/`. The POST silently 404s in
-   *  production builds — localStorage stays the source of truth there. */
-  const flushSave = (next: { presets: VoicePreset[]; reverb: ReverbSettings }) => {
-    const presetMap: Record<string, VoicePreset> = {};
-    // Only store presets that differ from shipped defaults — reduces storage bloat
-    // and lets users selectively reset.
-    for (const preset of next.presets) {
-      const shipped = VOICE_PRESETS.find((p) => p.id === preset.id);
-      if (!shipped || JSON.stringify(preset) !== JSON.stringify(shipped)) {
-        presetMap[preset.id] = preset;
-      }
+  // Reverb is global — keep pendingReverb in sync with the store when not
+  // dirty (the lab can still tweak reverb sliders; saved on next Save).
+  useEffect(() => {
+    if (!isDirty) {
+      setPendingReverb(storedReverb ?? getCommittedReverb() ?? DEFAULT_REVERB_SETTINGS);
     }
-    const reverb =
-      JSON.stringify(next.reverb) === JSON.stringify(DEFAULT_REVERB_SETTINGS)
-        ? undefined
-        : next.reverb;
-    saveOverrides({ schemaVersion: 1, presets: presetMap, reverb });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storedReverb]);
 
-    // Best-effort write to the on-disk preset directory. Failures are silent —
-    // localStorage already holds the changes, so the lab and main app keep
-    // working even if the dev endpoint isn't available.
-    fetch('/api/lab-presets', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ schemaVersion: 1, presets: presetMap, reverb }),
-    }).catch(() => {
-      /* ignore — production builds, network errors, etc. */
-    });
-  };
-
-  // Debounced auto-save: every change schedules a write 200ms in the future,
-  // resetting the timer if more changes come in. Avoids hammering localStorage on
-  // slider drags. The example app reacts to writes via the override-changed event.
-  const saveTimerRef = useRef<number | null>(null);
+  // Warn before leaving with unsaved changes (full-page nav).
   useEffect(() => {
-    if (saveTimerRef.current != null) window.clearTimeout(saveTimerRef.current);
-    setSaveStatus('pending');
-    saveTimerRef.current = window.setTimeout(() => {
-      flushSave({ presets, reverb });
-      setSaveStatus('saved');
-      window.setTimeout(() => setSaveStatus('idle'), 1200);
-    }, 200);
-    return () => {
-      if (saveTimerRef.current != null) window.clearTimeout(saveTimerRef.current);
+    if (!isDirty) return;
+    const onBefore = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
     };
-  }, [presets, reverb]);
+    window.addEventListener('beforeunload', onBefore);
+    return () => window.removeEventListener('beforeunload', onBefore);
+  }, [isDirty]);
 
-  /** Explicit Save — flushes the debounce immediately. Useful when the user
-   *  wants the certainty of having pressed a button before navigating away. */
-  const saveNow = () => {
-    if (saveTimerRef.current != null) {
-      window.clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = null;
-    }
-    flushSave({ presets, reverb });
-    setSaveStatus('saved');
-    window.setTimeout(() => setSaveStatus('idle'), 1500);
-  };
+  const isActiveDefault = activeRef.kind === 'default';
+  const activeUserVariant = activeRef.kind === 'user' ? variants.find((v) => v.id === activeRef.id) ?? null : null;
 
-  const activePreset = presets.find((p) => p.id === activeId) ?? presets[0];
-
-  // Voice is held in STATE (not a ref) so that downstream components — notably
-  // AuditionDeck — re-render with a non-null voice prop after the rebuild effect
-  // runs on mount. With useRef the change wasn't reactive, which silently
-  // swallowed every audition click on a fresh page load until something else
-  // (e.g. switching instruments) triggered a re-render.
+  // ─── Voice audition + master bus ─────────────────────────────────────────
   const [voice, setVoice] = useState<Voice | null>(null);
 
-  // Rebuild on preset id or source kind change. Parameter tweaks happen in place.
   useEffect(() => {
-    const v = new Voice(activePreset);
+    const v = new Voice(pendingPreset);
     setVoice(v);
     return () => {
       v.dispose();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeId, activePreset.source.kind]);
+  }, [labInstrumentId, pendingPreset.source.kind]);
 
-  // Live-mutate the voice on every parameter change.
   useEffect(() => {
     if (!voice) return;
-    if (activePreset.source.kind === 'pluck-synth' || activePreset.source.kind === 'fm-synth') {
-      voice.updateSynthParams(activePreset.source.params);
+    if (pendingPreset.source.kind === 'pluck-synth' || pendingPreset.source.kind === 'fm-synth') {
+      voice.updateSynthParams(pendingPreset.source.params);
     }
-    voice.updateLayer(activePreset.layer);
-    voice.updateLevel(activePreset.level);
-    voice.updateBodyFilter(activePreset.bodyFilter);
-    voice.updateCompressor(activePreset.compressor);
-    voice.updateEffects(activePreset.effects);
-  }, [voice, activePreset]);
+    voice.updateLayer(pendingPreset.layer);
+    voice.updateLevel(pendingPreset.level);
+    voice.updateBodyFilter(pendingPreset.bodyFilter);
+    voice.updateCompressor(pendingPreset.compressor);
+    voice.updateEffects(pendingPreset.effects);
+  }, [voice, pendingPreset]);
 
   useEffect(() => {
-    MasterBus.setReverbSettings(reverb);
-  }, [reverb]);
+    MasterBus.setReverbSettings(pendingReverb);
+  }, [pendingReverb]);
 
   // First-gesture warmup. Browser autoplay policy requires a user gesture before
-  // we can resume the AudioContext. Catching the user's very first click anywhere
-  // on the page lets us start Tone and pre-build the master bus (including the
-  // reverb's impulse-response generation) BEFORE the audition buttons fire,
-  // eliminating the race that produced "no audio until I change instruments".
+  // we can resume the AudioContext.
   useEffect(() => {
     let warmed = false;
     const onFirstGesture = async () => {
@@ -195,8 +154,7 @@ export function SoundLab() {
         await startAudio();
         await MasterBus.warmup();
       } catch {
-        // Defensive — warmup is best-effort. If it throws, the audition buttons
-        // will still call startAudio() themselves.
+        // Best-effort warmup.
       }
     };
     window.addEventListener('pointerdown', onFirstGesture, true);
@@ -207,13 +165,33 @@ export function SoundLab() {
     };
   }, []);
 
+  // ─── Edit helpers ────────────────────────────────────────────────────────
   const updateActive = (patch: (p: VoicePreset) => VoicePreset) => {
-    setPresets((all) => all.map((p) => (p.id === activeId ? patch(p) : p)));
+    setPendingPreset((prev) => patch(prev));
+    setIsDirty(true);
   };
 
-  const settingsJson = useMemo(() => {
-    return JSON.stringify({ preset: activePreset, reverb }, null, 2);
-  }, [activePreset, reverb]);
+  const updateReverb = (next: ReverbSettings | ((r: ReverbSettings) => ReverbSettings)) => {
+    setPendingReverb((prev) => (typeof next === 'function' ? next(prev) : next));
+    setIsDirty(true);
+  };
+
+  const onSave = () => {
+    if (isActiveDefault || !activeUserVariant) return;
+    updateVariant(activeUserVariant.id, { preset: pendingPreset, name: pendingPreset.name });
+    setReverbInStore(pendingReverb);
+    setIsDirty(false);
+  };
+
+  const confirmDiscardIfDirty = () => {
+    if (!isDirty) return true;
+    return window.confirm(`Discard unsaved edits to "${pendingPreset.name}"?`);
+  };
+
+  const settingsJson = useMemo(
+    () => JSON.stringify({ preset: pendingPreset, reverb: pendingReverb }, null, 2),
+    [pendingPreset, pendingReverb],
+  );
 
   const copyJson = async () => {
     try {
@@ -222,70 +200,6 @@ export function SoundLab() {
       window.setTimeout(() => setCopied(false), 1500);
     } catch {
       // Clipboard API can fail under insecure contexts; silent fallback.
-    }
-  };
-
-  const resetActiveToDefault = () => {
-    const orig = VOICE_PRESETS.find((p) => p.id === activeId);
-    if (!orig) return;
-    setPresets((all) => all.map((p) => (p.id === activeId ? { ...orig } : p)));
-    clearPresetOverride(activeId);
-  };
-
-  const resetAll = () => {
-    if (!window.confirm('Reset all presets and reverb to shipped defaults? This clears your saved overrides.')) {
-      return;
-    }
-    setPresets(VOICE_PRESETS.map((p) => ({ ...p })));
-    setReverb(DEFAULT_REVERB_SETTINGS);
-    clearAllOverrides();
-  };
-
-  const exportAll = () => {
-    const presetMap: Record<string, VoicePreset> = {};
-    for (const preset of presets) {
-      const shipped = VOICE_PRESETS.find((p) => p.id === preset.id);
-      if (!shipped || JSON.stringify(preset) !== JSON.stringify(shipped)) {
-        presetMap[preset.id] = preset;
-      }
-    }
-    const payload = JSON.stringify(
-      {
-        schemaVersion: 1,
-        presets: presetMap,
-        reverb: JSON.stringify(reverb) === JSON.stringify(DEFAULT_REVERB_SETTINGS) ? undefined : reverb,
-        exportedAt: new Date().toISOString(),
-      },
-      null,
-      2,
-    );
-    const blob = new Blob([payload], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `fretwork-presets-${new Date().toISOString().slice(0, 10)}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
-
-  const performImport = () => {
-    setImportError(null);
-    try {
-      const parsed = JSON.parse(importText);
-      if (parsed?.schemaVersion !== 1) {
-        throw new Error('Schema version mismatch (expected 1).');
-      }
-      const incomingPresets = (parsed.presets ?? {}) as Record<string, VoicePreset>;
-      setPresets((all) =>
-        all.map((p) => incomingPresets[p.id] ?? { ...(VOICE_PRESETS.find((s) => s.id === p.id) ?? p) }),
-      );
-      if (parsed.reverb) setReverb(parsed.reverb);
-      setImportOpen(false);
-      setImportText('');
-    } catch (err) {
-      setImportError(err instanceof Error ? err.message : 'Failed to parse JSON.');
     }
   };
 
@@ -304,104 +218,82 @@ export function SoundLab() {
       </header>
 
       <main className="max-w-4xl mx-auto px-6 py-6 space-y-6">
-        {/* Preset picker */}
+        {/* Variant picker + actions */}
         <section className="rounded-lg border border-border/50 bg-card/60 p-4 space-y-3">
+          {/* Instrument tab strip */}
+          <div className="flex items-center gap-1">
+            {INSTRUMENT_TABS.map((inst) => (
+              <button
+                key={inst}
+                type="button"
+                onClick={() => {
+                  if (!confirmDiscardIfDirty()) return;
+                  setLabInstrumentId(inst);
+                }}
+                className={
+                  'h-8 px-3 rounded-md text-xs font-mono uppercase tracking-wider border transition-colors ' +
+                  (labInstrumentId === inst
+                    ? 'border-input bg-card text-foreground'
+                    : 'border-transparent text-muted-foreground hover:text-foreground')
+                }
+              >
+                {inst}
+              </button>
+            ))}
+          </div>
+
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-3">
               <Label className="text-[10px] font-mono uppercase tracking-[0.16em] text-muted-foreground/80">
-                Preset
+                Voice
               </Label>
-              <select
-                value={activeId}
-                onChange={(e) => setActiveId(e.target.value)}
-                className="h-9 px-3 rounded-md bg-card border border-input font-mono text-xs"
-              >
-                {presets.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
+              <VoicePickerChip
+                instrumentId={labInstrumentId}
+                allowMutations
+                onBeforePick={confirmDiscardIfDirty}
+              />
               <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/70">
-                {activePreset.instrumentId} · {activePreset.family}
+                {pendingPreset.instrumentId} · {pendingPreset.family}
               </span>
-              <SourceIndicator source={getPresetSource(activeId)} />
             </div>
             <div className="flex items-center gap-1 flex-wrap">
-              <SaveStatusPill status={saveStatus} />
-              <Button size="sm" variant="default" onClick={saveNow}>
+              <SaveStatusPill status={isDirty ? 'pending' : 'idle'} />
+              <Button
+                size="sm"
+                variant="default"
+                onClick={onSave}
+                disabled={isActiveDefault || !isDirty}
+              >
                 Save
               </Button>
-              <Button size="sm" variant="ghost" onClick={resetActiveToDefault}>
-                Reset preset
-              </Button>
-              <Button size="sm" variant="ghost" onClick={exportAll}>
-                Export
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => setImportOpen((o) => !o)}>
-                Import
-              </Button>
-              <Button size="sm" variant="ghost" onClick={resetAll}>
-                Reset all
+              <Button size="sm" variant="default" onClick={() => setSaveAsOpen(true)}>
+                Save as new variant…
               </Button>
             </div>
           </div>
 
-          <p className="text-[10px] font-mono text-muted-foreground/70">
-            Tweaks save automatically to <code className="text-foreground/80">localStorage</code>{' '}
-            after a short debounce and take effect in the main app on its next render. Click{' '}
-            <span className="text-foreground/80">Save</span> to flush immediately, or use Export /
-            Import to back up or share between browsers.
-          </p>
-
-          {importOpen && (
-            <div className="space-y-2 border border-border/30 rounded-md p-3">
-              <Label className="text-xs">Paste exported JSON here</Label>
-              <textarea
-                value={importText}
-                onChange={(e) => setImportText(e.target.value)}
-                rows={8}
-                className="w-full text-[11px] font-mono p-2 bg-charcoal-deep/60 border border-border/30 rounded"
-                placeholder='{ "schemaVersion": 1, "presets": { ... } }'
-              />
-              {importError && (
-                <p className="text-[11px] text-destructive">Import failed: {importError}</p>
-              )}
-              <div className="flex gap-2">
-                <Button size="sm" variant="default" onClick={performImport}>
-                  Apply
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => {
-                    setImportOpen(false);
-                    setImportText('');
-                    setImportError(null);
-                  }}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </div>
+          {isActiveDefault && (
+            <p className="text-[11px] font-mono text-amber-400/90 bg-amber-400/10 border border-amber-400/30 rounded px-2 py-1.5">
+              Defaults are read-only. Use <span className="font-bold">Save as new variant</span> to keep your tweaks.
+            </p>
           )}
 
           <AuditionDeck voice={voice} testNote={testNote} setTestNote={setTestNote} />
         </section>
 
         {/* Synth parameters */}
-        <Section title={`Synth (${activePreset.source.kind})`}>
-          {activePreset.source.kind === 'pluck-synth' && (
+        <Section title={`Synth (${pendingPreset.source.kind})`}>
+          {pendingPreset.source.kind === 'pluck-synth' && (
             <PluckSynthControls
-              params={activePreset.source.params}
+              params={pendingPreset.source.params}
               onChange={(params) =>
                 updateActive((p) => ({ ...p, source: { kind: 'pluck-synth', params } }))
               }
             />
           )}
-          {activePreset.source.kind === 'fm-synth' && (
+          {pendingPreset.source.kind === 'fm-synth' && (
             <FMSynthControls
-              params={activePreset.source.params}
+              params={pendingPreset.source.params}
               onChange={(params) =>
                 updateActive((p) => ({ ...p, source: { kind: 'fm-synth', params } }))
               }
@@ -412,7 +304,7 @@ export function SoundLab() {
         {/* Sub-body layer (optional second synth mixed underneath) */}
         <Section title="Sub-body layer">
           <ToggleableBlock
-            enabled={!!activePreset.layer}
+            enabled={!!pendingPreset.layer}
             onToggle={(on) =>
               updateActive((p) => ({
                 ...p,
@@ -421,9 +313,9 @@ export function SoundLab() {
             }
             label="Layer on"
           >
-            {activePreset.layer && (
+            {pendingPreset.layer && (
               <LayerControls
-                layer={activePreset.layer}
+                layer={pendingPreset.layer}
                 onChange={(layer) => updateActive((p) => ({ ...p, layer }))}
               />
             )}
@@ -433,7 +325,7 @@ export function SoundLab() {
         {/* Voice level (always-on) */}
         <Section title="Voice level">
           <VoiceLevelControls
-            level={activePreset.level}
+            level={pendingPreset.level}
             onChange={(level) => updateActive((p) => ({ ...p, level }))}
           />
         </Section>
@@ -441,7 +333,7 @@ export function SoundLab() {
         {/* Optional shaping blocks */}
         <Section title="Body filter">
           <ToggleableBlock
-            enabled={!!activePreset.bodyFilter}
+            enabled={!!pendingPreset.bodyFilter}
             onToggle={(on) =>
               updateActive((p) => ({
                 ...p,
@@ -450,9 +342,9 @@ export function SoundLab() {
             }
             label="Lowpass on"
           >
-            {activePreset.bodyFilter && (
+            {pendingPreset.bodyFilter && (
               <BodyFilterControls
-                params={activePreset.bodyFilter}
+                params={pendingPreset.bodyFilter}
                 onChange={(bodyFilter) => updateActive((p) => ({ ...p, bodyFilter }))}
               />
             )}
@@ -461,7 +353,7 @@ export function SoundLab() {
 
         <Section title="Compressor">
           <ToggleableBlock
-            enabled={!!activePreset.compressor}
+            enabled={!!pendingPreset.compressor}
             onToggle={(on) =>
               updateActive((p) => ({
                 ...p,
@@ -472,9 +364,9 @@ export function SoundLab() {
             }
             label="Compressor on"
           >
-            {activePreset.compressor && (
+            {pendingPreset.compressor && (
               <CompressorControls
-                params={activePreset.compressor}
+                params={pendingPreset.compressor}
                 onChange={(compressor) => updateActive((p) => ({ ...p, compressor }))}
               />
             )}
@@ -484,7 +376,7 @@ export function SoundLab() {
         {/* Effects (now always available regardless of family — lab is exploratory) */}
         <Section title="Effects">
           <EffectControls
-            effects={activePreset.effects ?? {}}
+            effects={pendingPreset.effects ?? {}}
             onChange={(effects) => updateActive((p) => ({ ...p, effects }))}
           />
         </Section>
@@ -497,36 +389,36 @@ export function SoundLab() {
             </Label>
             <Switch
               id="lab-reverb-on"
-              checked={reverb.enabled}
-              onCheckedChange={(enabled) => setReverb((r) => ({ ...r, enabled }))}
+              checked={pendingReverb.enabled}
+              onCheckedChange={(enabled) => updateReverb((r) => ({ ...r, enabled }))}
             />
           </div>
           <ParameterSlider
             label="Decay"
-            value={reverb.decay}
+            value={pendingReverb.decay}
             min={0.1}
             max={6}
             step={0.05}
             unit="s"
-            onChange={(decay) => setReverb((r) => ({ ...r, decay }))}
+            onChange={(decay) => updateReverb((r) => ({ ...r, decay }))}
           />
           <ParameterSlider
             label="Pre-delay"
-            value={reverb.preDelay}
+            value={pendingReverb.preDelay}
             min={0}
             max={0.2}
             step={0.005}
             unit="s"
             precision={3}
-            onChange={(preDelay) => setReverb((r) => ({ ...r, preDelay }))}
+            onChange={(preDelay) => updateReverb((r) => ({ ...r, preDelay }))}
           />
           <ParameterSlider
             label="Wet"
-            value={reverb.wet}
+            value={pendingReverb.wet}
             min={0}
             max={1}
             step={0.01}
-            onChange={(wet) => setReverb((r) => ({ ...r, wet }))}
+            onChange={(wet) => updateReverb((r) => ({ ...r, wet }))}
           />
         </Section>
 
@@ -545,32 +437,20 @@ export function SoundLab() {
           </pre>
         </section>
       </main>
+
+      {saveAsOpen && (
+        <SaveAsVariantDialog
+          instrumentId={labInstrumentId}
+          seedPreset={pendingPreset}
+          onClose={() => setSaveAsOpen(false)}
+          onSaved={() => setIsDirty(false)}
+        />
+      )}
     </div>
   );
 }
 
 // ─── Section + helpers ────────────────────────────────────────────────────────
-
-function SourceIndicator({ source }: { source: PresetSource }) {
-  // Three-state pill showing where the active preset's values come from. The
-  // priority chain is localStorage → committed file → shipped baseline; this
-  // tells the user which layer is winning.
-  const tone =
-    source === 'localStorage'
-      ? { dot: 'bg-degree-root', label: 'Local tweaks', tip: 'Your localStorage override is active. Click Reset preset to drop it and fall through to the committed file.' }
-      : source === 'committed'
-        ? { dot: 'bg-degree-fifth', label: 'Committed', tip: 'Coming from public/presets/<id>.json — what anonymous users will see on the deployed site.' }
-        : { dot: 'bg-foreground/30', label: 'Shipped', tip: 'No localStorage tweaks and no committed file. Coming from presets.ts.' };
-  return (
-    <span
-      title={tone.tip}
-      className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md border border-border/40 bg-card/40 text-[10px] font-mono uppercase tracking-wider text-muted-foreground"
-    >
-      <span className={`h-1.5 w-1.5 rounded-full ${tone.dot}`} aria-hidden="true" />
-      {tone.label}
-    </span>
-  );
-}
 
 function SaveStatusPill({ status }: { status: 'idle' | 'pending' | 'saved' }) {
   const text =

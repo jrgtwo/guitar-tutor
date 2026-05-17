@@ -36,7 +36,7 @@ export function MigrationPromptDialog({ open, onClose }: Props) {
   const [counts, setCounts] = useState<MigrationCounts>({
     patterns: 0,
     compositions: 0,
-    voicePresets: 0,
+    voiceVariants: 0,
     reverbCustomized: false,
     total: 0,
   });
@@ -110,11 +110,11 @@ export function MigrationPromptDialog({ open, onClose }: Props) {
               </span>
             </div>
           )}
-          {counts.voicePresets > 0 && (
+          {counts.voiceVariants > 0 && (
             <div className="flex items-center gap-2 text-sm font-mono">
               <Sliders size={14} className="text-degree-root" />
               <span className="text-foreground">
-                {counts.voicePresets} sound preset{counts.voicePresets === 1 ? '' : 's'}
+                {counts.voiceVariants} voice variant{counts.voiceVariants === 1 ? '' : 's'}
               </span>
             </div>
           )}

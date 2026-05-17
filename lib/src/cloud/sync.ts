@@ -26,14 +26,15 @@ import {
   DEFAULT_PATTERNS_STATE,
 } from '../patterns/store/usePatternsStore';
 import type { Collection, Composition, Pattern } from '../patterns';
-import {
-  loadOverrides,
-  saveOverrides,
-  subscribeToOverrides,
-  LAB_STORAGE_KEY,
-  type PresetOverridesData,
-} from '../playback/voices/preset-overrides';
-import type { VoicePreset, ReverbSettings } from '../playback/voices/types';
+import { useVoiceStore, VOICE_STORAGE_KEY } from '../playback/voices/useVoiceStore';
+import { makeDefaultActiveVariants } from '../playback/voices/variant-types';
+import type { Variant, ActiveVariantsMap } from '../playback/voices/variant-types';
+import type {
+  FretInstrumentId,
+  VoiceFamily,
+  VoicePreset,
+  ReverbSettings,
+} from '../playback/voices/types';
 
 // ─── Module-level sync state ──────────────────────────────────────────────
 
@@ -45,14 +46,16 @@ let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 let storeUnsubscribe: (() => void) | null = null;
 let currentUserId: string | null = null;
 
-/** Lab-overrides sync state. Map from preset_id → DB row id so we can UPDATE
- *  in place instead of doing a SELECT-then-INSERT/UPDATE round trip on each
- *  save. Populated on hydration and updated on writes. */
-let labRowIdByPresetId: Map<string, string> = new Map();
-let lastReverbSnapshot: ReverbSettings | null = null;
-let lastLabPresetsSnapshot: Record<string, VoicePreset> = {};
+/** Lab sync state. `labRowIdByVariantId` maps variant uuid → DB row id; since
+ *  variants now carry their own uuids and we use the same uuid for the row id
+ *  on insert, this is effectively identity, but we keep the map for future
+ *  flexibility (e.g. if a server-side id ever diverges). The snapshots are
+ *  serialized JSON strings keyed by variant id so we can diff cheaply. */
+let labRowIdByVariantId: Map<string, string> = new Map();
+let lastVariantsSnapshot: Map<string, string> = new Map();
+let lastActiveVariantsSnapshot: string = JSON.stringify(makeDefaultActiveVariants());
+let lastReverbSnapshot: string = 'null';
 let labUnsubscribe: (() => void) | null = null;
-let labDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
 const DEBOUNCE_MS = 500;
 const SESSION_STORAGE_KEY = 'fretwork:patterns:v1';
@@ -112,10 +115,10 @@ function pendingMigrationContent(): boolean {
       const lib = parsed?.state?.library;
       if ((lib?.patterns?.length ?? 0) > 0 || (lib?.compositions?.length ?? 0) > 0) return true;
     }
-    const labRaw = sessionStorage.getItem(LAB_STORAGE_KEY);
+    const labRaw = sessionStorage.getItem(VOICE_STORAGE_KEY);
     if (labRaw) {
-      const parsed = JSON.parse(labRaw) as { presets?: Record<string, unknown>; reverb?: unknown };
-      if (Object.keys(parsed?.presets ?? {}).length > 0) return true;
+      const parsed = JSON.parse(labRaw) as { variants?: unknown[]; reverb?: unknown };
+      if ((parsed?.variants?.length ?? 0) > 0) return true;
       if (parsed?.reverb) return true;
     }
   } catch {
@@ -138,10 +141,6 @@ function teardownSync(): void {
     clearTimeout(debounceTimer);
     debounceTimer = null;
   }
-  if (labDebounceTimer) {
-    clearTimeout(labDebounceTimer);
-    labDebounceTimer = null;
-  }
   if (storeUnsubscribe) {
     storeUnsubscribe();
     storeUnsubscribe = null;
@@ -154,22 +153,21 @@ function teardownSync(): void {
   lastPatternsSnapshot = [];
   lastCompositionsSnapshot = [];
   lastCollectionsSnapshot = [];
-  labRowIdByPresetId = new Map();
-  lastReverbSnapshot = null;
-  lastLabPresetsSnapshot = {};
+  labRowIdByVariantId = new Map();
+  lastVariantsSnapshot = new Map();
+  lastActiveVariantsSnapshot = JSON.stringify(makeDefaultActiveVariants());
+  lastReverbSnapshot = 'null';
 
   // Clear in-memory state and sessionStorage so cloud content doesn't leak
   // to a subsequent anon session in the same tab.
   usePatternsStore.setState({ ...DEFAULT_PATTERNS_STATE });
+  useVoiceStore.getState().reset();
   try {
     sessionStorage.removeItem(SESSION_STORAGE_KEY);
-    sessionStorage.removeItem(LAB_STORAGE_KEY);
+    sessionStorage.removeItem(VOICE_STORAGE_KEY);
   } catch {
     // private-browsing or quota issues — non-fatal.
   }
-  // Reset the in-memory lab cache too via the saveOverrides path so its
-  // subscribers see the cleared state.
-  saveOverrides({ schemaVersion: 1, presets: {} });
   // Also clear the migration-done flag so a subsequent anon → signup flow
   // in the same tab can re-trigger the prompt for its own session content.
   clearMigrationFlag();
@@ -555,43 +553,56 @@ async function syncCollections(userId: string, current: Collection[]): Promise<v
   }
 }
 
-// ─── Lab overrides cloud sync (Sound Lab) ─────────────────────────────────
+// ─── Lab cloud sync (Sound Lab variants + active_variants + reverb) ───────
 
-/** Pull the user's voice_presets rows + user_settings.reverb from the cloud
- *  and write them into the local sessionStorage-backed override blob. */
+/**
+ * Pull the user's `voice_presets` rows (one per variant), `user_settings.active_presets`
+ * (now stores `ActiveVariantsMap`), and `user_settings.reverb` from the cloud,
+ * then write them into `useVoiceStore`.
+ */
 async function hydrateLabFromCloud(userId: string): Promise<void> {
   isHydrating = true;
   try {
     const client = getSupabaseClient();
-
     const [presetsResult, settingsResult] = await Promise.all([
       client.from('voice_presets').select('*').eq('user_id', userId),
-      client.from('user_settings').select('reverb').eq('user_id', userId).maybeSingle(),
+      client
+        .from('user_settings')
+        .select('active_presets, reverb')
+        .eq('user_id', userId)
+        .maybeSingle(),
     ]);
 
-    const presets: Record<string, VoicePreset> = {};
+    const variants: Variant[] = [];
     const rowIdMap = new Map<string, string>();
     for (const row of presetsResult.data ?? []) {
-      const data = row.data as VoicePreset;
-      // In F.1 we use `name` to store the preset_id, so the row maps 1:1 to
-      // an entry in PresetOverridesData.presets. F.2 will introduce multiple
-      // variants per preset_id; we'll change this lookup then.
-      const presetId = (row.name as string) ?? data.id;
-      presets[presetId] = data;
-      rowIdMap.set(presetId, row.id as string);
+      const preset = row.data as VoicePreset;
+      const variant: Variant = {
+        id: row.id as string,
+        name: (row.name as string) ?? 'Untitled',
+        instrumentId: row.instrument_id as FretInstrumentId,
+        family: row.family as VoiceFamily,
+        collectionId: (row.collection_id as string | null) ?? null,
+        preset,
+      };
+      variants.push(variant);
+      rowIdMap.set(variant.id, row.id as string);
     }
-    labRowIdByPresetId = rowIdMap;
+    labRowIdByVariantId = rowIdMap;
 
-    const reverb = (settingsResult.data?.reverb as ReverbSettings | null) ?? undefined;
+    const rawActive = (settingsResult.data?.active_presets ?? null) as ActiveVariantsMap | null;
+    const activeVariants = sanitizeActiveVariants(rawActive, variants);
+    const reverb = (settingsResult.data?.reverb as ReverbSettings | null) ?? null;
 
-    const overrides: PresetOverridesData = {
-      schemaVersion: 1,
-      presets,
+    useVoiceStore.setState({
+      variants,
+      activeVariants,
       reverb,
-    };
-    saveOverrides(overrides);
-    lastLabPresetsSnapshot = { ...presets };
-    lastReverbSnapshot = reverb ?? null;
+      schemaVersion: 2,
+    });
+    lastVariantsSnapshot = new Map(variants.map((v) => [v.id, JSON.stringify(v)]));
+    lastActiveVariantsSnapshot = JSON.stringify(activeVariants);
+    lastReverbSnapshot = JSON.stringify(reverb);
 
     if (presetsResult.error) {
       console.error('[cloud sync] fetch voice_presets error:', presetsResult.error);
@@ -606,84 +617,108 @@ async function hydrateLabFromCloud(userId: string): Promise<void> {
   }
 }
 
+/**
+ * Coerce a (possibly malformed or stale) cloud `active_presets` blob into a
+ * valid `ActiveVariantsMap`. Any `user`-ref that points to a missing variant
+ * collapses back to the instrument's default. Null input yields all-defaults.
+ *
+ * Exported for unit testing.
+ */
+export function sanitizeActiveVariants(
+  raw: ActiveVariantsMap | null,
+  variants: Variant[],
+): ActiveVariantsMap {
+  const variantIds = new Set(variants.map((v) => v.id));
+  const defaults = makeDefaultActiveVariants();
+  if (!raw) return defaults;
+  const out: { -readonly [K in keyof ActiveVariantsMap]: ActiveVariantsMap[K] } = {
+    ...defaults,
+  };
+  for (const inst of ['guitar', 'bass', 'ukulele'] as FretInstrumentId[]) {
+    const ref = raw[inst];
+    if (!ref) continue;
+    if (ref.kind === 'user' && !variantIds.has(ref.id)) {
+      out[inst] = defaults[inst];
+    } else {
+      out[inst] = ref;
+    }
+  }
+  return out;
+}
+
+/**
+ * Subscribe to every `useVoiceStore` change and dispatch a sync. No debounce:
+ * every store mutation in the variant model is already a user-commit
+ * (add/update/delete/setActiveVariantRef/setReverb), so deferring would only
+ * delay writes without coalescing benefit.
+ */
 function installLabSubscription(): void {
   if (labUnsubscribe) return;
-  labUnsubscribe = subscribeToOverrides(() => {
+  labUnsubscribe = useVoiceStore.subscribe(() => {
     if (isHydrating) return;
     if (!currentUserId) return;
-    if (labDebounceTimer) clearTimeout(labDebounceTimer);
-    labDebounceTimer = setTimeout(() => {
-      labDebounceTimer = null;
-      void performLabSync();
-    }, DEBOUNCE_MS);
+    void performLabSync();
   });
 }
 
 async function performLabSync(): Promise<void> {
   const userId = currentUserId;
   if (!userId) return;
-
   try {
     const client = getSupabaseClient();
-    const current = loadOverrides();
+    const state = useVoiceStore.getState();
 
-    // Determine changes against the snapshot.
-    const currentIds = new Set(Object.keys(current.presets));
-    const prevIds = new Set(Object.keys(lastLabPresetsSnapshot));
+    // Variants diff vs. last-synced snapshot.
+    const current = state.variants;
+    const currentIds = new Set(current.map((v) => v.id));
+    const prevIds = new Set(lastVariantsSnapshot.keys());
 
-    const inserts: VoicePreset[] = [];
-    const updates: Array<{ rowId: string; preset: VoicePreset }> = [];
+    const inserts: Variant[] = [];
+    const updates: Variant[] = [];
     const deletes: string[] = [];
 
-    for (const id of currentIds) {
-      const cur = current.presets[id];
-      const prev = lastLabPresetsSnapshot[id];
-      if (!prev) {
-        inserts.push(cur);
-      } else if (JSON.stringify(prev) !== JSON.stringify(cur)) {
-        const rowId = labRowIdByPresetId.get(id);
-        if (rowId) updates.push({ rowId, preset: cur });
-        else inserts.push(cur);
-      }
+    for (const v of current) {
+      const serialized = JSON.stringify(v);
+      const prev = lastVariantsSnapshot.get(v.id);
+      if (!prev) inserts.push(v);
+      else if (prev !== serialized) updates.push(v);
     }
     for (const id of prevIds) {
-      if (!currentIds.has(id)) {
-        const rowId = labRowIdByPresetId.get(id);
-        if (rowId) deletes.push(rowId);
-      }
+      if (!currentIds.has(id)) deletes.push(id);
     }
 
     if (inserts.length > 0) {
-      const rows = inserts.map((p) => ({
+      const rows = inserts.map((v) => ({
+        id: v.id,
         user_id: userId,
-        name: p.id,
-        instrument_id: p.instrumentId,
-        family: p.family,
-        data: p,
+        name: v.name,
+        instrument_id: v.instrumentId,
+        family: v.family,
+        collection_id: v.collectionId,
+        data: v.preset,
         visibility: 'private' as const,
       }));
-      const { data, error } = await client.from('voice_presets').insert(rows).select('id, name');
+      const { error } = await client.from('voice_presets').insert(rows);
       if (error) {
         console.error('[cloud sync] voice_presets INSERT failed:', error);
-      } else if (data) {
-        for (const row of data) {
-          labRowIdByPresetId.set(row.name as string, row.id as string);
-        }
+      } else {
+        for (const v of inserts) labRowIdByVariantId.set(v.id, v.id);
       }
     }
 
-    for (const { rowId, preset } of updates) {
+    for (const v of updates) {
       const { error } = await client
         .from('voice_presets')
         .update({
-          name: preset.id,
-          instrument_id: preset.instrumentId,
-          family: preset.family,
-          data: preset,
+          name: v.name,
+          instrument_id: v.instrumentId,
+          family: v.family,
+          collection_id: v.collectionId,
+          data: v.preset,
         })
-        .eq('id', rowId);
+        .eq('id', v.id);
       if (error) {
-        console.error(`[cloud sync] voice_presets UPDATE failed for ${rowId}:`, error);
+        console.error(`[cloud sync] voice_presets UPDATE failed for ${v.id}:`, error);
       }
     }
 
@@ -692,28 +727,28 @@ async function performLabSync(): Promise<void> {
       if (error) {
         console.error('[cloud sync] voice_presets DELETE failed:', error);
       } else {
-        // Remove from local row-id map too.
-        for (const [presetId, rowId] of labRowIdByPresetId) {
-          if (deletes.includes(rowId)) labRowIdByPresetId.delete(presetId);
-        }
+        for (const id of deletes) labRowIdByVariantId.delete(id);
       }
     }
 
-    // Reverb (user_settings singleton). Upsert by user_id PK.
-    const currentReverb = current.reverb ?? null;
-    if (JSON.stringify(currentReverb) !== JSON.stringify(lastReverbSnapshot)) {
+    // active_variants + reverb upsert (user_settings singleton).
+    const activeSer = JSON.stringify(state.activeVariants);
+    const reverbSer = JSON.stringify(state.reverb);
+    if (activeSer !== lastActiveVariantsSnapshot || reverbSer !== lastReverbSnapshot) {
       const { error } = await client.from('user_settings').upsert({
         user_id: userId,
-        reverb: currentReverb,
+        active_presets: state.activeVariants,
+        reverb: state.reverb,
       });
       if (error) {
-        console.error('[cloud sync] user_settings.reverb upsert failed:', error);
+        console.error('[cloud sync] user_settings upsert failed:', error);
       } else {
-        lastReverbSnapshot = currentReverb;
+        lastActiveVariantsSnapshot = activeSer;
+        lastReverbSnapshot = reverbSer;
       }
     }
 
-    lastLabPresetsSnapshot = { ...current.presets };
+    lastVariantsSnapshot = new Map(current.map((v) => [v.id, JSON.stringify(v)]));
   } catch (e) {
     console.error('[cloud sync] performLabSync threw:', e);
   }
@@ -723,16 +758,16 @@ async function performLabSync(): Promise<void> {
 export function _resetCloudSyncForTests(): void {
   if (debounceTimer) clearTimeout(debounceTimer);
   if (storeUnsubscribe) storeUnsubscribe();
-  if (labDebounceTimer) clearTimeout(labDebounceTimer);
   if (labUnsubscribe) labUnsubscribe();
   isHydrating = false;
   lastPatternsSnapshot = [];
   lastCompositionsSnapshot = [];
-  labRowIdByPresetId = new Map();
-  lastReverbSnapshot = null;
-  lastLabPresetsSnapshot = {};
+  lastCollectionsSnapshot = [];
+  labRowIdByVariantId = new Map();
+  lastVariantsSnapshot = new Map();
+  lastActiveVariantsSnapshot = JSON.stringify(makeDefaultActiveVariants());
+  lastReverbSnapshot = 'null';
   debounceTimer = null;
-  labDebounceTimer = null;
   storeUnsubscribe = null;
   labUnsubscribe = null;
   currentUserId = null;
