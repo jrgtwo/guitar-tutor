@@ -372,6 +372,18 @@ export type {
   ReverbSettings,
 } from './playback';
 
+// Subscription tier model
+export {
+  TIERS,
+  DEFAULT_SUBSCRIPTION,
+  isTier,
+  TIER_LIMITS,
+  KIND_LABELS,
+  getCap,
+  canCreate,
+} from './subscription';
+export type { Tier, Subscription, TierLimits, CappedKind, CapCheck } from './subscription';
+
 // Catalog vocabulary + constants for shareable content
 export {
   DESCRIPTION_MAX_LENGTH,

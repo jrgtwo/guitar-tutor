@@ -16,12 +16,12 @@ A long-running implementation effort. Use the **Implementation Checklist** secti
 | F.1 — Sound Lab cloud sync | ✅ Done | Storage swap, hydration, lab override sync, migration prompt extension. Migration-deferred-hydration fix. |
 | F.2 — Multi-variant Sound Lab UI | ⏳ Deferred | Save As / Rename / Delete in the lab; UX upgrade rather than foundation. |
 | G — Sharing, forking, profile editor, account deletion | ✅ Done | Account deletion (RPC + Edge Function), profile editor at `?settings=1`, catalog metadata schema, sidebar-free patterns page with top controls bar + metadata popover, auto-seed drafts, shared pattern viewer at `?pattern=<uuid>`, denormalized attribution, fork action, visibility-aware delete confirm, SPA in-app navigation. Composition / voice-preset viewers still deferred (data model ready). |
-| H — Teaching workflows | ⏳ Pending | Invites, relationships, assignments, scoped notes. |
-| I — Help button + per-page walkthroughs | ⏳ Pending | Lightweight UX layer. |
-| J — Tier scaffolding | ⏳ Pending | Free/pro/teacher caps in code; Stripe integration deferred. |
-| K — Final verification & cleanup | ⏳ Pending | Manual E2E flows + automated tests + legacy-localStorage shim removal. |
+| H — Library organization (collections / folders) | ✅ MVP | **Pivoted away from teacher/student workflows.** Migration 0010 + nested-folder data model (kind-agnostic), tree navigation in the picker (breadcrumb + create folder + create in current folder). Row actions (rename / move / delete with confirm) and folder-share viewer route deferred to a later polish pass. Original teacher/student spec parked — revisit on top of collections + access codes when ready. |
+| I — Help button + per-page walkthroughs | ⏳ Deferred (post-UI-polish) | Waiting until UI surfaces stabilize so walkthroughs don't get rewritten every polish pass. |
+| J — Monetization tier scaffolding | ✅ Done (billing deferred) | Free / Pro tiers with 200/100/20 caps. `gateCreate` enforces on create / duplicate / fork / auto-seed. Anon → SignupModal at cap; signed-in → UpgradePrompt. Stripe wiring, real upgrade flow, feature-gating for Pro-only features, and a TierBadge UI are all deferred until Pro has real unlocks. |
+| K — Final verification & cleanup | ⏳ Pending | Manual E2E flows + automated tests + legacy-localStorage shim removal + doc consolidation. |
 
-**Where to pick up next:** Group H — start with the invite flow (`teacher_student_relationships` rows + `/?invite=<token>` route).
+**Where to pick up next:** Group K — verification + cleanup pass. After that, the "need to do" lists at the end of each group's checklist are the queue for the post-MVP polish phase.
 
 ---
 
@@ -883,39 +883,56 @@ Deferred (data model ready, UI surface pending):
 - [ ] Composition viewer route (`?composition=<uuid>`) — same shape as the pattern viewer.
 - [ ] Voice-preset viewer route (`?voice-preset=<uuid>`).
 - [ ] "Forked from [Original Creator]" attribution surface — `forkedFromId` data is captured; lands when library cards or catalog listings exist.
-- [ ] Tier-cap gating on fork insertions — defers to Group J.
 
-### Group H — Teacher / student workflows
+### Group H — Library organization (collections / folders) ✅ MVP
 
-- [ ] Build `example/src/teaching/InviteFlow.tsx`:
-  - Email invite: type student's email; insert `teacher_student_relationships` row with `invite_email` + `status='pending'`; backend optionally sends email
-  - Invite link: generate token, insert relationship with `invite_token`; URL like `/?invite=<token>`
-  - Pre-signup pending invites are auto-claimed at the student's signup (matched by email)
-- [ ] Build `example/src/teaching/StudentRoster.tsx` — teacher's view of all relationships (pending, active, ended, plus ghosted past students)
-- [ ] Build `example/src/teaching/AssignmentBuilder.tsx` — pick from own patterns/compositions, set title/description/instructions, save snapshot items into `assignments`
-- [ ] Build `example/src/teaching/AssignmentRecipientsManager.tsx` — within an assignment, pick students + set per-student `due_at`
-- [ ] Build `example/src/teaching/AssignmentInbox.tsx` — student's read-only list of assignments received
-- [ ] Build `example/src/teaching/AssignmentDetailView.tsx` — student's read-only view of an assignment with its items; mark progress; fork item button
-- [ ] Build `example/src/teaching/NotesThread.tsx` — note list per `assignment_recipients` row, with author + body + timestamp; submit form with length limit; report button
-- [ ] End-relationship action: either side can set `status='ended'`; future assignments blocked at the application layer
+**Strategic pivot:** The original teacher/student spec is parked. Lighter primitives — collections (folders) and eventual access codes — replace it and serve more use cases (solo organization + teacher-style content handoff + audience curation), with less privacy surface and no asymmetric-power baggage. The teacher/student workflow remains a longer-term goal but will be re-designed on top of these primitives.
 
-### Group I — Help / onboarding
+Done:
+- [x] Migration `0010_collections.sql` — `collections` table (kind-agnostic, mirrors pattern visibility/attribution shape), `collection_id` FK on patterns / compositions / voice_presets, RLS, and updated `delete_account_cleanup()` to handle orphan/delete semantics.
+- [x] `Collection` TS type + `lib/src/patterns/collection-ops.ts` (create / rename / setParent helpers, `applyCollectionMetadata` with the same `publishedAt` lifecycle as patterns, depth-walk `getCollectionDepth`, cycle-check `wouldCreateCycle`, `MAX_FOLDER_DEPTH = 8` constant).
+- [x] Store actions: `createCollection`, `renameCollection`, `moveCollection`, `deleteCollection`, `updateCollectionMetadata`, `setPatternCollection`, `setCompositionCollection`. `Library.collections` slice added. Cloud sync round-trips collections + `collection_id` on all item types.
+- [x] `clonePattern` preserves `collectionId` by default (duplicate-in-place semantics); `forkPattern` resets it to null since the source's folder belongs to a different user's library.
+- [x] `createPattern` / `createComposition` accept an optional `collectionId` so new items land in the current folder, not always at root.
+- [x] `PatternPickerPanel` rewritten as a tree browser: breadcrumb (Library / Guitar / Rock), clickable folder rows, "+ New folder" with inline input, "+ New pattern/composition" creates in current folder, filter narrows both folders and items, depth cap enforced at the UI level.
+
+Deferred (need to do):
+- [ ] Row actions in the picker: rename folder, delete folder (with "this contains N items" confirm), "Move to…" submenu for patterns and folders. Without these, the only way to reorganize is to create things in the right folder the first time.
+- [ ] Drag-and-drop in the picker.
+- [ ] Breadcrumb display on the controls bar so the user can see the active item's folder at a glance.
+- [ ] Folder visibility editing UI (the schema column exists; surface a control in the metadata popover when the active item is a folder, or build a folder-level metadata view).
+- [ ] Shared-folder viewer route (`?folder=<uuid>`) — read-only folder browse for non-owners, filtered by item visibility.
+- [ ] Access codes — the eventual "share a private folder with a specific recipient" mechanism that replaces teacher/student handoff. Schema TBD; will likely be an `access_codes` table with `(code, granted_collection_id, expires_at, max_uses)`.
+- [ ] Compositions + voice presets get folder UI affordances (today only patterns surface folders in the picker; the data model + sync already cover the others).
+- [ ] UX polish pass on the picker — the current tree feels clunky per user testing.
+
+### Group I — Help / onboarding ⏳ Deferred (post-UI-polish)
+
+Waiting until the UI surfaces stabilize. Walkthroughs are tightly coupled to specific affordances; building them against in-flux UI wastes work. Original spec preserved below for when we revisit.
 
 - [ ] Build `example/src/help/HelpButton.tsx` — small `?` icon component
 - [ ] Build `example/src/help/HelpPanel.tsx` — panel with walkthrough launcher and per-page docs
-- [ ] Add HelpButton to each major page (Practice, Patterns, Sound Lab, Assignments-as-teacher, Assignments-as-student)
+- [ ] Add HelpButton to each major page (Practice, Patterns, Sound Lab)
 - [ ] Write per-page walkthroughs (script of highlighted UI elements + tooltip text)
 - [ ] Settings → walkthroughs section with global toggle
 - [ ] `user_settings.walkthrough_seen` persists which walkthroughs the user has dismissed
 
-### Group J — Monetization tier scaffolding (no payment yet)
+### Group J — Monetization tier scaffolding ✅ Done (billing deferred)
 
-- [ ] Build `lib/src/subscription/tierLimits.ts` — declares the caps: `{ free: { patterns: 25, compositions: 10, voice_presets: 3 }, pro: Infinity, teacher: Infinity }`
-- [ ] Build `lib/src/subscription/useSubscription.ts` — reads tier from store; provides `canCreate(kind)` helper
-- [ ] Enforce caps in `usePatternsStore.createPattern`, `createComposition`, `voice_presets` create; show upgrade prompt when blocked
-- [ ] Build `example/src/subscription/UpgradePrompt.tsx` — modal: "Library full. Delete something or upgrade."
-- [ ] Build `example/src/subscription/TierBadge.tsx` — small indicator in TopBar
-- [ ] `subscriptions` table seeded with `tier='free'` on signup; later milestone wires Stripe
+Two-tier model: Free (200 patterns / 100 compositions / 20 voice presets) and Pro ($2.99/mo, unlimited + future feature unlocks). Teacher tier dropped — the original justification (teaching-workflow access) is moot post-Group-H pivot. Strategy: ship cap enforcement now, layer in Pro feature unlocks (MIDI input, multi-instrument band, exports, recording) as those features get built. Stripe wiring is its own milestone.
+
+Done:
+- [x] `lib/src/subscription/` module: `Tier` type, `Subscription` type, `TIER_LIMITS`, `KIND_LABELS`, `canCreate` helper, `DEFAULT_SUBSCRIPTION` fallback. Exported from public lib surface.
+- [x] `useAuthStore` gains `subscription` + upgrade-prompt state and actions. Subscription fetched alongside profile on sign-in / re-hydrate; cleared on sign-out.
+- [x] `gateCreate` in `usePatternsStore` enforces caps on `createPattern`, `createComposition`, `duplicatePattern`, `forkPattern`. `ensureEditingPattern` skips auto-seed only in degenerate zero-cap cases. Anon-at-cap → SignupModal; signed-in-at-cap → UpgradePrompt.
+- [x] `example/src/subscription/UpgradePrompt.tsx` — modal listing Pro perks (unlimited + MIDI + multi-instrument + exports, "coming soon"). Mounted globally via `AuthCallbackHandler`.
+
+Deferred (need to do):
+- [ ] **Stripe wiring** — checkout session creation, webhook handler that updates `subscriptions.tier` + `expires_at`, customer portal link for cancel/modify. The UpgradePrompt's "Upgrade to Pro" button is currently disabled.
+- [ ] **Tier-bound feature gating** — when MIDI input / multi-instrument band playback / pattern exports / audio recording ship, they'll each check `subscription.tier === 'pro'` (probably via a small `requiresPro(feature)` helper). Add gating at build-time for each feature, not retroactively.
+- [ ] **TierBadge UI** — small Pro indicator in the TopBar / user menu. Skipped for now since Free is universal; meaningful when the first user actually upgrades.
+- [ ] **Subscription expiry handling** — if `expires_at < now()`, treat as Free regardless of stored tier. Add a guard when Stripe lifecycle integration lands.
+- [ ] **Downgrade-when-over-cap UX** — user on Pro with 250 patterns cancels. The current cap check refuses *new* creates but doesn't surface any reminder. Add a banner: "You're over the Free cap by N items. Existing content stays editable; delete down to reactivate creation, or re-upgrade."
 
 ### Group K — Verification & cleanup
 

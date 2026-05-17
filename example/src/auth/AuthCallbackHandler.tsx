@@ -11,6 +11,7 @@ import {
 import { SignupForm } from './SignupForm';
 import { SignupModal } from './SignupModal';
 import { MigrationPromptDialog } from './MigrationPromptDialog';
+import { UpgradePrompt } from '../subscription/UpgradePrompt';
 
 // Dev-only: expose the auth store on `window.__authStore` so you can run
 // `__authStore.getState()` from the console to inspect the state machine.
@@ -72,6 +73,7 @@ export function AuthCallbackHandler() {
         open={migrationOpen}
         onClose={() => setMigrationOpen(false)}
       />
+      <UpgradePrompt />
     </>
   );
 }

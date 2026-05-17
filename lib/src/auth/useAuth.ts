@@ -25,6 +25,7 @@ import { useCallback, useEffect } from 'react';
 import { getSupabaseClient } from './supabaseClient';
 import { useAuthStore } from './useAuthStore';
 import { rowToProfile, type AuthStatus, type Profile } from './types';
+import { isTier, type Subscription } from '../subscription';
 
 /**
  * Module-level guard so multiple useAuth callers (or StrictMode double-mount)
@@ -44,6 +45,7 @@ export interface UseAuthReturn {
 export function useAuth(): UseAuthReturn {
   const setSession = useAuthStore((s) => s.setSession);
   const setProfile = useAuthStore((s) => s.setProfile);
+  const setSubscription = useAuthStore((s) => s.setSubscription);
   const setStatus = useAuthStore((s) => s.setStatus);
   const setError = useAuthStore((s) => s.setError);
   const resetStore = useAuthStore((s) => s.reset);
@@ -67,11 +69,16 @@ export function useAuth(): UseAuthReturn {
         onSignedOut: () => {
           if (!mounted) return;
           setProfile(null);
+          setSubscription(null);
           setStatus('signed-out');
         },
         onSession: (session) => {
           if (!mounted) return;
           setSession(session);
+        },
+        onSubscription: (subscription) => {
+          if (!mounted) return;
+          setSubscription(subscription);
         },
         onError: (msg) => {
           if (!mounted) return;
@@ -92,6 +99,7 @@ export function useAuth(): UseAuthReturn {
           setSession(session);
           if (event === 'SIGNED_OUT' || !session?.user) {
             setProfile(null);
+            setSubscription(null);
             setStatus('signed-out');
             return;
           }
@@ -100,9 +108,10 @@ export function useAuth(): UseAuthReturn {
             event === 'TOKEN_REFRESHED' ||
             event === 'USER_UPDATED'
           ) {
-            // Re-hydrate the profile after these events. Fire-and-forget; failures
-            // surface via the store's `error` field, not a stuck loading state.
-            void hydrateProfileSafe(session.user.id).then((result) => {
+            // Re-hydrate profile + subscription after these events. Fire-and-forget;
+            // failures surface via the store's `error` field, not a stuck loading state.
+            const uid = session.user.id;
+            void hydrateProfileSafe(uid).then((result) => {
               if (result.kind === 'ok') {
                 setProfile(result.profile);
                 setStatus('signed-in');
@@ -116,6 +125,7 @@ export function useAuth(): UseAuthReturn {
                 console.error('[useAuth] profile re-hydrate failed:', result.error);
               }
             });
+            void hydrateSubscriptionSafe(uid).then(setSubscription);
           }
         });
         authChangeSubscription = data.subscription;
@@ -132,7 +142,7 @@ export function useAuth(): UseAuthReturn {
       // re-subscribed on every component re-mount (StrictMode would churn).
       // The browser's page unload tears it down naturally.
     };
-  }, [setSession, setProfile, setStatus, setError]);
+  }, [setSession, setProfile, setSubscription, setStatus, setError]);
 
   // ─── Actions ─────────────────────────────────────────────────────────────
 
@@ -203,6 +213,7 @@ interface HydrateInitialSessionCallbacks {
   onSignedIn(profile: Profile): void;
   onNeedsProfile(): void;
   onSignedOut(): void;
+  onSubscription(subscription: Subscription | null): void;
   onError(message: string): void;
   setStatus(status: AuthStatus): void;
 }
@@ -224,14 +235,20 @@ async function hydrateInitialSession(cb: HydrateInitialSessionCallbacks): Promis
       cb.onSignedOut();
       return;
     }
-    const result = await hydrateProfileSafe(session.user.id);
-    if (result.kind === 'ok') {
-      cb.onSignedIn(result.profile);
-    } else if (result.kind === 'missing') {
+    // Profile + subscription in parallel — they're independent reads gated by the
+    // same auth.uid().
+    const [profileResult, subscription] = await Promise.all([
+      hydrateProfileSafe(session.user.id),
+      hydrateSubscriptionSafe(session.user.id),
+    ]);
+    cb.onSubscription(subscription);
+    if (profileResult.kind === 'ok') {
+      cb.onSignedIn(profileResult.profile);
+    } else if (profileResult.kind === 'missing') {
       cb.onNeedsProfile();
     } else {
-      console.error('[useAuth] initial profile hydrate failed:', result.error);
-      cb.onError(result.error);
+      console.error('[useAuth] initial profile hydrate failed:', profileResult.error);
+      cb.onError(profileResult.error);
       // Profile fetch failed but the user is authenticated. Treat as
       // needs-profile so they can re-try via the signup form rather than
       // forcing them through Google again.
@@ -268,6 +285,40 @@ async function hydrateProfileSafe(userId: string): Promise<HydrateProfileResult>
     return { kind: 'ok', profile: rowToProfile(data) };
   } catch (e) {
     return { kind: 'error', error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/**
+ * Fetch the user's subscription row. Returns null on any failure (RLS, network,
+ * missing row) so callers can fall back to the free-tier default without having
+ * to distinguish error modes. Subscription state isn't load-bearing for entry
+ * to the app — over-cap users still see all their existing content.
+ */
+async function hydrateSubscriptionSafe(userId: string): Promise<Subscription | null> {
+  try {
+    const client = getSupabaseClient();
+    const { data, error } = await client
+      .from('subscriptions')
+      .select('tier, active, expires_at')
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (error || !data) return null;
+    const tier = isTier(data.tier) ? data.tier : 'free';
+    const expiresRaw = data.expires_at as string | number | null;
+    let expiresAt: number | null = null;
+    if (typeof expiresRaw === 'string') {
+      const parsed = Date.parse(expiresRaw);
+      if (Number.isFinite(parsed)) expiresAt = parsed;
+    } else if (typeof expiresRaw === 'number') {
+      expiresAt = expiresRaw;
+    }
+    return {
+      tier,
+      active: (data.active as boolean | null) ?? true,
+      expiresAt,
+    };
+  } catch {
+    return null;
   }
 }
 

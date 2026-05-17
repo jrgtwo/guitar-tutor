@@ -59,6 +59,8 @@ import {
   type CollectionMetadataPatch,
 } from '../collection-ops';
 import { useFretworkStore } from '../../store/useFretworkStore';
+import { useAuthStore } from '../../auth/useAuthStore';
+import { canCreate, DEFAULT_SUBSCRIPTION, type CappedKind } from '../../subscription';
 
 export type WorkspaceTab = 'edit' | 'arrange';
 export type SelectionMode = 'replace' | 'add' | 'toggle';
@@ -279,6 +281,11 @@ export const usePatternsStore = create<PatternsStoreState>()(
       // most-recent existing pattern, or auto-seeds an "Untitled" draft when the
       // library is empty. Drafts are marked via `unpersistedDraftId` so cloud sync
       // ignores them until promoted by any real edit.
+      //
+      // When the user is at their tier cap with an empty library — which can only
+      // happen if their cap is zero (we have no such tier today) — auto-seed is
+      // skipped silently. Otherwise auto-seed always proceeds; the user only sees
+      // the upgrade prompt for *explicit* creates.
       ensureEditingPattern() {
         const s = get();
         if (s.editingPatternId !== null) {
@@ -294,7 +301,12 @@ export const usePatternsStore = create<PatternsStoreState>()(
           set({ editingPatternId: mostRecent.id });
           return;
         }
-        // Empty library — auto-seed an Untitled draft.
+        // Empty library — auto-seed an Untitled draft. Silently skip if even a
+        // single pattern would exceed the tier cap (degenerate; no current tier
+        // has a cap of zero).
+        const subscription = useAuthStore.getState().subscription ?? DEFAULT_SUBSCRIPTION;
+        const check = canCreate(subscription.tier, 'patterns', 0);
+        if (!check.allowed) return;
         const draft = createEmptyPattern('Untitled pattern', useFretworkStore.getState().instrumentId);
         set((cur) => ({
           library: { ...cur.library, patterns: [draft] },
@@ -325,6 +337,7 @@ export const usePatternsStore = create<PatternsStoreState>()(
 
       // ─── Library ─────────────────────────────────────────────────────────────
       createPattern(name, collectionId) {
+        if (!gateCreate('patterns', get().library.patterns.length)) return '';
         const p = createEmptyPattern(name, useFretworkStore.getState().instrumentId);
         // `collectionId` defaults to null (root); the in-memory Pattern from
         // createEmptyPattern already has collectionId: null, only override if
@@ -389,6 +402,7 @@ export const usePatternsStore = create<PatternsStoreState>()(
         const s = get();
         const src = s.library.patterns.find((p) => p.id === id);
         if (!src) return '';
+        if (!gateCreate('patterns', s.library.patterns.length)) return '';
         const dup = clonePattern(src, { name: `${src.name} (copy)` });
         set((cur) => ({
           library: { ...cur.library, patterns: [...cur.library.patterns, dup] },
@@ -397,6 +411,7 @@ export const usePatternsStore = create<PatternsStoreState>()(
         return dup.id;
       },
       forkPattern(source) {
+        if (!gateCreate('patterns', get().library.patterns.length)) return '';
         const fork = clonePattern(source, {
           forkedFromId: source.id,
           visibility: 'private',
@@ -415,6 +430,7 @@ export const usePatternsStore = create<PatternsStoreState>()(
         return fork.id;
       },
       createComposition(name, collectionId) {
+        if (!gateCreate('compositions', get().library.compositions.length)) return '';
         const c = createEmptyComposition(name, useFretworkStore.getState().instrumentId);
         if (collectionId !== undefined && collectionId !== null) {
           c.collectionId = collectionId;
@@ -864,6 +880,28 @@ function clearDraftIf(s: PatternsState, id: string | null): { unpersistedDraftId
   return s.unpersistedDraftId !== null && s.unpersistedDraftId === id
     ? { unpersistedDraftId: null }
     : {};
+}
+
+/**
+ * Centralized cap gate for content-creation actions. If the user is at their
+ * tier's limit, opens the upgrade prompt (or signup modal for anon) and returns
+ * false so the caller can refuse the create. Returns true when the create may
+ * proceed.
+ *
+ * Anon users have no Pro tier to upgrade to, so they get the SignupModal —
+ * "sign up to keep going" rather than "upgrade to Pro."
+ */
+function gateCreate(kind: CappedKind, currentCount: number): boolean {
+  const auth = useAuthStore.getState();
+  const subscription = auth.subscription ?? DEFAULT_SUBSCRIPTION;
+  const check = canCreate(subscription.tier, kind, currentCount);
+  if (check.allowed) return true;
+  if (auth.user === null) {
+    auth.openSignupModal(`cap-${kind}`);
+  } else {
+    auth.openUpgradePrompt({ kind, cap: check.cap });
+  }
+  return false;
 }
 
 function applyComposition(
