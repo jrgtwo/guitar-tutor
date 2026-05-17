@@ -15,9 +15,15 @@ import {
   selectEditingComposition,
   selectEditingPattern,
   usePatternsStore,
+  type FretInstrumentId,
 } from '@fretwork/lib';
 import { SimplePopover } from '../../components/ui/SimplePopover';
 import { ItemMetadataPanel } from './ItemMetadataPanel';
+import { VoicePickerChip } from '../../voices/VoicePickerChip';
+
+function asFretInstrumentId(id: string): FretInstrumentId {
+  return (id === 'bass' || id === 'ukulele' ? id : 'guitar') as FretInstrumentId;
+}
 
 export function PatternControlsBar() {
   const activeTab = usePatternsStore((s) => s.activeTab);
@@ -48,7 +54,7 @@ export function PatternControlsBar() {
   );
 
   return (
-    <div className="sticky top-[57px] z-20 flex justify-center px-4 sm:px-6 py-2 bg-charcoal-raised/70 backdrop-blur border-b border-border/40">
+    <div className="sticky top-[57px] z-20 flex justify-center items-center gap-2 px-4 sm:px-6 py-2 bg-charcoal-raised/70 backdrop-blur border-b border-border/40">
       <div className="w-full max-w-2xl">
         <SimplePopover
           trigger={chipButton}
@@ -61,6 +67,7 @@ export function PatternControlsBar() {
           <ItemMetadataPanel item={item} kind={kind} onClose={() => setOpen(false)} />
         </SimplePopover>
       </div>
+      <VoicePickerChip instrumentId={asFretInstrumentId(item.instrumentId)} allowMutations={false} />
     </div>
   );
 }
