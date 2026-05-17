@@ -28,7 +28,7 @@ export const ACOUSTIC_GUITAR_PRESET: VoicePreset = {
   source: {
     kind: 'fm-synth',
     params: {
-      harmonicity: 1,
+      harmonicity: 1.95,
       modulationIndex: 4,
       detune: 0,
       carrierWaveform: 'triangle',
@@ -238,22 +238,6 @@ export const VOICE_PRESETS: readonly VoicePreset[] = [
   ELECTRIC_BASS_PRESET,
   ACOUSTIC_UKULELE_PRESET,
 ];
-
-const PRESETS_BY_ID = new Map(VOICE_PRESETS.map((p) => [p.id, p]));
-
-export function getVoicePreset(id: string): VoicePreset | undefined {
-  return PRESETS_BY_ID.get(id);
-}
-
-export function getVoicePresetsFor(instrumentId: FretInstrumentId): VoicePreset[] {
-  return VOICE_PRESETS.filter((p) => p.instrumentId === instrumentId);
-}
-
-export const DEFAULT_PRESET_BY_INSTRUMENT: Readonly<Record<FretInstrumentId, string>> = {
-  guitar: ACOUSTIC_GUITAR_PRESET.id,
-  bass: ELECTRIC_BASS_PRESET.id,
-  ukulele: ACOUSTIC_UKULELE_PRESET.id,
-};
 
 export function findPreset(
   instrumentId: FretInstrumentId,

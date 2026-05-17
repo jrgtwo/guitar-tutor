@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import App from './App';
 import { SoundLab } from './sound-lab/SoundLab';
 import { PatternsPage } from './patterns/PatternsPage';
-import { seedCommittedPresets } from '@fretwork/lib';
+import { CatalogPage } from './catalog/CatalogPage';
 import { AuthCallbackHandler } from './auth/AuthCallbackHandler';
 import { ProfilePage } from './profile/ProfilePage';
 import { ProfileSettings } from './profile/ProfileSettings';
@@ -15,16 +15,10 @@ import { useLocation } from './router';
 import '@fretwork/lib/styles/tokens.css';
 import './styles/index.css';
 
-// Fire-and-forget: load committed preset tunings from `/presets/<id>.json`. The
-// fetch happens in parallel with React mounting; if files exist they fill the
-// committed-overrides cache and a `fretwork:overrides-changed` event prods
-// subscribers (lab + main app's usePlayback) to re-resolve. Failures are silent — callers fall through to localStorage
-// and then the shipped defaults in `presets.ts`.
-void seedCommittedPresets();
-
 // Query-param routing:
 //   ?lab=1            → Sound Lab (developer-facing audio tuning surface)
 //   ?page=patterns    → Patterns editor
+//   ?page=catalog     → Library catalog (cross-kind browser)
 //   ?profile=<name>   → Public profile page (signed-in only)
 //   ?settings=1       → Profile Settings (signed-in only)
 //   ?pattern=<uuid>   → Shared pattern viewer (anon-accessible for non-private rows)
@@ -34,7 +28,9 @@ function Root() {
   // browser back/forward, so changing routes re-renders without a page reload.
   const { params } = useLocation();
   const isSoundLab = params.get('lab') === '1';
-  const isPatterns = params.get('page') === 'patterns';
+  const page = params.get('page');
+  const isPatterns = page === 'patterns';
+  const isCatalog = page === 'catalog';
   const profileName = params.get('profile');
   const isSettings = params.get('settings') === '1';
   const sharedPatternId = params.get('pattern');
@@ -42,16 +38,17 @@ function Root() {
   // AuthCallbackHandler must mount alongside every route — it manages the
   // singleton auth subscription and overlays the SignupForm / SignupModal as
   // needed. Without it, no auth state is ever read.
-  let page;
-  if (sharedPatternId) page = <SharedPatternView patternId={sharedPatternId} />;
-  else if (isSoundLab) page = <SoundLab />;
-  else if (isPatterns) page = <PatternsPage />;
-  else if (profileName) page = <ProfilePage displayName={profileName} />;
-  else if (isSettings) page = <ProfileSettings />;
-  else page = <App />;
+  let body;
+  if (sharedPatternId) body = <SharedPatternView patternId={sharedPatternId} />;
+  else if (isSoundLab) body = <SoundLab />;
+  else if (isPatterns) body = <PatternsPage />;
+  else if (isCatalog) body = <CatalogPage />;
+  else if (profileName) body = <ProfilePage displayName={profileName} />;
+  else if (isSettings) body = <ProfileSettings />;
+  else body = <App />;
   return (
     <>
-      {page}
+      {body}
       <AuthCallbackHandler />
     </>
   );

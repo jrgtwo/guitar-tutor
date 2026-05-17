@@ -14,11 +14,11 @@ A long-running implementation effort. Use the **Implementation Checklist** secti
 | D — Anon → signed-in migration | ✅ Done | sessionStorage swap + migration prompt + migration-done flag fix. |
 | E — Patterns/Compositions cloud sync | ✅ Done | Diff-sync, hydration, sign-out cleanup. UUIDs for DB-bound IDs. |
 | F.1 — Sound Lab cloud sync | ✅ Done | Storage swap, hydration, lab override sync, migration prompt extension. Migration-deferred-hydration fix. |
-| F.2 — Multi-variant Sound Lab UI | ⏳ Deferred | Save As / Rename / Delete in the lab; UX upgrade rather than foundation. |
+| F.2 — Multi-variant Sound Lab UI | ✅ Done | Per-instrument variants with shared folder picker mounted on Practice / Patterns / Sound Lab. Defaults are read-only; lab edits require explicit Save / Save-as. Tier cap (20 variants on Free) is enforced. Catalog page (`?page=catalog`) shipped as part of this work. Variant Export/Import, admin-gated default preset publishing, and tunings for the 4 non-acoustic-guitar defaults remain follow-ups. |
 | G — Sharing, forking, profile editor, account deletion | ✅ Done | Account deletion (RPC + Edge Function), profile editor at `?settings=1`, catalog metadata schema, sidebar-free patterns page with top controls bar + metadata popover, auto-seed drafts, shared pattern viewer at `?pattern=<uuid>`, denormalized attribution, fork action, visibility-aware delete confirm, SPA in-app navigation. Composition / voice-preset viewers still deferred (data model ready). |
 | H — Library organization (collections / folders) | ✅ MVP | **Pivoted away from teacher/student workflows.** Migration 0010 + nested-folder data model (kind-agnostic), tree navigation in the picker (breadcrumb + create folder + create in current folder). Row actions (rename / move / delete with confirm) and folder-share viewer route deferred to a later polish pass. Original teacher/student spec parked — revisit on top of collections + access codes when ready. |
 | I — Help button + per-page walkthroughs | ⏳ Deferred (post-UI-polish) | Waiting until UI surfaces stabilize so walkthroughs don't get rewritten every polish pass. |
-| J — Monetization tier scaffolding | ✅ Done (billing deferred) | Free / Pro tiers with 200/100/20 caps. `gateCreate` enforces on create / duplicate / fork / auto-seed. Anon → SignupModal at cap; signed-in → UpgradePrompt. Stripe wiring, real upgrade flow, feature-gating for Pro-only features, and a TierBadge UI are all deferred until Pro has real unlocks. |
+| J — Monetization tier scaffolding | ✅ Done (billing deferred) | Free / Pro tiers with 200 patterns / 100 compositions / 20 voice variants caps. `gateCreate` (in `lib/src/subscription/gate.ts`) enforces on pattern create / duplicate / fork / auto-seed, composition create, and voice-variant create. Anon → SignupModal at cap; signed-in → UpgradePrompt. Stripe wiring, real upgrade flow, feature-gating for Pro-only features, and a TierBadge UI are all deferred until Pro has real unlocks. |
 | K — Final verification & cleanup | ⏳ Pending | Manual E2E flows + automated tests + legacy-localStorage shim removal + doc consolidation. |
 
 **Where to pick up next:** Group K — verification + cleanup pass.
@@ -63,7 +63,7 @@ A single user is often more than one persona at different times. UI affordances 
 | Provider coupling | Architecture is provider-agnostic; never read provider-specific fields in domain code |
 | Anon participation | Preview mode — full demo of the app with sessionStorage backing. Signup CTA modal on any account-gated action. |
 | Signed-in persistence | Supabase Postgres with RLS (`auth.uid() = user_id`) |
-| Anon → signed-in | Migration prompt at signup: "You made N patterns / M compositions / K voice presets during this session. Add them to your account?" All-or-nothing. Blocking modal. |
+| Anon → signed-in | Migration prompt at signup: "You made N patterns / M compositions / K voice variants during this session. Add them to your account?" All-or-nothing. Blocking modal. |
 | Sign-out semantics | Clear in-memory state, clear sessionStorage, clear cached cloud data, transport stops |
 | Naming conflicts on import | Imported items keep their names; cloud accepts duplicates (uniqueness by id) |
 | Profile data source | User-entered at signup; nothing pre-populated from the auth provider |
@@ -346,7 +346,7 @@ create policy "users read own subscription" on subscriptions for select using (a
    - All optional fields (avatar, bio, pronouns, external link, socials, instruments, years, skill, genres, lessons flags)
 5. On submit: insert `profiles` row + `user_settings` singleton + `subscriptions` row (tier='free') in a single transaction.
 6. If session storage has anon content → migration prompt modal:
-   - "You created N patterns, M compositions, K voice presets during this session. Add them to your account?"
+   - "You created N patterns, M compositions, K voice variants during this session. Add them to your account?"
    - Add → bulk-insert into respective tables.
    - Discard → clear sessionStorage.
 7. Drop user into the app.
@@ -622,8 +622,8 @@ Updates to read from `user_settings.active_presets` first (when signed in) → c
 
 | Tier | Price (illustrative) | Caps / features |
 |---|---|---|
-| **Free** | $0 | ~25 patterns / 10 compositions / 3 voice presets in own library. Full catalog/community browsing. Sharing + forking work (forks count toward caps). Basic Sound Lab. No exports / recording / analytics. |
-| **Pro** | $5–10/mo | Free + unlimited patterns/compositions/voice presets. Exports (MIDI/MusicXML/audio). Audio recording. Practice analytics. Multi-preset Sound Lab fully unlocked. |
+| **Free** | $0 | 200 patterns / 100 compositions / 20 voice variants in own library. Full catalog/community browsing. Sharing + forking work (forks count toward caps). Basic Sound Lab. No exports / recording / analytics. |
+| **Pro** | $5–10/mo | Free + unlimited patterns/compositions/voice variants. Exports (MIDI/MusicXML/audio). Audio recording. Practice analytics. Multi-variant Sound Lab fully unlocked. |
 | **Teacher** | $15–25/mo | Pro + teaching workflows: student management, assignments, notes, per-student tracking. Some student-count cap (e.g., 30). |
 
 ### What's NOT gated
@@ -840,16 +840,61 @@ Split into two sub-groups for shipping clarity.
 
 - [x] Switch `preset-overrides.ts` from `localStorage` to `sessionStorage`. Added one-time-migration shim `migrateLegacyLabStorage()` that copies existing `localStorage['fretwork:lab-presets:v1']` to sessionStorage on module import. Idempotent.
 - [x] Extended `cloud/sync.ts` with `hydrateLabFromCloud()` + `performLabSync()`: pulls `voice_presets` rows + `user_settings.reverb` on sign-in into the existing `PresetOverridesData` shape; subscribes to override changes via `subscribeToOverrides`; debounced 500ms diff-sync (INSERT/UPDATE/DELETE for voice_presets; upsert for user_settings.reverb). Row-id map (`labRowIdByPresetId`) makes UPDATEs O(1) without round-trip selects.
-- [x] Migration prompt extended: `MigrationCounts` gains `voicePresets` + `reverbCustomized`; `uploadSessionContent()` uploads voice presets and reverb in addition to patterns/compositions. MigrationPromptDialog UI shows additional rows.
+- [x] Migration prompt extended: `MigrationCounts` gains `voiceVariants` + `reverbCustomized`; `uploadSessionContent()` uploads voice variants + active-variant refs + reverb in addition to patterns/compositions. MigrationPromptDialog UI shows additional rows.
 - [x] Teardown on sign-out clears `LAB_STORAGE_KEY` from sessionStorage and resets in-memory caches via `saveOverrides({...empty})`.
 
-**F.2 — Multi-variant UI (deferred):**
+**F.2 — Multi-variant UI ✅ Done:**
 
-- [ ] New `Variants` picker dropdown per `(instrumentId, family)` in the Sound Lab
-- [ ] "Save as…" button + new-variant modal
-- [ ] Rename + Delete actions on the active variant
-- [ ] `user_settings.active_presets` map of `{instrumentId-family}-{variantId}` driving `findEffectivePreset`
-- [ ] Migration of existing single-override data into the variant model (one "Imported" variant per preset_id, marked active)
+Core data model + sync:
+- [x] Per-instrument variants store (`useVoiceStore`) with sessionStorage v2 + cloud round-trip via `voice_presets` + `user_settings.active_presets` (jsonb map keyed by instrumentId). Debounced auto-save is gone — sync fires on every committed store change (Save / Save-as / Rename / Move / Delete / variant-switch).
+- [x] New resolver `resolveActiveVoice(instrumentId)` replaces `findEffectivePreset`; falls back to the instrument's first default on any miss. Old override APIs (`findEffectivePreset`, `getEffectivePreset`, `setPresetOverride`, `clearPresetOverride`, `clearAllOverrides`, `getPresetSource`, `subscribeToOverrides`) removed.
+- [x] `sanitizeActiveVariants` on hydrate: stale user-variant refs fall back to defaults instead of resolving to nothing.
+
+Picker infrastructure:
+- [x] Shared `<LibraryPickerPanel>` extracted from `PatternPickerPanel` (in `example/src/library/`). Folder helpers (`buildBreadcrumb`, `subfoldersOf`, `itemsInFolder`, `buildFolderCounter`, `countItemsInFolderTree`) live in `example/src/library/folder-helpers.ts`. Patterns picker + new `CompositionPickerPanel` + voices picker all wrap it.
+- [x] `<VoicePickerChip>` mounted in three places: Sound Lab header (`allowMutations`), Practice page strip (replaces acoustic/electric segmented toggle and radio group), Patterns page controls bar. Per spec, create/rename/move/delete only exposed in the Sound Lab.
+- [x] SaveAs / Rename / Delete / Move dialogs. SaveAs + Move support inline "+ New folder" creation that nests under the currently-selected folder.
+
+Sound Lab rewrite:
+- [x] Instrument tab strip (guitar / bass / ukulele).
+- [x] Ephemeral `pendingPreset` state — slider edits never persist until the user commits.
+- [x] Two save buttons: Save (disabled when active = default) and "Save as new variant…".
+- [x] Defaults read-only banner + dirty-state confirm on instrument/variant switch + `beforeunload` guard for full-page nav.
+- [x] Removed: auto-save / debounced sync / `Reset preset` / `Reset all` / `SourceIndicator` / Export-Import (slot-keyed) / dev POST plugin.
+
+Mounts on Practice + Patterns:
+- [x] `VoicePickerChip` (read-only) replaces the acoustic/electric toggle in the metronome strip's `SoundControls` / `SoundInlineToggle` (Practice page).
+- [x] `VoicePickerChip` in `PatternControlsBar` (Patterns page), scoped to the active item's instrument.
+
+Catalog page:
+- [x] `?page=catalog` mounted in `main.tsx` + `Catalog` link in TopBar nav. Heterogeneous library browser (`example/src/catalog/CatalogPage.tsx` + `CatalogRow.tsx`) with kind / instrument / search filters and kind-aware folder counts. Opens each kind in the appropriate editor on click.
+- [x] TopBar nav now reflects active route across Practice / Patterns / Catalog (shared `navLinkClass(active)` helper).
+
+Tier cap enforcement:
+- [x] `gateCreate` extracted to `lib/src/subscription/gate.ts`; both `usePatternsStore` and `useVoiceStore` import from it.
+- [x] `useVoiceStore.addVariant` enforces `voiceVariants` cap (20 on Free). Anon → SignupModal; signed-in → UpgradePrompt. `SaveAsVariantDialog` closes on refusal so the prompt is the sole modal.
+- [x] Cap key renamed `voicePresets` → `voiceVariants` throughout `CappedKind` / `TIER_LIMITS` / `KIND_LABELS` / `UpgradePromptContext.kind` + user-facing copy.
+
+Default-preset workflow:
+- [x] Single source of truth for shipped baselines is `lib/src/playback/voices/presets.ts`. Acoustic-guitar tuning previously living in `example/public/presets/acoustic-guitar.json` was baked into `presets.ts` (`harmonicity: 1` → `1.95`). The committed-file loader (`seedCommittedPresets`, `getCommittedPreset`, `committedPresetsLoaded`) and the `public/presets/` directory were deleted.
+
+Dead-code sweep:
+- [x] `voiceFamily` / `setVoiceFamily` removed from `UsePlaybackReturn` and `usePlaybackStore` (no consumers after the toggle was replaced).
+- [x] `sidebarCollapsed` field + `setSidebarCollapsed` setter removed from `usePatternsStore` (LibrarySidebar was deleted during Group H).
+- [x] `migrateLegacyLocalStorage` shim removed from `usePatternsStore.ts` (pre-launch, no real users to migrate).
+- [x] `DEFAULT_PRESET_BY_INSTRUMENT`, `getVoicePreset`, `getVoicePresetsFor`, `PRESETS_BY_ID` deleted from `presets.ts` and from every barrel.
+- [x] `example/vite-lab-save-plugin.ts` + its registration in `vite.config.ts` deleted.
+
+**Deferred to a follow-up (tracked here so nothing gets lost):**
+
+- [ ] **Admin-gated default-preset publishing.** No way today for the project owner to ship a tuned voice as the new shipped baseline without editing `presets.ts` by hand. Proper path: admin user_id list + Supabase `committed_presets` table (admin-only RLS) + "Publish as default" button in the lab + resolver consults committed layer between user variants and shipped defaults. Memory captured at `~/.claude/projects/.../memory/project_admin_portal_for_default_presets.md`. Until then, `presets.ts` is the only path.
+- [ ] **Defaults for the 4 non-acoustic-guitar slots remain at the source-code baseline.** Electric guitar, acoustic bass, electric bass, and acoustic ukulele have not been tuned via the lab. When the admin portal lands (or via manual `presets.ts` edits) these should be revisited.
+- [ ] **Variant Export / Import.** The old slot-keyed JSON blob Export/Import was removed in Chunk 4. A single-variant equivalent (clipboard-copy of the active variant's preset blob) would let users back up / share individual variants outside the cloud-sync layer. Build when there's a real workflow that needs it.
+- [ ] **Composition / voice-preset share-route viewers.** `?composition=<uuid>` and `?voice-preset=<uuid>` parallel to `?pattern=<uuid>` are still unbuilt (also listed under Group G).
+- [ ] **"Forked from [Original Creator]" attribution surface.** `forkedFromId` is captured at fork time but no UI surfaces it yet (also listed under Group G).
+- [ ] **Folder picker row-actions polish.** Rename folder, delete folder ("contains N items" confirm), Move-to submenu for items and folders. Today these only work for variants via the dedicated dialogs; folders themselves are still create-and-leave-in-place (also listed under Group H).
+- [ ] **Drag-and-drop folder/item reorg** across all pickers + catalog (also listed under Group H).
+- [ ] **Cross-device manual verification** — listed in the Group K checklist below; not yet executed for variants specifically.
 
 ### Group G — Sharing, forking, profile editor, account deletion ✅ Done
 
@@ -921,12 +966,12 @@ Waiting until the UI surfaces stabilize. Walkthroughs are tightly coupled to spe
 
 ### Group J — Monetization tier scaffolding ✅ Done (billing deferred)
 
-Two-tier model: Free (200 patterns / 100 compositions / 20 voice presets) and Pro ($2.99/mo, unlimited + future feature unlocks). Teacher tier dropped — the original justification (teaching-workflow access) is moot post-Group-H pivot. Strategy: ship cap enforcement now, layer in Pro feature unlocks (MIDI input, multi-instrument band, exports, recording) as those features get built. Stripe wiring is its own milestone.
+Two-tier model: Free (200 patterns / 100 compositions / 20 voice variants) and Pro ($2.99/mo, unlimited + future feature unlocks). Teacher tier dropped — the original justification (teaching-workflow access) is moot post-Group-H pivot. Strategy: ship cap enforcement now, layer in Pro feature unlocks (MIDI input, multi-instrument band, exports, recording) as those features get built. Stripe wiring is its own milestone.
 
 Done:
 - [x] `lib/src/subscription/` module: `Tier` type, `Subscription` type, `TIER_LIMITS`, `KIND_LABELS`, `canCreate` helper, `DEFAULT_SUBSCRIPTION` fallback. Exported from public lib surface.
 - [x] `useAuthStore` gains `subscription` + upgrade-prompt state and actions. Subscription fetched alongside profile on sign-in / re-hydrate; cleared on sign-out.
-- [x] `gateCreate` in `usePatternsStore` enforces caps on `createPattern`, `createComposition`, `duplicatePattern`, `forkPattern`. `ensureEditingPattern` skips auto-seed only in degenerate zero-cap cases. Anon-at-cap → SignupModal; signed-in-at-cap → UpgradePrompt.
+- [x] `gateCreate` (extracted to `lib/src/subscription/gate.ts`) enforces caps. `usePatternsStore` gates `createPattern`, `createComposition`, `duplicatePattern`, `forkPattern`; `ensureEditingPattern` skips auto-seed only in degenerate zero-cap cases. `useVoiceStore.addVariant` gates voice-variant creation. Anon-at-cap → SignupModal; signed-in-at-cap → UpgradePrompt.
 - [x] `example/src/subscription/UpgradePrompt.tsx` — modal listing Pro perks (unlimited + MIDI + multi-instrument + exports, "coming soon"). Mounted globally via `AuthCallbackHandler`.
 
 Deferred (need to do):
@@ -956,7 +1001,7 @@ Deferred (need to do):
 
 ## Verification (end-to-end manual flows)
 
-1. **Cold anon → first signup → migration: Add.** Open in incognito → app is anon, no patterns. Create 2 patterns + 1 composition + 1 voice preset variant. Click any account-gated action (e.g., Share) → signup modal appears. Continue with Google. SignupForm appears. Fill it out. Migration prompt: "2 patterns, 1 composition, 1 voice preset." Click Add. Cloud now has all of them.
+1. **Cold anon → first signup → migration: Add.** Open in incognito → app is anon, no patterns. Create 2 patterns + 1 composition + 1 voice variant. Click any account-gated action (e.g., Share) → signup modal appears. Continue with Google. SignupForm appears. Fill it out. Migration prompt: "2 patterns, 1 composition, 1 voice variant." Click Add. Cloud now has all of them.
 2. **Cold anon → first signup → migration: Discard.** Same setup. Click Discard. Cloud is empty. SessionStorage is cleared.
 3. **Returning signin.** Sign out. Click Sign In. OAuth round-trip. No SignupForm. Cloud content loads. No migration prompt.
 4. **Reload as anon.** Open new tab. Create 1 pattern. Reload. Pattern still there. Close tab. Reopen. Pattern is gone.

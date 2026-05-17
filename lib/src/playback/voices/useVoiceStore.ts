@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist, type PersistStorage, type StorageValue } from 'zustand/middleware';
 import { generateUuid } from '../../patterns/ids';
+import { gateCreate } from '../../subscription/gate';
 import { getInstrumentFirstDefaultSlotId } from './slots';
 import type { Variant, VariantRef, ActiveVariantsMap } from './variant-types';
 import { makeDefaultActiveVariants } from './variant-types';
@@ -37,6 +38,10 @@ export const useVoiceStore = create<VoiceState>()(
       reverb: null,
 
       addVariant(input) {
+        // Tier cap: refuse and open signup/upgrade prompt at the Free cap.
+        // Returns '' on refusal so callers can `if (!id) return;`, mirroring
+        // `createPattern` / `createComposition` semantics.
+        if (!gateCreate('voiceVariants', get().variants.length)) return '';
         const id = generateUuid();
         set((s) => ({ variants: [...s.variants, { ...input, id }] }));
         return id;

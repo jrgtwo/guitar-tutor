@@ -19,7 +19,6 @@ import {
   startAudio,
   resolveActiveVoice,
   useVoiceStore,
-  getCommittedReverb,
   type FretInstrumentId,
   type AutoWahParams,
   type BodyFilterEnvelope,
@@ -75,7 +74,7 @@ export function SoundLab() {
 
   const [pendingPreset, setPendingPreset] = useState<VoicePreset>(baseVariantPreset);
   const [pendingReverb, setPendingReverb] = useState<ReverbSettings>(
-    storedReverb ?? getCommittedReverb() ?? DEFAULT_REVERB_SETTINGS,
+    storedReverb ?? DEFAULT_REVERB_SETTINGS,
   );
   const [isDirty, setIsDirty] = useState(false);
   const [saveAsOpen, setSaveAsOpen] = useState(false);
@@ -94,7 +93,7 @@ export function SoundLab() {
   // dirty (the lab can still tweak reverb sliders; saved on next Save).
   useEffect(() => {
     if (!isDirty) {
-      setPendingReverb(storedReverb ?? getCommittedReverb() ?? DEFAULT_REVERB_SETTINGS);
+      setPendingReverb(storedReverb ?? DEFAULT_REVERB_SETTINGS);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storedReverb]);
@@ -208,7 +207,7 @@ export function SoundLab() {
       <header className="border-b border-border/40 bg-charcoal-raised/70 backdrop-blur px-6 py-3 flex items-center gap-4">
         <h1 className="text-lg font-bold tracking-tight">Sound Lab</h1>
         <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/70">
-          Tune voice presets · /?lab=1
+          Tune voice variants · /?lab=1
         </span>
         <div className="ml-auto flex items-center gap-2">
           <Link to={{ kind: 'home' }} className="text-xs font-mono uppercase tracking-wider text-muted-foreground hover:text-foreground">

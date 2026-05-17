@@ -14,6 +14,7 @@ const LOCATION_CHANGE_EVENT = 'fretwork:location-change';
 export type Route =
   | { kind: 'home' }
   | { kind: 'patterns' }
+  | { kind: 'catalog' }
   | { kind: 'lab' }
   | { kind: 'profile'; displayName: string }
   | { kind: 'settings' };
@@ -31,6 +32,9 @@ function routeToUrl(route: Route): URL {
       break;
     case 'patterns':
       url.searchParams.set('page', 'patterns');
+      break;
+    case 'catalog':
+      url.searchParams.set('page', 'catalog');
       break;
     case 'lab':
       url.searchParams.set('lab', '1');

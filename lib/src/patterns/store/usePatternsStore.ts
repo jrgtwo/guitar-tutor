@@ -60,7 +60,8 @@ import {
 } from '../collection-ops';
 import { useFretworkStore } from '../../store/useFretworkStore';
 import { useAuthStore } from '../../auth/useAuthStore';
-import { canCreate, DEFAULT_SUBSCRIPTION, type CappedKind } from '../../subscription';
+import { canCreate, DEFAULT_SUBSCRIPTION } from '../../subscription';
+import { gateCreate } from '../../subscription/gate';
 
 export type WorkspaceTab = 'edit' | 'arrange';
 export type SelectionMode = 'replace' | 'add' | 'toggle';
@@ -75,7 +76,6 @@ export interface PatternsState {
   // Persisted
   library: Library;
   activeTab: WorkspaceTab;
-  sidebarCollapsed: boolean;
   fretboardCollapsed: boolean;
   stepLength: StepLength;
   /**
@@ -130,7 +130,6 @@ export interface PatternsActions {
 
   // Tab & layout
   setActiveTab(tab: WorkspaceTab): void;
-  setSidebarCollapsed(b: boolean): void;
   setFretboardCollapsed(b: boolean): void;
 
   // Open for editing
@@ -180,7 +179,6 @@ const PERSIST_KEY = 'fretwork:patterns:v1';
 export const DEFAULT_PATTERNS_STATE: PatternsState = {
   library: { patterns: [], compositions: [], collections: [] },
   activeTab: 'edit',
-  sidebarCollapsed: false,
   fretboardCollapsed: false,
   stepLength: 'eighth',
   unpersistedDraftId: null,
@@ -197,18 +195,13 @@ export const DEFAULT_PATTERNS_STATE: PatternsState = {
 // Anon users persist to sessionStorage — survives reload within the same tab,
 // dies when the tab closes. Privacy stance: no public-computer leaks. Signed-in
 // users sync to Supabase (Group E) instead of relying on this layer.
-//
-// One-time migration: if a user has an existing localStorage entry from before
-// this swap, copy it to sessionStorage on first load so they don't lose work.
-// See `migrateLegacyLocalStorage()` below; called on module import.
-const persistOptions: PersistOptions<PatternsStoreState, Pick<PatternsStoreState, 'library' | 'activeTab' | 'sidebarCollapsed' | 'fretboardCollapsed' | 'stepLength' | 'unpersistedDraftId'>> = {
+const persistOptions: PersistOptions<PatternsStoreState, Pick<PatternsStoreState, 'library' | 'activeTab' | 'fretboardCollapsed' | 'stepLength' | 'unpersistedDraftId'>> = {
   name: PERSIST_KEY,
   version: 1,
   storage: createJSONStorage(() => (typeof sessionStorage !== 'undefined' ? sessionStorage : memoryStorage())),
   partialize: (state) => ({
     library: state.library,
     activeTab: state.activeTab,
-    sidebarCollapsed: state.sidebarCollapsed,
     fretboardCollapsed: state.fretboardCollapsed,
     stepLength: state.stepLength,
     // Persisted so a refresh-within-tab keeps the draft as a draft rather than
@@ -234,41 +227,6 @@ function memoryStorage(): Storage {
     },
   } as Storage;
 }
-
-/**
- * One-time migration: copy any existing `fretwork:patterns:v1` data from
- * localStorage into sessionStorage and delete the localStorage entry.
- *
- * Why: before this work, the patterns library was persisted in localStorage
- * (durable across tab closes). The privacy stance changed (anon users should
- * not leave content on disk for the next person on a public computer), so we
- * swapped to sessionStorage. Existing users who already have library data in
- * localStorage would lose it on the swap without this shim.
- *
- * Runs exactly once per page load on module import. After successful copy,
- * the localStorage key is removed so the migration doesn't re-run on every
- * reload. Idempotent — if there's nothing to migrate or migration already
- * happened, it's a no-op.
- */
-function migrateLegacyLocalStorage(): void {
-  if (typeof localStorage === 'undefined' || typeof sessionStorage === 'undefined') return;
-  try {
-    const legacy = localStorage.getItem(PERSIST_KEY);
-    if (!legacy) return;
-    if (sessionStorage.getItem(PERSIST_KEY)) {
-      // Session already has data — leave it alone, just clear legacy.
-      localStorage.removeItem(PERSIST_KEY);
-      return;
-    }
-    sessionStorage.setItem(PERSIST_KEY, legacy);
-    localStorage.removeItem(PERSIST_KEY);
-  } catch {
-    // Storage may throw in private-browsing modes or quota-exceeded states.
-    // A failed migration is OK — the user just starts with an empty session.
-  }
-}
-
-migrateLegacyLocalStorage();
 
 export const usePatternsStore = create<PatternsStoreState>()(
   persist(
@@ -591,9 +549,6 @@ export const usePatternsStore = create<PatternsStoreState>()(
       setActiveTab(tab) {
         set({ activeTab: tab });
       },
-      setSidebarCollapsed(b) {
-        set({ sidebarCollapsed: b });
-      },
       setFretboardCollapsed(b) {
         set({ fretboardCollapsed: b });
       },
@@ -880,28 +835,6 @@ function clearDraftIf(s: PatternsState, id: string | null): { unpersistedDraftId
   return s.unpersistedDraftId !== null && s.unpersistedDraftId === id
     ? { unpersistedDraftId: null }
     : {};
-}
-
-/**
- * Centralized cap gate for content-creation actions. If the user is at their
- * tier's limit, opens the upgrade prompt (or signup modal for anon) and returns
- * false so the caller can refuse the create. Returns true when the create may
- * proceed.
- *
- * Anon users have no Pro tier to upgrade to, so they get the SignupModal —
- * "sign up to keep going" rather than "upgrade to Pro."
- */
-function gateCreate(kind: CappedKind, currentCount: number): boolean {
-  const auth = useAuthStore.getState();
-  const subscription = auth.subscription ?? DEFAULT_SUBSCRIPTION;
-  const check = canCreate(subscription.tier, kind, currentCount);
-  if (check.allowed) return true;
-  if (auth.user === null) {
-    auth.openSignupModal(`cap-${kind}`);
-  } else {
-    auth.openUpgradePrompt({ kind, cap: check.cap });
-  }
-  return false;
 }
 
 function applyComposition(

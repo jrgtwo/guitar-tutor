@@ -71,6 +71,12 @@ export function SaveAsVariantDialog({
       collectionId,
       preset: { ...seedPreset, name: trimmed },
     });
+    // Tier cap refused — `addVariant` already opened the signup/upgrade
+    // prompt. Close this dialog so the prompt is the only modal visible.
+    if (!id) {
+      onClose();
+      return;
+    }
     setActive(instrumentId, { kind: 'user', id });
     onSaved?.(id);
     onClose();

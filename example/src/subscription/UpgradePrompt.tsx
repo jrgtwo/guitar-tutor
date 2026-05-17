@@ -47,7 +47,7 @@ export function UpgradePrompt() {
             Pro includes
           </p>
           <ul className="flex flex-col gap-1.5 text-sm text-foreground/90">
-            <li>· Unlimited patterns, compositions, and voice presets</li>
+            <li>· Unlimited patterns, compositions, and voice variants</li>
             <li>· MIDI input for pattern creation (coming soon)</li>
             <li>· Multi-instrument band playback (coming soon)</li>
             <li>· Pattern + audio exports (coming soon)</li>

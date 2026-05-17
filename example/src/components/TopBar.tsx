@@ -16,7 +16,7 @@ import { SimplePopover } from './ui/SimplePopover';
 import { Section } from './ui/Section';
 import { useContextSummary } from './useContextSummary';
 import { SignInButton } from '@/auth/SignInButton';
-import { Link } from '@/router';
+import { Link, useLocation } from '@/router';
 
 const DESKTOP_QUERY = '(min-width: 768px)';
 
@@ -40,6 +40,22 @@ export function TopBar() {
   const isDesktop = useIsDesktop();
   const [desktopOpen, setDesktopOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  // Active route detection for nav highlighting. Anything that isn't an
+  // explicit page lands on Practice (`?` with no recognized routing params).
+  const { params } = useLocation();
+  const currentPage = params.get('page');
+  const isLab = params.get('lab') === '1';
+  const isPatternsPage = currentPage === 'patterns';
+  const isCatalogPage = currentPage === 'catalog';
+  const isPracticePage = !isLab && !isPatternsPage && !isCatalogPage &&
+    !params.get('profile') && params.get('settings') !== '1' && !params.get('pattern');
+
+  const navLinkClass = (active: boolean) =>
+    'h-8 px-3 inline-flex items-center rounded-md text-xs font-mono uppercase tracking-wider transition-colors ' +
+    (active
+      ? 'bg-white/5 text-foreground'
+      : 'text-muted-foreground hover:text-foreground hover:bg-white/5');
 
   // Single chip button reused as the trigger in both surfaces. On mobile we don't
   // use SimplePopover (a full Dialog handles it instead), so we wire the mobile
@@ -67,16 +83,24 @@ export function TopBar() {
           <nav className="flex items-center gap-1">
             <Link
               to={{ kind: 'home' }}
-              aria-current="page"
-              className="h-8 px-3 inline-flex items-center rounded-md text-xs font-mono uppercase tracking-wider bg-white/5 text-foreground"
+              aria-current={isPracticePage ? 'page' : undefined}
+              className={navLinkClass(isPracticePage)}
             >
               Practice
             </Link>
             <Link
               to={{ kind: 'patterns' }}
-              className="h-8 px-3 inline-flex items-center rounded-md text-xs font-mono uppercase tracking-wider text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors"
+              aria-current={isPatternsPage ? 'page' : undefined}
+              className={navLinkClass(isPatternsPage)}
             >
               Patterns
+            </Link>
+            <Link
+              to={{ kind: 'catalog' }}
+              aria-current={isCatalogPage ? 'page' : undefined}
+              className={navLinkClass(isCatalogPage)}
+            >
+              Catalog
             </Link>
           </nav>
           <div className="flex items-center gap-2 shrink-0">

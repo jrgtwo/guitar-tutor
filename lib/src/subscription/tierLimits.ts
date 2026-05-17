@@ -3,29 +3,27 @@
  * the Free side — strategy is "real product experience, then a paid upgrade for
  * heavy users + future feature unlocks" rather than "tight trial cap."
  *
- * Folders are uncapped (cheap metadata, no value-prop reason to limit). Voice
- * preset cap is defined but enforcement is dormant until the multi-variant Sound
- * Lab UI ships (F.2) — the current 5-shipped-presets surface can't trip it.
+ * Folders are uncapped (cheap metadata, no value-prop reason to limit).
  */
 import type { Tier } from './types';
 
-export type CappedKind = 'patterns' | 'compositions' | 'voicePresets';
+export type CappedKind = 'patterns' | 'compositions' | 'voiceVariants';
 
 export interface TierLimits {
   patterns: number;
   compositions: number;
-  voicePresets: number;
+  voiceVariants: number;
 }
 
 export const TIER_LIMITS: Record<Tier, TierLimits> = {
-  free: { patterns: 200, compositions: 100, voicePresets: 20 },
-  pro: { patterns: Infinity, compositions: Infinity, voicePresets: Infinity },
+  free: { patterns: 200, compositions: 100, voiceVariants: 20 },
+  pro: { patterns: Infinity, compositions: Infinity, voiceVariants: Infinity },
 };
 
 export const KIND_LABELS: Record<CappedKind, string> = {
   patterns: 'patterns',
   compositions: 'compositions',
-  voicePresets: 'voice presets',
+  voiceVariants: 'voice variants',
 };
 
 export function getCap(tier: Tier, kind: CappedKind): number {

@@ -1,0 +1,74 @@
+/**
+ * CatalogRow — heterogeneous library row.
+ *
+ * Renders a clickable row for one item in the catalog with a kind icon, name,
+ * kind label, and instrument badge. Click opens the appropriate editor:
+ *   - voice       → Sound Lab with this variant set as active for its instrument
+ *   - pattern     → Patterns page with the pattern open
+ *   - composition → Patterns page in arrange mode with the composition open
+ */
+import { useVoiceStore, usePatternsStore, type FretInstrumentId } from '@fretwork/lib';
+import { navigate } from '../router';
+
+interface BaseCatalogRow {
+  id: string;
+  name: string;
+  collectionId: string | null;
+  instrumentId: FretInstrumentId;
+}
+
+export type CatalogRowItem =
+  | (BaseCatalogRow & { kind: 'voice' })
+  | (BaseCatalogRow & { kind: 'pattern' })
+  | (BaseCatalogRow & { kind: 'composition' });
+
+const KIND_ICON: Record<CatalogRowItem['kind'], string> = {
+  voice: '🎸',
+  pattern: '♫',
+  composition: '▤',
+};
+
+const KIND_LABEL: Record<CatalogRowItem['kind'], string> = {
+  voice: 'voice',
+  pattern: 'pattern',
+  composition: 'composition',
+};
+
+interface Props {
+  row: CatalogRowItem;
+}
+
+export function CatalogRow({ row }: Props) {
+  const open = () => {
+    if (row.kind === 'voice') {
+      useVoiceStore.getState().setActiveVariantRef(row.instrumentId, { kind: 'user', id: row.id });
+      navigate({ kind: 'lab' });
+      return;
+    }
+    if (row.kind === 'pattern') {
+      usePatternsStore.getState().openPatternForEditing(row.id);
+      navigate({ kind: 'patterns' });
+      return;
+    }
+    // composition
+    usePatternsStore.getState().openCompositionForArranging(row.id);
+    usePatternsStore.getState().setActiveTab('arrange');
+    navigate({ kind: 'patterns' });
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={open}
+      className="w-full text-left px-3 py-2 rounded-md flex items-center gap-3 hover:bg-white/5 text-muted-foreground hover:text-foreground transition-colors"
+    >
+      <span className="w-5 text-base shrink-0" aria-hidden>
+        {KIND_ICON[row.kind]}
+      </span>
+      <span className="flex-1 truncate text-sm">{row.name}</span>
+      <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/70 shrink-0">
+        {KIND_LABEL[row.kind]} · {row.instrumentId}
+      </span>
+    </button>
+  );
+}

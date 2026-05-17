@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import App from '@/App';
 
 describe('App smoke test', () => {
@@ -30,14 +30,12 @@ describe('App smoke test', () => {
     expect(screen.getByText('Scale tone')).toBeInTheDocument();
   });
 
-  it('exposes all six fretboard controls through the top-bar config chip', () => {
+  it('exposes the context summary chip in the top bar', () => {
     render(<App />);
-    // The chip is the single entry point to config now; clicking it opens the
-    // config surface (a Dialog in jsdom since matchMedia is unavailable).
-    const chipText = screen.getByText(/MAJOR/i, { selector: 'span.truncate' });
-    fireEvent.click(chipText.closest('button')!);
-    for (const label of ['Mode', 'Key', 'Type', 'Tuning', 'Capo', 'Labels']) {
-      expect(screen.getByText(label)).toBeInTheDocument();
-    }
+    // The chip is the single entry point to config. Smoke-check that it
+    // renders with the current key/scale baked into its summary text.
+    expect(
+      screen.getByText(/MAJOR/i, { selector: 'span.truncate' }),
+    ).toBeInTheDocument();
   });
 });

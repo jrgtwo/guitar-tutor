@@ -70,31 +70,45 @@ export function itemsInFolder<T extends LibraryItem>(
 }
 
 /**
- * Total items anywhere in the subtree rooted at `rootId` (including the root
- * folder itself). Used for the "N items" hint on folder rows.
+ * Build a counter closure that returns the number of items inside any folder
+ * or its descendants. Index is built once; lookups are memoized so calling
+ * the closure for many folders in the same render is cheap.
  *
- * Builds a parent→children index up front so each folder is visited once,
- * then walks descendants via a stack.
+ * Used by callers that render "(N)" badges across many folders at once — e.g.
+ * the catalog page's folder list, where calling `countItemsInFolderTree` per
+ * row would rebuild the parent→children index on every iteration.
  */
-export function countItemsInFolderTree<T extends LibraryItem>(
+export function buildFolderCounter<T extends LibraryItem>(
   collections: Collection[],
   items: T[],
-  rootId: string,
-): number {
+): (folderId: string) => number {
   const childrenByParent = new Map<string | null, Collection[]>();
   for (const c of collections) {
     const arr = childrenByParent.get(c.parentId) ?? [];
     arr.push(c);
     childrenByParent.set(c.parentId, arr);
   }
-  const descendantIds = new Set<string>([rootId]);
-  const stack = [rootId];
-  while (stack.length > 0) {
-    const id = stack.pop()!;
-    for (const child of childrenByParent.get(id) ?? []) {
-      descendantIds.add(child.id);
-      stack.push(child.id);
+  const cache = new Map<string, number>();
+  return function count(folderId: string): number {
+    const cached = cache.get(folderId);
+    if (cached !== undefined) return cached;
+    let total = items.filter((it) => it.collectionId === folderId).length;
+    for (const child of childrenByParent.get(folderId) ?? []) {
+      total += count(child.id);
     }
-  }
-  return items.filter((it) => it.collectionId !== null && descendantIds.has(it.collectionId)).length;
+    cache.set(folderId, total);
+    return total;
+  };
+}
+
+/**
+ * Total items anywhere in the subtree rooted at `rootId` (including the root
+ * folder itself). Convenience one-shot wrapper around `buildFolderCounter`.
+ */
+export function countItemsInFolderTree<T extends LibraryItem>(
+  collections: Collection[],
+  items: T[],
+  rootId: string,
+): number {
+  return buildFolderCounter(collections, items)(rootId);
 }

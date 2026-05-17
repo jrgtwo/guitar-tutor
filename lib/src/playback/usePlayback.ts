@@ -31,12 +31,11 @@ import type { IntervalSet } from '../types';
 import { Voice } from './voices/Voice';
 import { resolveActiveVoice } from './voices/resolve-active-voice';
 import { useVoiceStore } from './voices/useVoiceStore';
-import { getCommittedReverb } from './voices/preset-overrides';
 import { MasterBus } from './voices/MasterBus';
 import { DEFAULT_REVERB_SETTINGS } from './voices/types';
 import { resolveShapeAbsoluteCells } from './patterns/caged';
 import { isCagedShapeId } from './patterns/caged-shapes-data';
-import type { FretInstrumentId, VoiceFamily } from './voices/types';
+import type { FretInstrumentId } from './voices/types';
 
 export interface UsePlaybackReturn {
   // State (from store)
@@ -46,9 +45,6 @@ export interface UsePlaybackReturn {
   isProgramming: boolean;
   customSequence: readonly PlayableCell[];
   currentPlayheadCell: PlayableCell | null;
-  /** Per-instrument voice-family selection (acoustic vs electric). Ukulele always
-   *  acoustic; only `guitar` and `bass` are user-configurable. */
-  voiceFamily: { guitar: VoiceFamily; bass: VoiceFamily };
   /** When true, playback advances on every metronome subdivision sub-tick. */
   notesOnSubdivision: boolean;
 
@@ -59,7 +55,6 @@ export interface UsePlaybackReturn {
   startProgramming: () => void;
   finishProgramming: () => void;
   clearCustom: () => void;
-  setVoiceFamily: (instrument: 'guitar' | 'bass', family: VoiceFamily) => void;
   setNotesOnSubdivision: (on: boolean) => void;
   toggleNotesOnSubdivision: () => void;
 
@@ -142,7 +137,6 @@ export function usePlayback(): UsePlaybackReturn {
   const customSequence = usePlaybackStore((s) => s.customSequence);
   const isProgramming = usePlaybackStore((s) => s.isProgramming);
   const currentPlayheadCell = usePlaybackStore((s) => s.currentPlayheadCell);
-  const voiceFamily = usePlaybackStore((s) => s.voiceFamily);
   const notesOnSubdivision = usePlaybackStore((s) => s.notesOnSubdivision);
 
   const setStoreEnabled = usePlaybackStore((s) => s.setEnabled);
@@ -150,7 +144,6 @@ export function usePlayback(): UsePlaybackReturn {
   const setStorePatternId = usePlaybackStore((s) => s.setPatternId);
   const setStoreIsProgramming = usePlaybackStore((s) => s.setIsProgramming);
   const clearStoreCustom = usePlaybackStore((s) => s.clearCustomSequence);
-  const setStoreVoiceFamily = usePlaybackStore((s) => s.setVoiceFamily);
   const setStoreNotesOnSubdivision = usePlaybackStore((s) => s.setNotesOnSubdivision);
   const toggleStoreNotesOnSubdivision = usePlaybackStore((s) => s.toggleNotesOnSubdivision);
   const setFretShapeId = useFretworkStore((s) => s.setShapeId);
@@ -288,11 +281,11 @@ export function usePlayback(): UsePlaybackReturn {
     // Apply the active reverb at the same time so reverb tweaks in the lab
     // propagate without requiring a separate effect.
     MasterBus.setReverbSettings(
-      useVoiceStore.getState().reverb ?? getCommittedReverb() ?? DEFAULT_REVERB_SETTINGS,
+      useVoiceStore.getState().reverb ?? DEFAULT_REVERB_SETTINGS,
     );
     // The Playback class disposes the previously-set instrument when a new one is
     // installed, so we don't need to track or dispose `next` ourselves on cleanup.
-  }, [playback, fretInstrumentId, voiceFamily, voiceVersion]);
+  }, [playback, fretInstrumentId, voiceVersion]);
 
   // Custom-sequence membership lookup, useful for the programming UI.
   const customSequenceIndexOf = useCallback(
@@ -313,7 +306,6 @@ export function usePlayback(): UsePlaybackReturn {
     isProgramming,
     customSequence,
     currentPlayheadCell,
-    voiceFamily,
     notesOnSubdivision,
     setEnabled: setStoreEnabled,
     toggleEnabled: toggleStoreEnabled,
@@ -321,7 +313,6 @@ export function usePlayback(): UsePlaybackReturn {
     startProgramming: () => setStoreIsProgramming(true),
     finishProgramming: () => setStoreIsProgramming(false),
     clearCustom: clearStoreCustom,
-    setVoiceFamily: setStoreVoiceFamily,
     setNotesOnSubdivision: setStoreNotesOnSubdivision,
     toggleNotesOnSubdivision: toggleStoreNotesOnSubdivision,
     customSequenceIndexOf,
