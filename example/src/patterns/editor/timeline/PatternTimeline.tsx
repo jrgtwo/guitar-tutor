@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import {
   usePatternsStore,
   selectEditingPattern,
@@ -79,7 +79,46 @@ export function PatternTimeline() {
   }, [tuningId, stringCount]);
 
   const svgRef = useRef<SVGSVGElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const lastScrollAtRef = useRef(0);
   const stampAt = usePatternsStore((s) => s.stampAt);
+
+  // Auto-scroll the playhead into view during playback. Two modes:
+  //
+  // - Forward page-flip: when the playhead crosses 75% of the visible width,
+  //   smooth-scroll so it lands at 25% from the left, keeping ~75% of the view as
+  //   look-ahead. Smooth scroll runs ~300ms; we lock out further re-triggers for
+  //   350ms so per-tick headTick updates don't stack overlapping animations.
+  //
+  // - Loop-back: when the playhead falls off the left edge (e.g. wrap to tick 0 at
+  //   pattern end), jump *instantly* — a smooth scroll here would hide the first
+  //   notes of the loop while the animation eases.
+  useEffect(() => {
+    if (!playback.isPlaying) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    const playheadX = STRING_LABEL_WIDTH + (playback.headTick / PPQ) * PX_PER_QUARTER;
+    const viewLeft = el.scrollLeft;
+    const viewWidth = el.clientWidth;
+    const triggerRight = viewLeft + viewWidth * 0.75;
+    const landingOffset = viewWidth * 0.25;
+    if (playheadX < viewLeft) {
+      el.scrollLeft = Math.max(0, playheadX - landingOffset);
+      lastScrollAtRef.current = 0;
+      return;
+    }
+    if (performance.now() - lastScrollAtRef.current < 350) return;
+    if (playheadX > triggerRight) {
+      el.scrollTo({ left: Math.max(0, playheadX - landingOffset), behavior: 'smooth' });
+      lastScrollAtRef.current = performance.now();
+    }
+  }, [playback.headTick, playback.isPlaying]);
+
+  // Reset the lockout when playback stops so the next play-start can scroll
+  // immediately if needed.
+  useEffect(() => {
+    if (!playback.isPlaying) lastScrollAtRef.current = 0;
+  }, [playback.isPlaying]);
 
   // Most-recently-used fret across the pattern's events — used as the default fret
   // when the user clicks on a timeline row to stamp directly. Falls back to 0.
@@ -142,7 +181,7 @@ export function PatternTimeline() {
       : null;
 
   return (
-    <div className="overflow-auto bg-charcoal-deep/40 border border-border/40 rounded-md relative">
+    <div ref={scrollRef} className="overflow-auto bg-charcoal-deep/40 border border-border/40 rounded-md relative">
       <svg
         ref={svgRef}
         width={STRING_LABEL_WIDTH + widthPx + 12}
