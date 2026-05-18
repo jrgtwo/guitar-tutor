@@ -28,6 +28,7 @@ import {
   createEmptyPattern,
   deleteEvents as opsDeleteEvents,
   moveEvent as opsMoveEvent,
+  moveEventsBy as opsMoveEventsBy,
   resizeEvent as opsResizeEvent,
   setEventFret as opsSetEventFret,
   setPatternDuration as opsSetPatternDuration,
@@ -36,6 +37,7 @@ import {
   setPatternName,
   setPatternSuggestedBpm,
   stampEvent,
+  type EventDragSnapshot,
   type PatternMetadataPatch,
 } from '../pattern-ops';
 import {
@@ -170,6 +172,12 @@ export interface PatternsActions {
   flushChordStamp(): void;
   rest(): void;
   moveEvent(eventId: string, newStartTick: Tick, newStringIndex?: number): void;
+  moveEventsBy(
+    snapshots: readonly EventDragSnapshot[],
+    deltaTicks: Tick,
+    deltaStringIdx: number,
+    stringCount: number,
+  ): void;
   resizeEvent(eventId: string, newDurationTicks: Tick): void;
   setEventFret(eventId: string, fret: number): void;
   nudgeSelectedFret(delta: number): void;
@@ -777,6 +785,14 @@ export const usePatternsStore = create<PatternsStoreState>()(
         const target = currentEditTarget(s);
         if (!target) return;
         const next = opsMoveEvent(target.pattern, eventId, newStartTick, newStringIndex);
+        if (next === target.pattern) return;
+        set(updateTarget(s, next));
+      },
+      moveEventsBy(snapshots, deltaTicks, deltaStringIdx, stringCount) {
+        const s = get();
+        const target = currentEditTarget(s);
+        if (!target) return;
+        const next = opsMoveEventsBy(target.pattern, snapshots, deltaTicks, deltaStringIdx, stringCount);
         if (next === target.pattern) return;
         set(updateTarget(s, next));
       },

@@ -62,6 +62,23 @@ Compact "current voice" chip in the popover style. Mounted in three places: Soun
 
 The pattern/composition chip lives on a sticky bar above the editor. Above the chip, a small breadcrumb (`Library / Rock / Lead`) renders when the active item lives inside a folder — gives folder context without opening the picker. To the right of the chip sits the VoicePickerChip scoped to the active item's instrument.
 
+### Patterns page metronome + tempo/groove model
+
+`PatternsMetronomeStrip` mounts below the playing surface on both Edit and Arrange tabs (eye-economy: adjacent to whatever the user is looking at). Reuses the practice strip's `BeatDot` / `SubdivisionDot` / `useBeatFlash` primitives — animated beat dots reflect the active source's time signature × the user's subdivision setting. Strip is the single source of transport: play/stop, BPM stepper, groove picker, click-mute and volume in an overflow popover. Old duplicate controls were stripped from `EditorToolbar` and the arranger toolbar.
+
+Pattern + Composition gained tempo/groove authoring fields:
+
+- `Pattern.suggestedBpm: number | null` and `Pattern.groove: GrooveSpec | null` — author's preferences. Null = no opinion, metronome uses whatever it has.
+- `Composition.tempoMode: 'global' | 'inherit'`, `Composition.groove`, `Composition.grooveMode` — global wins, or each placement plays at its source pattern's bpm/groove with comp values as the fallback.
+- Time signature stays pattern-owned with no override path (TS *is* the music; "playing 7/8 in 4/4" isn't a real use case).
+- Subdivision stays practice-time only — how you want the click to feel, not part of the music.
+
+`resolveEffectivePlayback(comp, placement)` computes the audible bpm/groove per placement (pure function, also fed into the arranger's read-only inheritance annotations on placement blocks). In inherit mode, `EventScheduler.onPlacementChange` fires at boundary ticks; `usePatternsPlayback` resolves new values and pushes them into the metronome live — sample-accurate, no React-rAF latency on tempo changes. In global mode the comp's values are pushed once at play-start and stay put.
+
+Bidirectional binding: editing BPM or groove on the strip writes through to the active pattern/composition (no separate save step). Opening a pattern auto-loads its preferences into the metronome. During inherit-mode composition playback, strip controls go read-only and display the currently-audible values to avoid "I edited 80 but I'm hearing 160" confusion.
+
+`GroovePicker` widget (preset dropdown + custom swing slider + appliedTo radio) is reused by both the strip and `ItemMetadataPanel`. Presets: `Straight / Swing 8ths / Shuffle / 16th Swing / Custom`. Swing values use the metronome's existing [0.5, 0.75] range to avoid conversion at the boundary. New fields ride in the jsonb `data` column and hydrate with safe defaults for legacy rows — no SQL migration.
+
 ### Catalog page
 
 `?page=catalog` — personal library browser across all kinds. Top filter row (Search / Kind / Instrument / Show empty folders). Folder tree with kind-aware counts. Each row opens its kind's editor or shared viewer. Catalog link in TopBar nav highlights when active (same `navLinkClass` helper Practice + Patterns use).
@@ -123,6 +140,10 @@ Each item is genuinely unstarted or genuinely half-built. Manual verification is
 - **Subscription expiry handling** — treat `expires_at < now()` as Free regardless of stored tier.
 - **Downgrade-when-over-cap banner** — Pro user with N > Free-cap items cancels Pro; needs a banner explaining their existing content stays editable while creates are blocked until they delete down or re-upgrade.
 
+### Metronome bug pass
+
+Known-but-unfixed issues in the metronome itself surfaced during the patterns-page work but were intentionally deferred so the tempo/groove model could land cleanly. Specifics are in the head of the project owner; revisit before any release that leans on metronome correctness.
+
 ### Help / onboarding
 
 - HelpButton + HelpPanel per major page, scripted walkthroughs, `user_settings.walkthrough_seen` persistence. Explicitly deferred until UI surfaces stabilize so walkthroughs don't get rewritten on every polish pass (see memory `project_defer_group_i_walkthroughs.md`).
@@ -163,6 +184,10 @@ User wants the app to play multiple instruments simultaneously — full band pla
 
 Realistic effort ~1–2 weeks. Risks: Tone.js audio-thread saturation with 4+ simultaneous voices + effects chains; multi-track pattern scheduling needs phase-locked beat sync; mixer UI design (small dials/faders/meters) isn't trivial.
 
+### Tempo automation timeline on compositions
+
+DAW-style `{atTick, bpm}` events on a composition for tempo ramps and mid-piece changes beyond what the current global/inherit toggle expresses. Captured during the patterns-page metronome design as the long-term direction; not built. Per-placement BPM override (a third mode beyond global/inherit, letting users tweak one section's tempo without changing the source pattern) is a smaller intermediate step on the same axis.
+
 ### (Add new feature ideation here)
 
 ---
@@ -176,3 +201,18 @@ Realistic effort ~1–2 weeks. Risks: Tone.js audio-thread saturation with 4+ si
 - **Unified folder UI is the rule** — every folder rendering uses `LibraryPickerPanel`'s row component. Catalog is the one architectural holdout; unify before any folder-UI polish.
 - **Per-item approval for changes** — present the diff and wait for explicit per-item approval; don't assume prior approval carries across items.
 - **Light context, not walls of text** — short focused messages, list sub-topics up front and walk through one at a time.
+
+---
+
+## Right now (session-continuity snapshot)
+
+**Most recent work, 2026-05-17:** Patterns page metronome + tempo/groove model (see "Patterns page metronome + tempo/groove model" under Shipped). 19 files modified, 6 new files, +745 / -111 lines, all changes uncommitted at session end. Build clean, 267 tests green, manually verified including a small z-index fix on the metronome section wrappers so `SimplePopover`'s panels (groove picker, overflow `⋯`) stack above the timeline.
+
+Design spec: `docs/superpowers/specs/2026-05-17-patterns-metronome-design.md`
+Implementation plan: `docs/superpowers/plans/2026-05-17-patterns-metronome.md`
+
+**Natural next thread:** Metronome bug pass. The user has known-but-unspecified metronome issues they explicitly parked until the tempo/groove work landed. Ask them to surface specifics at the start of the next session before guessing.
+
+**Other open threads from this session, not started:**
+- Final cross-file code-quality review subagent on the metronome change set — was offered, user opted to ship without it. Can still be dispatched if they want a second pass before merging.
+- Composition's legacy `timeSignature` field is dead at runtime now (every placement carries its own TS) but the field is still in the type and still written. Dropping it is a separate cleanup pass.

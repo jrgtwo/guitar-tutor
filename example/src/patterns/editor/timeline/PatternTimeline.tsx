@@ -24,7 +24,7 @@ export function PatternTimeline() {
   const setCursorTick = usePatternsStore((s) => s.setCursorTick);
   const selectedEventIds = usePatternsStore((s) => s.selectedEventIds);
   const selectEvents = usePatternsStore((s) => s.selectEvents);
-  const moveEvent = usePatternsStore((s) => s.moveEvent);
+  const moveEventsBy = usePatternsStore((s) => s.moveEventsBy);
   const resizeEvent = usePatternsStore((s) => s.resizeEvent);
   const instrumentId = useFretworkStore((s) => s.instrumentId);
   const tuningId = useFretworkStore((s) => s.tuning);
@@ -233,6 +233,7 @@ export function PatternTimeline() {
           // Re-render so that high pitch is on top (invert string index for row position).
           const rowIdx = stringCount - 1 - e.stringIndex;
           if (rowIdx < 0 || rowIdx >= stringCount) return null;
+          const isSelected = selectedEventIds.includes(e.id);
           return (
             <EventBar
               key={e.id}
@@ -242,12 +243,27 @@ export function PatternTimeline() {
               width={Math.max(8, ticksToPx(e.durationTicks))}
               height={ROW_HEIGHT - 6}
               pxToTicks={pxToTicks}
-              selected={selectedEventIds.includes(e.id)}
+              selected={isSelected}
               playing={isPlayheadEvent}
               onSelect={(mode) => selectEvents([e.id], mode)}
               onResize={(newDur) => resizeEvent(e.id, newDur)}
-              onMove={(newStart, newStringIdx) => moveEvent(e.id, newStart, newStringIdx)}
-              stringCount={stringCount}
+              onMoveBy={(snaps, dT, dR) => moveEventsBy(snaps, dT, dR, stringCount)}
+              getDragSnapshots={() => {
+                // If the grabbed bar is in the selection, drag the whole selection;
+                // otherwise drag just this bar (the grab will have already replaced
+                // the selection via onSelect('replace') in EventBar).
+                const dragIds = isSelected ? selectedEventIds : [e.id];
+                const lookup = new Map(pattern.events.map((ev) => [ev.id, ev] as const));
+                return dragIds
+                  .map((id) => lookup.get(id))
+                  .filter((ev): ev is typeof e => Boolean(ev))
+                  .map((ev) => ({
+                    id: ev.id,
+                    startTick: ev.startTick,
+                    stringIndex: ev.stringIndex,
+                    durationTicks: ev.durationTicks,
+                  }));
+              }}
               rowHeight={ROW_HEIGHT}
             />
           );

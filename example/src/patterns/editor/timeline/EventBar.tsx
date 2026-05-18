@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import type { PatternEvent } from '@fretwork/lib';
+import type { EventDragSnapshot, PatternEvent } from '@fretwork/lib';
 import { PPQ } from '@fretwork/lib';
 
 interface Props {
@@ -13,8 +13,13 @@ interface Props {
   playing: boolean;
   onSelect(mode: 'replace' | 'add' | 'toggle'): void;
   onResize(newDurationTicks: number): void;
-  onMove(newStartTick: number, newStringIndex?: number): void;
-  stringCount: number;
+  /** Called once per pointer-move with the desired group delta. The parent applies it
+   *  through `moveEventsBy`, which clamps against collisions and pattern bounds. */
+  onMoveBy(snapshots: readonly EventDragSnapshot[], deltaTicks: number, deltaStringIdx: number): void;
+  /** Returns the snapshots to drag — the current selection if this bar is selected,
+   *  otherwise just this bar. Captured once at pointer-down so the drag uses stable
+   *  origins. */
+  getDragSnapshots(): readonly EventDragSnapshot[];
   rowHeight: number;
 }
 
@@ -35,35 +40,48 @@ export function EventBar({
   playing,
   onSelect,
   onResize,
-  onMove,
-  stringCount,
+  onMoveBy,
+  getDragSnapshots,
   rowHeight,
 }: Props) {
-  const dragStateRef = useRef<{
-    mode: 'move' | 'resize';
-    startClientX: number;
-    startClientY: number;
-    startTick: number;
-    startDuration: number;
-    startStringIndex: number;
-  } | null>(null);
+  const dragStateRef = useRef<
+    | {
+        mode: 'move';
+        startClientX: number;
+        startClientY: number;
+        snapshots: readonly EventDragSnapshot[];
+      }
+    | {
+        mode: 'resize';
+        startClientX: number;
+        startClientY: number;
+        startDuration: number;
+      }
+    | null
+  >(null);
 
-  function snap(tick: number): number {
-    return Math.max(0, Math.round(tick / SNAP_TICKS) * SNAP_TICKS);
+  function snapDelta(tick: number): number {
+    return Math.round(tick / SNAP_TICKS) * SNAP_TICKS;
   }
 
   function onBodyPointerDown(e: React.PointerEvent) {
     e.stopPropagation();
     if (e.button !== 0) return;
-    const mode: 'replace' | 'add' | 'toggle' = e.shiftKey ? 'add' : 'replace';
-    onSelect(mode);
+    if (e.shiftKey) {
+      // Selection management only — never start a drag.
+      onSelect(selected ? 'toggle' : 'add');
+      return;
+    }
+    if (!selected) {
+      // Grabbing an unselected bar replaces the selection with just this bar; the
+      // drag below then operates on the now-single-bar selection.
+      onSelect('replace');
+    }
     dragStateRef.current = {
       mode: 'move',
       startClientX: e.clientX,
       startClientY: e.clientY,
-      startTick: event.startTick,
-      startDuration: event.durationTicks,
-      startStringIndex: event.stringIndex,
+      snapshots: getDragSnapshots(),
     };
     (e.target as Element).setPointerCapture(e.pointerId);
   }
@@ -75,9 +93,7 @@ export function EventBar({
       mode: 'resize',
       startClientX: e.clientX,
       startClientY: e.clientY,
-      startTick: event.startTick,
       startDuration: event.durationTicks,
-      startStringIndex: event.stringIndex,
     };
     (e.target as Element).setPointerCapture(e.pointerId);
   }
@@ -89,27 +105,19 @@ export function EventBar({
     const dxPx = e.clientX - state.startClientX;
     const dyPx = e.clientY - state.startClientY;
     const dxTicks = pxToTicks(dxPx);
-    const dyRows = Math.round(dyPx / rowHeight);
 
     if (state.mode === 'resize') {
-      const newDur = snap(state.startDuration + dxTicks);
-      if (newDur !== event.durationTicks && newDur > 0) {
+      const newDur = Math.max(SNAP_TICKS, Math.round((state.startDuration + dxTicks) / SNAP_TICKS) * SNAP_TICKS);
+      if (newDur !== event.durationTicks) {
         onResize(newDur);
       }
     } else {
-      // move
-      const newTick = snap(state.startTick + dxTicks);
-      // dyRows is in visual row coordinates (row 0 = highest pitch).
-      // String index 0 is lowest pitch. So row 0 corresponds to stringIndex = stringCount - 1.
-      // dyRows > 0 means we moved down visually, i.e. to a lower-pitch string,
-      // i.e. lower stringIndex.
-      const targetStringIndex = Math.max(
-        0,
-        Math.min(stringCount - 1, state.startStringIndex - dyRows),
-      );
-      if (newTick !== event.startTick || targetStringIndex !== event.stringIndex) {
-        onMove(newTick, targetStringIndex);
-      }
+      // dyRows > 0 means the pointer moved down (toward lower-pitch row), which maps
+      // to a lower stringIndex — invert.
+      const dyRows = Math.round(dyPx / rowHeight);
+      const deltaStringIdx = -dyRows;
+      const deltaTicks = snapDelta(dxTicks);
+      onMoveBy(state.snapshots, deltaTicks, deltaStringIdx);
     }
   }
 

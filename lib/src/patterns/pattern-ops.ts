@@ -223,6 +223,125 @@ export function moveEvent(
   };
 }
 
+export interface EventDragSnapshot {
+  id: string;
+  startTick: Tick;
+  stringIndex: number;
+  durationTicks: Tick;
+}
+
+/** Apply a (deltaTicks, deltaStringIdx) move to a group of events using their drag-start
+ *  snapshots. The delta is clamped — never rejected — so the group slides up against
+ *  obstacles instead of snapping back. Order of clamping:
+ *
+ *   1. String-row bounds: keep every event on a valid string.
+ *   2. For the chosen dRow, find the largest |dTick| in the user's direction such that
+ *      no selected event collides with a non-selected event on its target string.
+ *   3. If no valid dTick exists for this dRow (e.g. the group can't fit on the new
+ *      strings at all), shrink |dRow| by 1 and retry.
+ *
+ *  Selected events never collide with each other because they all shift by the same
+ *  delta; only selected-vs-non-selected collisions matter. */
+export function moveEventsBy(
+  pattern: Pattern,
+  snapshots: readonly EventDragSnapshot[],
+  deltaTicks: Tick,
+  deltaStringIdx: number,
+  stringCount: number,
+): Pattern {
+  if (snapshots.length === 0) return pattern;
+  const selectedIds = new Set(snapshots.map((s) => s.id));
+
+  // String-row bounds: clamp dRow so every event lands on a valid string.
+  let dRow = deltaStringIdx;
+  for (const s of snapshots) {
+    if (s.stringIndex + dRow < 0) dRow = -s.stringIndex;
+    if (s.stringIndex + dRow > stringCount - 1) dRow = stringCount - 1 - s.stringIndex;
+  }
+
+  // Walk dRow toward 0 until a valid dTick range exists. dRow can move at most one
+  // step per iteration; bounded by stringCount.
+  let finalDRow = dRow;
+  let finalDTick: number | null = null;
+  while (true) {
+    finalDTick = clampDTickForRow(pattern, snapshots, deltaTicks, finalDRow, selectedIds);
+    if (finalDTick !== null) break;
+    if (finalDRow === 0) {
+      // No valid placement even at dRow=0 — implies the pattern was already invalid,
+      // or there are no degrees of freedom. No-op.
+      return pattern;
+    }
+    finalDRow -= Math.sign(finalDRow);
+  }
+
+  if (finalDTick === 0 && finalDRow === 0) return pattern;
+
+  const idToNewPos = new Map<string, { startTick: Tick; stringIndex: number }>();
+  for (const s of snapshots) {
+    idToNewPos.set(s.id, {
+      startTick: s.startTick + finalDTick,
+      stringIndex: s.stringIndex + finalDRow,
+    });
+  }
+
+  return {
+    ...pattern,
+    events: pattern.events.map((e) => {
+      const np = idToNewPos.get(e.id);
+      return np ? { ...e, startTick: np.startTick, stringIndex: np.stringIndex } : e;
+    }),
+    updatedAt: Date.now(),
+  };
+}
+
+/** For a given dRow, find the largest dTick in the direction of `desiredDTick` such
+ *  that every snapshot fits in its target-string gap without overlapping a non-selected
+ *  event. Returns null when the group cannot fit on the target strings at all (e.g.
+ *  a snapshot's original startTick falls inside a non-selected event on its new
+ *  string). startTick is floored at 0; no upper-duration cap (matching moveEvent). */
+function clampDTickForRow(
+  pattern: Pattern,
+  snapshots: readonly EventDragSnapshot[],
+  desiredDTick: number,
+  dRow: number,
+  selectedIds: ReadonlySet<string>,
+): number | null {
+  let minDelta = -Infinity;
+  let maxDelta = Infinity;
+  for (const s of snapshots) {
+    const targetString = s.stringIndex + dRow;
+    let gapStart = 0;
+    let gapEnd = Number.POSITIVE_INFINITY;
+    for (const e of pattern.events) {
+      if (selectedIds.has(e.id)) continue;
+      if (e.stringIndex !== targetString) continue;
+      const eEnd = e.startTick + e.durationTicks;
+      if (eEnd <= s.startTick) {
+        if (eEnd > gapStart) gapStart = eEnd;
+      } else if (e.startTick >= s.startTick + s.durationTicks) {
+        if (e.startTick < gapEnd) gapEnd = e.startTick;
+      } else {
+        // A non-selected event sits on top of where the snapshot would land at dTick=0.
+        // No tick delta can rescue this — caller must shrink dRow.
+        return null;
+      }
+    }
+    const minD = gapStart - s.startTick;
+    const maxD = gapEnd === Number.POSITIVE_INFINITY
+      ? Number.POSITIVE_INFINITY
+      : gapEnd - s.startTick - s.durationTicks;
+    if (minD > minDelta) minDelta = minD;
+    if (maxD < maxDelta) maxDelta = maxD;
+  }
+  if (minDelta > maxDelta) return null;
+  // Floor startTick at 0 across the group: dTick >= -min(snapshot.startTick).
+  let minStartTick = Number.POSITIVE_INFINITY;
+  for (const s of snapshots) if (s.startTick < minStartTick) minStartTick = s.startTick;
+  if (-minStartTick > minDelta) minDelta = -minStartTick;
+  if (minDelta > maxDelta) return null;
+  return Math.max(minDelta, Math.min(maxDelta, desiredDTick));
+}
+
 /** Change an event's fret (which note it plays on its current string). Clamped to
  *  >= 0. No string-overlap check needed because we're not changing the time slot. */
 export function setEventFret(pattern: Pattern, eventId: string, newFret: number): Pattern {

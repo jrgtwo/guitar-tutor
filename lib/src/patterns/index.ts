@@ -39,6 +39,7 @@ export {
   stampEvent,
   resizeEvent,
   moveEvent,
+  moveEventsBy,
   setEventFret,
   deleteEvents,
   addLane,
@@ -50,7 +51,7 @@ export {
   setPatternGroove,
   applyPatternMetadata,
 } from './pattern-ops';
-export type { PatternMetadataPatch } from './pattern-ops';
+export type { PatternMetadataPatch, EventDragSnapshot } from './pattern-ops';
 
 export {
   createEmptyComposition,
