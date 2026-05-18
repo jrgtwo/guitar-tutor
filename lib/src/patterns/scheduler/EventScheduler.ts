@@ -43,6 +43,13 @@ export interface EventStream {
   /** Events whose startTick is in [fromTick, toTick). Should be cheap for
    *  monotonically-advancing windows; implementations are free to pre-index. */
   eventsInRange(fromTick: number, toTick: number): ScheduledEvent[];
+  /** Optional: placement boundaries for composition streams. PatternSource
+   *  leaves this undefined (no placements). */
+  readonly placementBoundaries?: ReadonlyArray<{
+    placementId: string;
+    startTick: number;
+    endTick: number;
+  }>;
 }
 
 export interface EventSchedulerOpts {
@@ -62,6 +69,7 @@ export interface EventSchedulerOpts {
 export type HeadListener = (headTick: number) => void;
 export type ActiveListener = (active: readonly ScheduledEvent[]) => void;
 export type CompleteListener = () => void;
+export type PlacementChangeListener = (placementId: string | null) => void;
 
 const TICKS_PER_INTERVAL = PPQ / 4; // 120 ticks = a 16th note
 
@@ -80,6 +88,8 @@ export class EventScheduler {
   private _headListeners = new Set<HeadListener>();
   private _activeListeners = new Set<ActiveListener>();
   private _completeListeners = new Set<CompleteListener>();
+  private _placementChangeListeners = new Set<PlacementChangeListener>();
+  private _currentPlacementId: string | null = null;
   /** requestAnimationFrame handle for the visual head-position loop. The loop reads
    *  `Tone.Transport.seconds` (the actual audio playback position) and emits head
    *  updates smoothly between scheduler ticks. Audio scheduling stays per-slice in
@@ -125,6 +135,14 @@ export class EventScheduler {
       } catch {
         // No-op.
       }
+      this._currentPlacementId = null;
+      for (const l of this._placementChangeListeners) {
+        try {
+          l(null);
+        } catch {
+          // No-op.
+        }
+      }
     });
 
     // Register the 16th-note tick callback on Tone.Transport. Wrapped in try/catch
@@ -151,6 +169,7 @@ export class EventScheduler {
     this._headTick = 0;
     this._activeNow.clear();
     this._emitActive();
+    this._currentPlacementId = null;
   }
 
   setLoop(loop: boolean): void {
@@ -192,6 +211,15 @@ export class EventScheduler {
     return () => this._completeListeners.delete(listener);
   }
 
+  /** Subscribe to placement-boundary crossings during composition playback.
+   *  Fires with the new placement's id whenever the head enters a new
+   *  placement, and with `null` when the head is between placements (gaps) or
+   *  when the active stream has no placements. */
+  onPlacementChange(listener: PlacementChangeListener): () => void {
+    this._placementChangeListeners.add(listener);
+    return () => this._placementChangeListeners.delete(listener);
+  }
+
   // ─── Read-only state ───────────────────────────────────────────────────────
 
   get headTick(): number {
@@ -227,6 +255,7 @@ export class EventScheduler {
     this._headListeners.clear();
     this._activeListeners.clear();
     this._completeListeners.clear();
+    this._placementChangeListeners.clear();
   }
 
   // ─── Test seam ─────────────────────────────────────────────────────────────
@@ -268,6 +297,7 @@ export class EventScheduler {
     }
 
     this._releaseExpired(this._headTick);
+    this._emitPlacementChange(this._placementAtTick(this._headTick));
     // NOTE: head position is emitted by the visual rAF loop (which reads the real
     // Tone.Transport.seconds), NOT here. Emitting from `_onTick` would put the
     // playhead at the END of the just-scheduled slice — visually a quarter-beat
@@ -351,6 +381,27 @@ export class EventScheduler {
       cancelAnimationFrame(this._visualRafId);
       this._visualRafId = null;
     }
+  }
+
+  private _emitPlacementChange(id: string | null): void {
+    if (id === this._currentPlacementId) return;
+    this._currentPlacementId = id;
+    for (const l of this._placementChangeListeners) {
+      try {
+        l(id);
+      } catch {
+        // No-op.
+      }
+    }
+  }
+
+  private _placementAtTick(tick: number): string | null {
+    const stream = this._stream;
+    if (!stream?.placementBoundaries) return null;
+    for (const b of stream.placementBoundaries) {
+      if (tick >= b.startTick && tick < b.endTick) return b.placementId;
+    }
+    return null;
   }
 
   private _emitHead(t: number): void {

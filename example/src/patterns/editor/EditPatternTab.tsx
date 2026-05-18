@@ -3,6 +3,7 @@ import { EditorToolbar } from './EditorToolbar';
 import { FretboardInput } from './FretboardInput';
 import { PatternTimeline } from './timeline/PatternTimeline';
 import { useEditorKeybinds } from '../hooks/useEditorKeybinds';
+import { PatternsMetronomeStrip } from '../../components/metronome/PatternsMetronomeStrip';
 
 export function EditPatternTab() {
   useEditorKeybinds();
@@ -24,6 +25,9 @@ export function EditPatternTab() {
             <FretboardInput />
           </section>
         )}
+        <section aria-label="Metronome" className="relative z-30">
+          <PatternsMetronomeStrip />
+        </section>
         <section aria-label="Pattern timeline">
           <PatternTimeline />
         </section>

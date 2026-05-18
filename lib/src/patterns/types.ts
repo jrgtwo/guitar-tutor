@@ -40,6 +40,21 @@ export interface PatternTimeSignature {
   denominator: number;
 }
 
+/**
+ * Groove (feel) specification. Swing values are in the same [0.5, 0.75] range as
+ * `useMetronomeStore.swing` to avoid conversion at the metronome boundary:
+ *   - 0.5  = straight (no swing)
+ *   - 0.67 ≈ triplet feel
+ *   - 0.75 = hard shuffle
+ *
+ * `appliedTo` chooses which subdivision the swing is applied to. An 8th-note
+ * shuffle and a 16th-note swing are musically distinct feels.
+ */
+export interface GrooveSpec {
+  swing: number;
+  appliedTo: 'eighths' | 'sixteenths';
+}
+
 export interface Pattern {
   id: string;
   name: string;
@@ -47,6 +62,12 @@ export interface Pattern {
   /** Editor-defined; defaults to 4 bars at the current time signature on creation. */
   durationTicks: Tick;
   timeSignature: PatternTimeSignature;
+  /** Author's preferred tempo for this pattern. Null = no preference; metronome
+   *  uses whatever value it currently holds. Auto-loads into the metronome when
+   *  the pattern is opened in the editor. */
+  suggestedBpm: number | null;
+  /** Author's preferred feel for this pattern. Null = straight (no swing). */
+  groove: GrooveSpec | null;
   events: PatternEvent[];
   /** Empty in Phase 1. */
   lanes: Lane[];
@@ -102,6 +123,16 @@ export interface Composition {
   instrumentId: string;
   /** Pushed into the metronome on play; not the metronome's current value until play. */
   bpm: number;
+  /** Whether composition playback uses `bpm` globally for all placements
+   *  ('global'), or each placement plays at its source pattern's `suggestedBpm`
+   *  with `bpm` as the fallback ('inherit'). */
+  tempoMode: 'global' | 'inherit';
+  /** Composition-level groove. Acts as the global groove when grooveMode is
+   *  'global', and as the fallback when grooveMode is 'inherit'. */
+  groove: GrooveSpec | null;
+  /** Whether composition playback uses `groove` globally ('global') or pulls
+   *  each placement's source pattern groove ('inherit'). */
+  grooveMode: 'global' | 'inherit';
   timeSignature: PatternTimeSignature;
   placements: Placement[];
 

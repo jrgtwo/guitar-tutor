@@ -8,6 +8,7 @@ export type {
   PatternEvent,
   Lane,
   PatternTimeSignature,
+  GrooveSpec,
   Pattern,
   Placement,
   Composition,
@@ -45,6 +46,8 @@ export {
   setPatternInstrument,
   setPatternDuration,
   setPatternTimeSignature,
+  setPatternSuggestedBpm,
+  setPatternGroove,
   applyPatternMetadata,
 } from './pattern-ops';
 export type { PatternMetadataPatch } from './pattern-ops';
@@ -62,6 +65,9 @@ export {
   setPlacementSnapshot,
   flattenComposition,
   applyCompositionMetadata,
+  setCompositionTempoMode,
+  setCompositionGroove,
+  setCompositionGrooveMode,
 } from './composition-ops';
 export type { CompositionMetadataPatch } from './composition-ops';
 
@@ -76,3 +82,12 @@ export {
 } from './collection-ops';
 export type { CollectionMetadataPatch } from './collection-ops';
 export type { FlattenedEvent } from './composition-ops';
+
+export {
+  GROOVE_PRESETS,
+  presetMatching,
+} from './groove';
+export type { GroovePresetId, GroovePreset } from './groove';
+
+export { resolveEffectivePlayback } from './scheduler/resolvePlayback';
+export type { EffectivePlayback } from './scheduler/resolvePlayback';

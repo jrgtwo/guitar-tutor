@@ -13,6 +13,13 @@ import type { EventStream, ScheduledEvent } from './EventScheduler';
 export class CompositionSource implements EventStream {
   private _sorted: ScheduledEvent[];
   private _durationTicks: number;
+  /** Tick ranges + ids for each placement in this composition. Used by
+   *  EventScheduler to detect placement boundary crossings. */
+  readonly placementBoundaries: ReadonlyArray<{
+    placementId: string;
+    startTick: number;
+    endTick: number;
+  }>;
 
   constructor(composition: Composition) {
     const flat = flattenComposition(composition);
@@ -34,6 +41,14 @@ export class CompositionSource implements EventStream {
       if (end > max) max = end;
     }
     this._durationTicks = max;
+
+    const boundaries: { placementId: string; startTick: number; endTick: number }[] = [];
+    for (const p of composition.placements) {
+      const end = p.startTick + p.patternSnapshot.durationTicks * p.repeat;
+      boundaries.push({ placementId: p.id, startTick: p.startTick, endTick: end });
+    }
+    boundaries.sort((a, b) => a.startTick - b.startTick);
+    this.placementBoundaries = boundaries;
   }
 
   get durationTicks(): number {

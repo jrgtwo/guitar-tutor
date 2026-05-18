@@ -9,6 +9,8 @@ import {
   nextEventStartOnString,
   PPQ,
   stepLengthToTicks,
+  setPatternSuggestedBpm,
+  setPatternGroove,
 } from '../src/patterns';
 
 describe('pattern-ops', () => {
@@ -150,6 +152,59 @@ describe('pattern-ops', () => {
       let pat = createEmptyPattern();
       pat = stampEvent({ pattern: pat, stringIndex: 0, fret: 5, startTick: 0, durationTicks: PPQ }).pattern;
       expect(nextEventStartOnString(pat.events, 0, PPQ)).toBe(Infinity);
+    });
+  });
+
+  describe('createEmptyPattern with groove/bpm defaults', () => {
+    it('initializes suggestedBpm to null', () => {
+      const p = createEmptyPattern('riff');
+      expect(p.suggestedBpm).toBeNull();
+    });
+
+    it('initializes groove to null (straight)', () => {
+      const p = createEmptyPattern('riff');
+      expect(p.groove).toBeNull();
+    });
+  });
+
+  describe('setPatternSuggestedBpm', () => {
+    it('sets the suggested bpm and bumps updatedAt', () => {
+      const p = createEmptyPattern('riff');
+      const before = p.updatedAt;
+      const next = setPatternSuggestedBpm(p, 95);
+      expect(next.suggestedBpm).toBe(95);
+      expect(next.updatedAt).toBeGreaterThanOrEqual(before);
+    });
+
+    it('clamps to [40, 240]', () => {
+      const p = createEmptyPattern('riff');
+      expect(setPatternSuggestedBpm(p, 10).suggestedBpm).toBe(40);
+      expect(setPatternSuggestedBpm(p, 500).suggestedBpm).toBe(240);
+    });
+
+    it('accepts null to clear the preference', () => {
+      const p = setPatternSuggestedBpm(createEmptyPattern('riff'), 95);
+      const cleared = setPatternSuggestedBpm(p, null);
+      expect(cleared.suggestedBpm).toBeNull();
+    });
+  });
+
+  describe('setPatternGroove', () => {
+    it('sets the groove', () => {
+      const p = createEmptyPattern('riff');
+      const next = setPatternGroove(p, { swing: 0.67, appliedTo: 'eighths' });
+      expect(next.groove).toEqual({ swing: 0.67, appliedTo: 'eighths' });
+    });
+
+    it('clamps swing into [0.5, 0.75]', () => {
+      const p = createEmptyPattern('riff');
+      expect(setPatternGroove(p, { swing: 0.1, appliedTo: 'eighths' }).groove?.swing).toBe(0.5);
+      expect(setPatternGroove(p, { swing: 0.9, appliedTo: 'eighths' }).groove?.swing).toBe(0.75);
+    });
+
+    it('accepts null to clear groove (straight)', () => {
+      const p = setPatternGroove(createEmptyPattern('riff'), { swing: 0.67, appliedTo: 'eighths' });
+      expect(setPatternGroove(p, null).groove).toBeNull();
     });
   });
 });

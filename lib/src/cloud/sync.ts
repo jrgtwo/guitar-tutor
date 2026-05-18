@@ -198,6 +198,9 @@ function hydratePatternRow(row: Record<string, unknown>): Pattern {
     forkedFromCreatorName:
       data.forkedFromCreatorName ?? (row.forked_from_creator_name as string | null) ?? null,
     collectionId: data.collectionId ?? (row.collection_id as string | null) ?? null,
+    // New (Task 9): default for legacy rows that pre-date the fields.
+    suggestedBpm: data.suggestedBpm ?? null,
+    groove: data.groove ?? null,
   };
 }
 
@@ -216,6 +219,10 @@ function hydrateCompositionRow(row: Record<string, unknown>): Composition {
     forkedFromCreatorName:
       data.forkedFromCreatorName ?? (row.forked_from_creator_name as string | null) ?? null,
     collectionId: data.collectionId ?? (row.collection_id as string | null) ?? null,
+    // New (Task 9): default for legacy rows that pre-date the fields.
+    tempoMode: data.tempoMode ?? 'global',
+    groove: data.groove ?? null,
+    grooveMode: data.grooveMode ?? 'global',
   };
 }
 

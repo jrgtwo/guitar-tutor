@@ -14,6 +14,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage, type PersistOptions } from 'zustand/middleware';
 import type {
   Composition,
+  GrooveSpec,
   Library,
   Pattern,
   Placement,
@@ -30,8 +31,10 @@ import {
   resizeEvent as opsResizeEvent,
   setEventFret as opsSetEventFret,
   setPatternDuration as opsSetPatternDuration,
+  setPatternGroove,
   setPatternInstrument,
   setPatternName,
+  setPatternSuggestedBpm,
   stampEvent,
   type PatternMetadataPatch,
 } from '../pattern-ops';
@@ -42,8 +45,11 @@ import {
   removePlacement as opsRemovePlacement,
   reorderPlacement as opsReorderPlacement,
   setCompositionBpm,
+  setCompositionGroove,
+  setCompositionGrooveMode,
   setCompositionInstrument,
   setCompositionName,
+  setCompositionTempoMode,
   setPlacementRepeat as opsSetPlacementRepeat,
   setPlacementSnapshot as opsSetPlacementSnapshot,
   type CompositionMetadataPatch,
@@ -131,6 +137,11 @@ export interface PatternsActions {
   setCompositionInstrument(id: string, instrumentId: string): void;
   updateCompositionMetadata(id: string, patch: CompositionMetadataPatch): void;
   setCompositionBpm(id: string, bpm: number): void;
+  setEditingPatternSuggestedBpm(bpm: number | null): void;
+  setEditingPatternGroove(groove: GrooveSpec | null): void;
+  setEditingCompositionTempoMode(mode: 'global' | 'inherit'): void;
+  setEditingCompositionGroove(groove: GrooveSpec | null): void;
+  setEditingCompositionGrooveMode(mode: 'global' | 'inherit'): void;
   /**
    * Fork a (typically public/unlisted) composition into the user's library.
    * Mirrors `forkPattern` semantics — fresh uuid, fresh placement ids, fresh
@@ -456,6 +467,76 @@ export const usePatternsStore = create<PatternsStoreState>()(
             ),
           },
         }));
+      },
+      setEditingPatternSuggestedBpm(bpm) {
+        set((s) => {
+          const id = s.editingPatternId;
+          if (!id) return s;
+          return {
+            library: {
+              ...s.library,
+              patterns: s.library.patterns.map((p) =>
+                p.id === id ? setPatternSuggestedBpm(p, bpm) : p,
+              ),
+            },
+          };
+        });
+      },
+      setEditingPatternGroove(groove) {
+        set((s) => {
+          const id = s.editingPatternId;
+          if (!id) return s;
+          return {
+            library: {
+              ...s.library,
+              patterns: s.library.patterns.map((p) =>
+                p.id === id ? setPatternGroove(p, groove) : p,
+              ),
+            },
+          };
+        });
+      },
+      setEditingCompositionTempoMode(mode) {
+        set((s) => {
+          const id = s.editingCompositionId;
+          if (!id) return s;
+          return {
+            library: {
+              ...s.library,
+              compositions: s.library.compositions.map((c) =>
+                c.id === id ? setCompositionTempoMode(c, mode) : c,
+              ),
+            },
+          };
+        });
+      },
+      setEditingCompositionGroove(groove) {
+        set((s) => {
+          const id = s.editingCompositionId;
+          if (!id) return s;
+          return {
+            library: {
+              ...s.library,
+              compositions: s.library.compositions.map((c) =>
+                c.id === id ? setCompositionGroove(c, groove) : c,
+              ),
+            },
+          };
+        });
+      },
+      setEditingCompositionGrooveMode(mode) {
+        set((s) => {
+          const id = s.editingCompositionId;
+          if (!id) return s;
+          return {
+            library: {
+              ...s.library,
+              compositions: s.library.compositions.map((c) =>
+                c.id === id ? setCompositionGrooveMode(c, mode) : c,
+              ),
+            },
+          };
+        });
       },
       forkComposition(source, sourceCreatorName) {
         if (!gateCreate('compositions', get().library.compositions.length)) return '';

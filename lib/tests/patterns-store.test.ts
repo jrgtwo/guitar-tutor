@@ -155,4 +155,17 @@ describe('usePatternsStore', () => {
     expect(comp.placements[0].startTick).toBe(0);
     expect(comp.placements[1].patternSnapshot.name).toBe('A');
   });
+
+  describe('groove/bpm editing actions', () => {
+    it('setEditingPatternSuggestedBpm writes through to the library entry', () => {
+      const store = usePatternsStore.getState();
+      store.ensureEditingPattern();
+      const editingId = usePatternsStore.getState().editingPatternId!;
+      usePatternsStore.getState().setEditingPatternSuggestedBpm(95);
+      const p = usePatternsStore
+        .getState()
+        .library.patterns.find((x) => x.id === editingId);
+      expect(p?.suggestedBpm).toBe(95);
+    });
+  });
 });

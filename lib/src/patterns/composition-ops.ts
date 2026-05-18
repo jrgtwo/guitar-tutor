@@ -7,6 +7,7 @@
  */
 import type {
   Composition,
+  GrooveSpec,
   Pattern,
   PatternTimeSignature,
   Placement,
@@ -32,6 +33,9 @@ export function createEmptyComposition(
     bpm: DEFAULT_BPM,
     timeSignature: { ...DEFAULT_TS },
     placements: [],
+    tempoMode: 'global',
+    groove: null,
+    grooveMode: 'global',
     description: null,
     difficulty: null,
     genres: [],
@@ -246,4 +250,36 @@ export function flattenComposition(comp: Composition): FlattenedEvent[] {
   }
   out.sort((a, b) => a.startTick - b.startTick);
   return out;
+}
+
+const SWING_MIN = 0.5;
+const SWING_MAX = 0.75;
+
+function clampGroove(g: GrooveSpec): GrooveSpec {
+  return { ...g, swing: Math.max(SWING_MIN, Math.min(SWING_MAX, g.swing)) };
+}
+
+export function setCompositionTempoMode(
+  comp: Composition,
+  mode: 'global' | 'inherit',
+): Composition {
+  return { ...comp, tempoMode: mode, updatedAt: Date.now() };
+}
+
+export function setCompositionGroove(
+  comp: Composition,
+  groove: GrooveSpec | null,
+): Composition {
+  return {
+    ...comp,
+    groove: groove === null ? null : clampGroove(groove),
+    updatedAt: Date.now(),
+  };
+}
+
+export function setCompositionGrooveMode(
+  comp: Composition,
+  mode: 'global' | 'inherit',
+): Composition {
+  return { ...comp, grooveMode: mode, updatedAt: Date.now() };
 }

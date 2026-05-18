@@ -9,6 +9,9 @@ import {
   reorderPlacement,
   totalDurationTicks,
   flattenComposition,
+  setCompositionTempoMode,
+  setCompositionGroove,
+  setCompositionGrooveMode,
   PPQ,
 } from '../src/patterns';
 
@@ -132,5 +135,56 @@ describe('composition-ops', () => {
         expect(events[i].startTick).toBeGreaterThanOrEqual(events[i - 1].startTick);
       }
     });
+  });
+});
+
+describe('createEmptyComposition with mode/groove defaults', () => {
+  it("defaults tempoMode to 'global'", () => {
+    const c = createEmptyComposition();
+    expect(c.tempoMode).toBe('global');
+  });
+
+  it("defaults grooveMode to 'global'", () => {
+    const c = createEmptyComposition();
+    expect(c.grooveMode).toBe('global');
+  });
+
+  it('defaults groove to null', () => {
+    const c = createEmptyComposition();
+    expect(c.groove).toBeNull();
+  });
+});
+
+describe('setCompositionTempoMode', () => {
+  it("toggles between 'global' and 'inherit'", () => {
+    const c = createEmptyComposition();
+    expect(setCompositionTempoMode(c, 'inherit').tempoMode).toBe('inherit');
+    expect(setCompositionTempoMode(c, 'global').tempoMode).toBe('global');
+  });
+});
+
+describe('setCompositionGroove', () => {
+  it('sets the groove', () => {
+    const c = createEmptyComposition();
+    const next = setCompositionGroove(c, { swing: 0.67, appliedTo: 'eighths' });
+    expect(next.groove).toEqual({ swing: 0.67, appliedTo: 'eighths' });
+  });
+
+  it('clamps swing into [0.5, 0.75]', () => {
+    const c = createEmptyComposition();
+    expect(setCompositionGroove(c, { swing: 0.1, appliedTo: 'eighths' }).groove?.swing).toBe(0.5);
+  });
+
+  it('accepts null', () => {
+    const c = setCompositionGroove(createEmptyComposition(), { swing: 0.67, appliedTo: 'eighths' });
+    expect(setCompositionGroove(c, null).groove).toBeNull();
+  });
+});
+
+describe('setCompositionGrooveMode', () => {
+  it("toggles between 'global' and 'inherit'", () => {
+    const c = createEmptyComposition();
+    expect(setCompositionGrooveMode(c, 'inherit').grooveMode).toBe('inherit');
+    expect(setCompositionGrooveMode(c, 'global').grooveMode).toBe('global');
   });
 });

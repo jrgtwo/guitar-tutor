@@ -8,6 +8,7 @@
  * overlapping [startTick, startTick + durationTicks) intervals.
  */
 import type {
+  GrooveSpec,
   Lane,
   Pattern,
   PatternEvent,
@@ -35,6 +36,8 @@ export function createEmptyPattern(
     timeSignature: ts,
     events: [],
     lanes: [],
+    suggestedBpm: null,
+    groove: null,
     description: null,
     difficulty: null,
     genres: [],
@@ -300,4 +303,33 @@ export function setPatternDuration(pattern: Pattern, durationTicks: Tick): Patte
 
 export function setPatternTimeSignature(pattern: Pattern, ts: PatternTimeSignature): Pattern {
   return { ...pattern, timeSignature: { ...ts }, updatedAt: Date.now() };
+}
+
+const MIN_BPM = 40;
+const MAX_BPM = 240;
+const SWING_MIN = 0.5;
+const SWING_MAX = 0.75;
+
+function clampBpm(bpm: number): number {
+  return Math.max(MIN_BPM, Math.min(MAX_BPM, Math.round(bpm)));
+}
+
+function clampGroove(g: GrooveSpec): GrooveSpec {
+  return { ...g, swing: Math.max(SWING_MIN, Math.min(SWING_MAX, g.swing)) };
+}
+
+export function setPatternSuggestedBpm(pattern: Pattern, bpm: number | null): Pattern {
+  return {
+    ...pattern,
+    suggestedBpm: bpm === null ? null : clampBpm(bpm),
+    updatedAt: Date.now(),
+  };
+}
+
+export function setPatternGroove(pattern: Pattern, groove: GrooveSpec | null): Pattern {
+  return {
+    ...pattern,
+    groove: groove === null ? null : clampGroove(groove),
+    updatedAt: Date.now(),
+  };
 }

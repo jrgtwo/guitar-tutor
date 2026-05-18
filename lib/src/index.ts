@@ -199,6 +199,9 @@ export {
   getCollectionDepth,
   wouldCreateCycle,
   flattenComposition,
+  GROOVE_PRESETS,
+  presetMatching,
+  resolveEffectivePlayback,
 } from './patterns';
 export type {
   Tick,
@@ -207,6 +210,7 @@ export type {
   PatternEvent,
   Lane,
   PatternTimeSignature,
+  GrooveSpec,
   Pattern,
   Placement,
   Composition,
@@ -216,6 +220,9 @@ export type {
   PatternMetadataPatch,
   CompositionMetadataPatch,
   CollectionMetadataPatch,
+  GroovePresetId,
+  GroovePreset,
+  EffectivePlayback,
 } from './patterns';
 export {
   usePatternsStore,

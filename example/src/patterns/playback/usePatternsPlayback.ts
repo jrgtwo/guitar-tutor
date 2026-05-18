@@ -24,6 +24,7 @@ import {
   usePatternsStore,
   selectEditingPattern,
   selectEditingComposition,
+  resolveEffectivePlayback,
 } from '@fretwork/lib';
 import type { FretInstrumentId, GuitarInstrument } from '@fretwork/lib';
 import { PluckSynthInstrument } from '@fretwork/lib';
@@ -42,6 +43,9 @@ interface UsePatternsPlaybackReturn {
   activeEventIds: string[];
   /** Cells (stringIndex + fret) that are currently sounding, for the fretboard playhead. */
   activeCells: ReadonlyArray<{ stringIndex: number; fret: number }>;
+  /** Id of the placement currently sounding (composition playback only). Null
+   *  outside playback or when the active stream isn't a composition. */
+  currentPlacementId: string | null;
   playEditingPattern(): void;
   playEditingComposition(): void;
   stop(): void;
@@ -156,6 +160,51 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
     }
   }, [scheduler, instrumentId, voiceVersion]);
 
+  // Auto-load: when the editing pattern changes (different pattern opens, or
+  // the user edits suggestedBpm/groove on the current pattern), push those
+  // values into the metronome so the strip reflects the source of truth.
+  // Null suggestedBpm leaves the metronome at its current value.
+  const editingPatternId = usePatternsStore((s) => s.editingPatternId);
+  const editingPattern = usePatternsStore(selectEditingPattern);
+  const editingSuggestedBpm = editingPattern?.suggestedBpm ?? null;
+  const editingGrooveSwing = editingPattern?.groove?.swing ?? null;
+  const editingGrooveAppliedTo = editingPattern?.groove?.appliedTo ?? null;
+
+  useEffect(() => {
+    if (!metronome) return;
+    if (editingSuggestedBpm !== null) metronome.setBpm(editingSuggestedBpm);
+    metronome.setSwing(editingGrooveSwing ?? 0.5);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [metronome, editingPatternId, editingSuggestedBpm, editingGrooveSwing, editingGrooveAppliedTo]);
+
+  // Track current placement id so consumers (PatternsMetronomeStrip etc.) can
+  // pull the current placement's TS for beat-dot rendering during composition
+  // playback.
+  const [currentPlacementId, setCurrentPlacementId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!scheduler) return;
+    return scheduler.onPlacementChange((id) => setCurrentPlacementId(id));
+  }, [scheduler]);
+
+  // On placement change in inherit mode, resolve effective bpm/groove and push
+  // into the metronome. In global mode, this effect does nothing — the
+  // composition's bpm/groove was already applied at playEditingComposition()
+  // time and stays put for the whole stream.
+  useEffect(() => {
+    if (!scheduler || !metronome) return;
+    if (!currentPlacementId) return;
+    const state = usePatternsStore.getState();
+    const comp = selectEditingComposition(state);
+    if (!comp) return;
+    if (comp.tempoMode !== 'inherit' && comp.grooveMode !== 'inherit') return;
+    const placement = comp.placements.find((p) => p.id === currentPlacementId);
+    if (!placement) return;
+    const { bpm, groove } = resolveEffectivePlayback(comp, placement);
+    if (comp.tempoMode === 'inherit') metronome.setBpm(bpm);
+    if (comp.grooveMode === 'inherit') metronome.setSwing(groove?.swing ?? 0.5);
+  }, [scheduler, metronome, currentPlacementId]);
+
   const playEditingPattern = useCallback(() => {
     if (!scheduler || !metronome) return;
     const state = usePatternsStore.getState();
@@ -166,6 +215,8 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
     // Without this, calling start() on an already-running transport is a no-op
     // and stale audio bleeds into the new stream.
     if (metronome.isRunning) metronome.stop();
+    if (pattern.suggestedBpm !== null) metronome.setBpm(pattern.suggestedBpm);
+    metronome.setSwing(pattern.groove?.swing ?? 0.5);
     scheduler.setStream(new PatternSource(pattern));
     scheduler.setLoop(true);
     void metronome.start();
@@ -178,6 +229,7 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
     if (!composition) return;
     if (metronome.isRunning) metronome.stop();
     metronome.setBpm(composition.bpm);
+    metronome.setSwing(composition.groove?.swing ?? 0.5);
     scheduler.setStream(new CompositionSource(composition));
     scheduler.setLoop(false);
     void metronome.start();
@@ -196,6 +248,7 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
     headTick,
     activeEventIds,
     activeCells,
+    currentPlacementId,
     playEditingPattern,
     playEditingComposition,
     stop,

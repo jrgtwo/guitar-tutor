@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { PatternSource } from '../src/patterns/scheduler/PatternSource';
 import { CompositionSource } from '../src/patterns/scheduler/CompositionSource';
+import { EventScheduler } from '../src/patterns/scheduler/EventScheduler';
+import type { EventSchedulerOpts } from '../src/patterns/scheduler/EventScheduler';
 import {
   createEmptyPattern,
   createEmptyComposition,
@@ -9,6 +11,74 @@ import {
   setPlacementRepeat,
   PPQ,
 } from '../src/patterns';
+
+// ─── Fake helpers for EventScheduler tests ───────────────────────────────────
+
+type StartStopListener = () => void;
+
+interface FakeMetronome {
+  bpm: number;
+  isRunning: boolean;
+  on(event: 'start' | 'stop', handler: StartStopListener): () => void;
+  setBpm(bpm: number): void;
+  setSwing(swing: number): void;
+  start(): void;
+  stop(): void;
+}
+
+function makeFakeMetronome(): FakeMetronome {
+  const listeners: Record<'start' | 'stop', Set<StartStopListener>> = {
+    start: new Set(),
+    stop: new Set(),
+  };
+  const m: FakeMetronome = {
+    bpm: 120,
+    isRunning: false,
+    on(event, handler) {
+      listeners[event].add(handler);
+      return () => listeners[event].delete(handler);
+    },
+    setBpm(bpm) { m.bpm = bpm; },
+    setSwing(_swing) { /* no-op */ },
+    start() {
+      m.isRunning = true;
+      for (const h of listeners.start) h();
+    },
+    stop() {
+      m.isRunning = false;
+      for (const h of listeners.stop) h();
+    },
+  };
+  return m;
+}
+
+function makeFakeInstrument() {
+  return {
+    play: vi.fn(),
+    releaseAll: vi.fn(),
+    dispose: vi.fn(),
+    output: undefined,
+  };
+}
+
+const FAKE_TUNING = {
+  id: 'standard',
+  name: 'Standard',
+  instrumentId: 'guitar',
+  strings: ['E2', 'A2', 'D3', 'G3', 'B3', 'E4'],
+};
+
+function makeScheduler() {
+  const metronome = makeFakeMetronome();
+  const instrument = makeFakeInstrument();
+  const scheduler = new EventScheduler({
+    metronome: metronome as unknown as EventSchedulerOpts['metronome'],
+    instrument,
+    tuning: FAKE_TUNING,
+    capo: 0,
+  });
+  return { scheduler, metronome, instrument };
+}
 
 describe('PatternSource', () => {
   it('produces events in [fromTick, toTick) sorted by startTick', () => {
@@ -65,5 +135,82 @@ describe('EventScheduler slicing', () => {
     // the PatternSource / CompositionSource tests (which produce the inputs the
     // scheduler consumes). Manual end-to-end testing covers the wiring.
     expect(true).toBe(true);
+  });
+});
+
+describe('EventScheduler placement-change emission', () => {
+  it('emits onPlacementChange when head crosses placement boundary', () => {
+    // Build a composition with two distinct placements.
+    const p1 = createEmptyPattern('a');
+    const p2 = createEmptyPattern('b');
+    let comp = createEmptyComposition();
+    comp = addPlacement(comp, p1).composition;
+    comp = addPlacement(comp, p2).composition;
+
+    const source = new CompositionSource(comp);
+    const firstPlacementId = comp.placements[0].id;
+    const secondPlacementId = comp.placements[1].id;
+    const firstDuration = comp.placements[0].patternSnapshot.durationTicks;
+
+    const { scheduler, metronome } = makeScheduler();
+    scheduler.setStream(source);
+
+    const changes: Array<string | null> = [];
+    scheduler.onPlacementChange((id) => changes.push(id));
+
+    // Tick 1: head starts at 0, advances by TICKS_PER_INTERVAL (120).
+    // After _onTick, headTick = 120, which is within the first placement.
+    metronome.start();
+    scheduler._tickForTest(0);
+    expect(changes).toEqual([firstPlacementId]);
+
+    // Advance past first placement boundary by ticking enough 16th-note slices.
+    const ticksPerSlice = PPQ / 4; // 120
+    const ticksNeeded = firstDuration + ticksPerSlice;
+    const sliceCount = Math.ceil(ticksNeeded / ticksPerSlice);
+    for (let i = 0; i < sliceCount; i++) {
+      scheduler._tickForTest(i * 0.1);
+    }
+    expect(changes).toContain(secondPlacementId);
+  });
+
+  it('emits null on stop', () => {
+    let comp = createEmptyComposition();
+    comp = addPlacement(comp, createEmptyPattern('a')).composition;
+
+    const source = new CompositionSource(comp);
+    const { scheduler, metronome } = makeScheduler();
+    scheduler.setStream(source);
+
+    const changes: Array<string | null> = [];
+    scheduler.onPlacementChange((id) => changes.push(id));
+
+    metronome.start();
+    scheduler._tickForTest(0);
+    // Should have emitted first placement id.
+    expect(changes.length).toBeGreaterThan(0);
+    expect(changes[changes.length - 1]).not.toBeNull();
+
+    metronome.stop();
+    // After stop, the last emitted value should be null.
+    expect(changes[changes.length - 1]).toBeNull();
+  });
+
+  it('emits null when stream has no placements (PatternSource)', () => {
+    const p = createEmptyPattern();
+    const source = new PatternSource(p);
+    const { scheduler, metronome } = makeScheduler();
+    scheduler.setStream(source);
+
+    const changes: Array<string | null> = [];
+    scheduler.onPlacementChange((id) => changes.push(id));
+
+    metronome.start();
+    scheduler._tickForTest(0);
+    // PatternSource has no placementBoundaries — should never emit a placement id.
+    // Either nothing is emitted or null is emitted (null means "no placement").
+    for (const c of changes) {
+      expect(c).toBeNull();
+    }
   });
 });

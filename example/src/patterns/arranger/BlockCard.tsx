@@ -1,5 +1,6 @@
-import type { Placement } from '@fretwork/lib';
-import { PPQ } from '@fretwork/lib';
+import { useMemo } from 'react';
+import type { GrooveSpec, Placement } from '@fretwork/lib';
+import { PPQ, presetMatching, selectEditingComposition, usePatternsStore } from '@fretwork/lib';
 import { MiniPatternSignature } from './MiniPatternSignature';
 
 interface Props {
@@ -44,6 +45,30 @@ export function BlockCard({
   const beats = placement.patternSnapshot.durationTicks / PPQ;
   const totalBeats = beats * placement.repeat;
   const sigW = Math.max(40, width - 18);
+
+  const composition = usePatternsStore(selectEditingComposition);
+  const showInheritAnnotation =
+    composition?.tempoMode === 'inherit' || composition?.grooveMode === 'inherit';
+
+  const annotationParts = useMemo(() => {
+    if (!composition || !showInheritAnnotation) return null;
+    const parts: string[] = [];
+    if (composition.tempoMode === 'inherit') {
+      const bpm = placement.patternSnapshot.suggestedBpm ?? composition.bpm;
+      parts.push(`${bpm} bpm`);
+    }
+    if (composition.grooveMode === 'inherit') {
+      const groove: GrooveSpec | null = placement.patternSnapshot.groove ?? composition.groove;
+      const presetId = presetMatching(groove);
+      const label =
+        presetId === 'straight' ? 'Straight'
+        : presetId === 'custom' ? 'Custom'
+        : presetId;
+      parts.push(label);
+    }
+    return parts.join(' · ');
+  }, [composition, placement, showInheritAnnotation]);
+
   return (
     <div
       className={[
@@ -77,6 +102,11 @@ export function BlockCard({
           </span>
         )}
       </div>
+      {annotationParts && (
+        <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/70">
+          → {annotationParts}
+        </span>
+      )}
       <MiniPatternSignature pattern={placement.patternSnapshot} width={sigW} height={24} />
       <div className="text-[9px] font-mono text-muted-foreground/70 flex items-center justify-between">
         <span>{totalBeats.toFixed(totalBeats % 1 === 0 ? 0 : 1)} beats</span>

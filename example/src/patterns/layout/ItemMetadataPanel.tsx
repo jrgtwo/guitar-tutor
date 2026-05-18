@@ -31,6 +31,7 @@ import {
 import type { Composition, Pattern } from '@fretwork/lib';
 import { Section } from '../../components/ui/Section';
 import { MultiSelectChips } from '../../components/ui/MultiSelectChips';
+import { GroovePicker } from '../../components/metronome/GroovePicker';
 import { PatternPickerPanel } from './PatternPickerPanel';
 import { CompositionPickerPanel } from './CompositionPickerPanel';
 import { DeleteItemDialog } from './DeleteItemDialog';
@@ -88,6 +89,11 @@ function MetadataView({
   const updatePatternMetadata = usePatternsStore((s) => s.updatePatternMetadata);
   const updateCompositionMetadata = usePatternsStore((s) => s.updateCompositionMetadata);
   const setFretworkInstrumentId = useFretworkStore((s) => s.setInstrumentId);
+  const setPatternSuggestedBpm = usePatternsStore((s) => s.setEditingPatternSuggestedBpm);
+  const setPatternGroove = usePatternsStore((s) => s.setEditingPatternGroove);
+  const setTempoMode = usePatternsStore((s) => s.setEditingCompositionTempoMode);
+  const setCompGroove = usePatternsStore((s) => s.setEditingCompositionGroove);
+  const setGrooveMode = usePatternsStore((s) => s.setEditingCompositionGrooveMode);
 
   const isPattern = kind === 'pattern';
 
@@ -206,6 +212,102 @@ function MetadataView({
           </div>
         )}
       </Section>
+
+      {/* ── PATTERN-ONLY ─────────────────────────────────────────────────── */}
+      {isPattern && (() => {
+        const pattern = item as import('@fretwork/lib').Pattern;
+        return (
+          <Section title="Playback">
+            <label className="flex flex-col gap-1 text-xs font-mono">
+              <span className="text-muted-foreground uppercase tracking-wider text-[10px]">Suggested BPM</span>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={40}
+                  max={240}
+                  value={pattern.suggestedBpm ?? ''}
+                  placeholder="—"
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === '') setPatternSuggestedBpm(null);
+                    else {
+                      const n = parseInt(v, 10);
+                      if (Number.isFinite(n)) setPatternSuggestedBpm(n);
+                    }
+                  }}
+                  className="h-8 w-20 px-2 bg-charcoal-deep/60 border border-border/60 rounded text-center"
+                />
+                {pattern.suggestedBpm !== null && (
+                  <button
+                    type="button"
+                    onClick={() => setPatternSuggestedBpm(null)}
+                    className="text-[11px] text-muted-foreground hover:text-foreground"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            </label>
+            <div className="flex flex-col gap-1 text-xs font-mono">
+              <span className="text-muted-foreground uppercase tracking-wider text-[10px]">Groove</span>
+              <GroovePicker value={pattern.groove} onChange={setPatternGroove} />
+            </div>
+          </Section>
+        );
+      })()}
+
+      {/* ── COMPOSITION-ONLY ─────────────────────────────────────────────── */}
+      {!isPattern && (() => {
+        const composition = item as import('@fretwork/lib').Composition;
+        return (
+          <Section title="Playback">
+            <div className="flex flex-col gap-1 text-xs font-mono">
+              <span className="text-muted-foreground uppercase tracking-wider text-[10px]">Tempo mode</span>
+              <div className="flex gap-2">
+                {(['global', 'inherit'] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setTempoMode(mode)}
+                    className={[
+                      'flex-1 h-8 px-2 rounded border text-[11px] font-mono uppercase',
+                      composition.tempoMode === mode
+                        ? 'border-degree-root/60 bg-degree-root/15 text-foreground'
+                        : 'border-border/40 text-muted-foreground hover:bg-accent',
+                    ].join(' ')}
+                  >
+                    {mode}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex flex-col gap-1 text-xs font-mono">
+              <span className="text-muted-foreground uppercase tracking-wider text-[10px]">Groove</span>
+              <GroovePicker value={composition.groove} onChange={setCompGroove} />
+            </div>
+            <div className="flex flex-col gap-1 text-xs font-mono">
+              <span className="text-muted-foreground uppercase tracking-wider text-[10px]">Groove mode</span>
+              <div className="flex gap-2">
+                {(['global', 'inherit'] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setGrooveMode(mode)}
+                    className={[
+                      'flex-1 h-8 px-2 rounded border text-[11px] font-mono uppercase',
+                      composition.grooveMode === mode
+                        ? 'border-degree-root/60 bg-degree-root/15 text-foreground'
+                        : 'border-border/40 text-muted-foreground hover:bg-accent',
+                    ].join(' ')}
+                  >
+                    {mode}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </Section>
+        );
+      })()}
 
       {/* ── CATALOG ──────────────────────────────────────────────────────── */}
       <Section title="Catalog">
