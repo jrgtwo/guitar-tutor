@@ -5,8 +5,9 @@ import { usePatternsPlayback } from '../playback/usePatternsPlayback';
  *
  *  - Renders as a neutral grid (no scale highlights) — every cell shows a white marker.
  *  - Currently-playing cells from the scheduler light up via `activeCells`.
- *  - Clicks anywhere on the fretboard are routed to the store's `stampAt`; shift-click
- *    stamps a chord at the current cursor.
+ *  - Clicks anywhere on the fretboard stamp a note at the cursor (shift-click adds to
+ *    a chord stamp) and audibly preview the clicked pitch so the user hears the note
+ *    they just placed.
  */
 export function FretboardInput() {
   const stampAt = usePatternsStore((s) => s.stampAt);
@@ -16,7 +17,10 @@ export function FretboardInput() {
       alwaysClickable
       neutralGrid
       activeCells={playback.activeCells}
-      onCellClickOverride={(cell, { shift }) => stampAt(cell, shift)}
+      onCellClickOverride={(cell, { shift }) => {
+        stampAt(cell, shift);
+        playback.previewCell(cell);
+      }}
     />
   );
 }

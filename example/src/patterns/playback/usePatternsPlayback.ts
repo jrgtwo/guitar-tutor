@@ -49,6 +49,9 @@ interface UsePatternsPlaybackReturn {
   playEditingPattern(): void;
   playEditingComposition(): void;
   stop(): void;
+  /** Trigger a single audible note for a fretboard cell. Used by the patterns editor
+   *  for click-to-audition. No-op if the scheduler hasn't been built yet. */
+  previewCell(cell: { stringIndex: number; fret: number }): void;
 }
 
 // Singleton scheduler — one per app, lazily created on first use.
@@ -240,6 +243,14 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
     metronome.stop();
   }, [metronome]);
 
+  const previewCell = useCallback(
+    (cell: { stringIndex: number; fret: number }) => {
+      if (!scheduler) return;
+      scheduler.previewCell(cell.stringIndex, cell.fret);
+    },
+    [scheduler],
+  );
+
   // Update activeEventIds and headTick refs whenever the scheduler is replaced; here
   // we don't need to do anything more — the patched callbacks pick up new state.
 
@@ -252,6 +263,7 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
     playEditingPattern,
     playEditingComposition,
     stop,
+    previewCell,
   };
 }
 

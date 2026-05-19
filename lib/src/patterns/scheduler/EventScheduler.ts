@@ -20,6 +20,7 @@ import type { Metronome } from '../../metronome/Metronome';
 import type { GuitarInstrument } from '../../playback/types';
 import type { TuningDef } from '../../types';
 import { effectiveOpenStrings } from '../../lib/fretboard';
+import { audioNow, startAudio } from '../../playback/audio-context';
 import { noteAt } from '../../lib/theory';
 import { PPQ, secondsPerTick } from '../timebase';
 import { MasterBus } from '../../playback/voices/MasterBus';
@@ -189,6 +190,32 @@ export class EventScheduler {
       // Some instruments may already be disposed.
     }
     this._instrument = instrument;
+  }
+
+  /** Trigger a single audible note for a fretboard cell using the scheduler's current
+   *  instrument, tuning, and capo. Used by the editor for click-to-audition: the user
+   *  taps a fret on the fretboard and hears that note immediately, without involving
+   *  the metronome transport. Safe to call concurrently with active playback (the note
+   *  will overlap whatever the scheduler is already playing). */
+  previewCell(stringIndex: number, fret: number, duration: string | number = '8n'): void {
+    const openStrings = effectiveOpenStrings(this._tuning, this._capo);
+    const openString = openStrings[stringIndex];
+    if (!openString) return;
+    const note = noteAt(openString, fret);
+    // Audio context may be locked on the very first interaction. Kick off startAudio
+    // and play once it resolves; ignore failures (instruments may also fail if scheduled
+    // too close to a prior trigger).
+    startAudio()
+      .then(() => {
+        try {
+          this._instrument.play(note, duration, audioNow());
+        } catch {
+          // Swallow — preview is best-effort.
+        }
+      })
+      .catch(() => {
+        // startAudio rejection is non-fatal for preview.
+      });
   }
 
   // ─── Subscription API ──────────────────────────────────────────────────────
