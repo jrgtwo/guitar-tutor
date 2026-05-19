@@ -21,7 +21,8 @@ import type {
   StepLength,
   Tick,
 } from '../types';
-import { stepLengthToTicks } from '../timebase';
+import { stepLengthToTicks, ticksPerBar } from '../timebase';
+import type { CagedInsertPlan } from '../caged-insert';
 import {
   applyPatternMetadata,
   clonePattern,
@@ -169,6 +170,7 @@ export interface PatternsActions {
 
   // Editor mutations (operate on whichever target is currently open)
   stampAt(cell: { stringIndex: number; fret: number }, isChord: boolean): void;
+  stampCagedPlan(plan: CagedInsertPlan): void;
   flushChordStamp(): void;
   rest(): void;
   moveEvent(eventId: string, newStartTick: Tick, newStringIndex?: number): void;
@@ -779,6 +781,36 @@ export const usePatternsStore = create<PatternsStoreState>()(
         const s = get();
         const durationTicks = stepLengthToTicks(s.stepLength);
         set({ cursorTick: s.cursorTick + durationTicks, pendingChordStamp: [] });
+      },
+      stampCagedPlan(plan) {
+        if (plan.notes.length === 0) return;
+        const s = get();
+        const target = currentEditTarget(s);
+        if (!target) return;
+        let pattern = target.pattern;
+        const baseTick = s.cursorTick;
+        for (const note of plan.notes) {
+          const startTick = baseTick + note.startTickOffset;
+          const res = stampEvent({
+            pattern,
+            stringIndex: note.stringIndex,
+            fret: note.fret,
+            startTick,
+            durationTicks: note.durationTicks,
+          });
+          // stampEvent returns the input pattern unchanged on conflict; skip that note.
+          if (res.pattern !== pattern) pattern = res.pattern;
+        }
+        const endTick = baseTick + plan.totalTicks;
+        if (endTick > pattern.durationTicks) {
+          const tpb = ticksPerBar(pattern.timeSignature);
+          const grown = Math.ceil(endTick / tpb) * tpb;
+          pattern = { ...pattern, durationTicks: grown, updatedAt: Date.now() };
+        }
+        set(updateTarget(s, pattern, {
+          cursorTick: endTick,
+          pendingChordStamp: [],
+        }));
       },
       moveEvent(eventId, newStartTick, newStringIndex) {
         const s = get();

@@ -92,3 +92,13 @@ export type { GroovePresetId, GroovePreset } from './groove';
 
 export { resolveEffectivePlayback } from './scheduler/resolvePlayback';
 export type { EffectivePlayback } from './scheduler/resolvePlayback';
+
+export { planCagedInsert, isCagedInsertApplicable } from './caged-insert';
+export type {
+  CagedInsertRequest,
+  CagedInsertMode,
+  CagedInsertPlan,
+  CagedTraversal,
+  PlannedNote,
+  ChordQuality,
+} from './caged-insert';

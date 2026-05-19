@@ -150,9 +150,9 @@ describe('CAGED applicability per instrument', () => {
     }
   });
 
-  it('CAGED is NOT applicable on bass', () => {
+  it('CAGED is applicable on bass', () => {
     for (const p of CAGED_PATTERNS) {
-      expect(p.isApplicable(makeInput('bass'))).toBe(false);
+      expect(p.isApplicable(makeInput('bass'))).toBe(true);
     }
   });
 
@@ -162,9 +162,9 @@ describe('CAGED applicability per instrument', () => {
     }
   });
 
-  it('CAGED entries are tagged with applicableInstruments=["guitar"]', () => {
+  it('CAGED entries are tagged with applicableInstruments=["guitar","bass"]', () => {
     for (const p of CAGED_PATTERNS) {
-      expect(p.applicableInstruments).toEqual(['guitar']);
+      expect(p.applicableInstruments).toEqual(['guitar', 'bass']);
     }
   });
 });

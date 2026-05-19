@@ -148,9 +148,8 @@ describe('CAGED — applicability', () => {
     }
   });
 
-  it('returns false isApplicable for non-guitar instruments', () => {
+  it('returns false isApplicable for unsupported instruments (e.g. ukulele)', () => {
     for (const p of CAGED_PATTERNS) {
-      expect(p.isApplicable(makeInput({ instrumentId: 'bass' }))).toBe(false);
       expect(p.isApplicable(makeInput({ instrumentId: 'ukulele' }))).toBe(false);
     }
   });
@@ -312,6 +311,7 @@ describe('getCagedShapeSet + getCagedPositionMap (public)', () => {
 // ─── Arpeggio shapes ──────────────────────────────────────────────────────────
 
 import { getArpeggio } from '../src/lib/arpeggios';
+import { getInstrument } from '../src/lib/instruments';
 
 function makeArpeggioInput(arpeggioId: string, key = 'A', overrides: Partial<ResolveInput> = {}): ResolveInput {
   const arp = getArpeggio(arpeggioId)!;
@@ -392,5 +392,55 @@ describe('CAGED shapes in arpeggios mode', () => {
     for (const p of CAGED_PATTERNS) {
       expect(p.isApplicable(input)).toBe(true);
     }
+  });
+});
+
+// ─── Bass parity ──────────────────────────────────────────────────────────────
+
+const BASS = getTuning('bass-standard')!;
+
+function makeBassInput(overrides: Partial<ResolveInput> = {}): ResolveInput {
+  const scaleId = (overrides.scaleType as string | undefined) ?? 'major';
+  const scale = getScale(scaleId);
+  const intervals = scale?.intervals ?? [0];
+  const fretCount = getInstrument('bass')!.fretCount;
+  const grid = buildGrid(BASS, overrides.capo ?? 0, fretCount);
+  const highlights = computeHighlights(grid, overrides.key ?? 'A', intervals, overrides.capo ?? 0);
+  return {
+    highlights,
+    tuning: BASS,
+    key: 'A',
+    capo: 0,
+    mode: 'scales',
+    instrumentId: 'bass',
+    fretCount,
+    scaleType: scaleId,
+    ...overrides,
+  };
+}
+
+describe('CAGED — bass parity', () => {
+  it('A-shape major scale on bass: only emits cells on strings 0–3', () => {
+    const seq = findShape('caged-a').resolve(makeBassInput());
+    expect(seq.length).toBeGreaterThan(0);
+    for (const c of seq) {
+      expect(c.stringIndex).toBeGreaterThanOrEqual(0);
+      expect(c.stringIndex).toBeLessThanOrEqual(3);
+    }
+  });
+
+  it('E-shape major scale on bass for A major: anchors at fret 5 on low E', () => {
+    const seq = findShape('caged-e').resolve(makeBassInput());
+    expect(seq.length).toBeGreaterThan(0);
+    for (const c of seq) {
+      expect(c.stringIndex).toBeLessThanOrEqual(3);
+      expect(c.fret).toBeGreaterThanOrEqual(4);
+      expect(c.fret).toBeLessThanOrEqual(8);
+    }
+    expect(seq.some((c) => c.stringIndex === 0 && c.fret === 5)).toBe(true);
+  });
+
+  it('isApplicable returns true on bass for guitar+bass-supported shapes', () => {
+    expect(findShape('caged-e').isApplicable(makeBassInput())).toBe(true);
   });
 });

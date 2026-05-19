@@ -27,6 +27,7 @@ import {
 } from './caged-shapes-data';
 import { pitchClass } from '../../lib/theory';
 import { buildUpAndDown } from './up-and-down';
+import { getInstrument } from '../../lib/instruments';
 
 // ─── Scale-family helpers ──────────────────────────────────────────────────────
 
@@ -123,17 +124,20 @@ interface ResolvedShape {
   readonly maxFret: number;
 }
 
-/** Minimum number of cells that must land in the playable range for an anchor
- *  occurrence to be considered usable. Shapes have ~14–18 cells; this threshold is
- *  set so the open-position E-shape for E major (4 cells dropped at the nut) still
- *  qualifies, while degenerate fragments (e.g. G-shape for E major at fret 0, with
- *  most of the box hanging off the bottom) are rejected in favor of the octave-up
- *  occurrence. */
-const MIN_CELLS_FOR_VALID_ANCHOR = 8;
+const MIN_CELLS_FOR_VALID_ANCHOR_GUITAR = 8;
+
+/** Minimum playable cells required to consider an anchor "usable", scaled to
+ *  the active instrument's string count. The constant 8 was chosen for 6-string
+ *  shapes (~15 cells total); on 4-string bass the truncated box has fewer
+ *  cells, so we scale proportionally to keep the same "most of the box must
+ *  fit" gate. */
+function minCellsForAnchor(stringCount: number): number {
+  return Math.max(4, Math.ceil((MIN_CELLS_FOR_VALID_ANCHOR_GUITAR * stringCount) / 6));
+}
 
 /**
  * Find the lowest fret on `anchorString` where the root pitch class lands such that
- * the shape has at least `MIN_CELLS_FOR_VALID_ANCHOR` cells inside `[capo, fretCount]`.
+ * the shape has at least `minCellsForAnchor(stringCount)` cells inside `[capo, fretCount]`.
  * Cells that fall outside that range are dropped by `resolveShapeCells`; this function
  * just decides which anchor produces a recognizable box.
  *
@@ -146,11 +150,14 @@ function findValidAnchorFret(
   openNotePC: number,
   capo: number,
   fretCount: number,
+  stringCount: number,
 ): number | null {
   let maxOff = -Infinity;
   for (const c of shape.cells) {
+    if (c.stringIndex >= stringCount) continue;
     if (c.offset > maxOff) maxOff = c.offset;
   }
+  const minCells = minCellsForAnchor(stringCount);
   for (let f = capo; f <= fretCount; f++) {
     const pc = (openNotePC + f) % 12;
     if (pc !== rootPC) continue;
@@ -159,29 +166,33 @@ function findValidAnchorFret(
     // Count cells that land in the playable range.
     let fits = 0;
     for (const c of shape.cells) {
+      if (c.stringIndex >= stringCount) continue;
       const fret = f + c.offset;
       if (fret >= capo && fret <= fretCount) fits++;
     }
-    if (fits >= MIN_CELLS_FOR_VALID_ANCHOR) return f;
+    if (fits >= minCells) return f;
   }
   return null;
 }
 
 /** Build the absolute cells for a shape positioned at the given anchor fret. Drops
  *  cells that fall outside `[capo, fretCount]` (e.g. open-position shapes whose
- *  lower offsets land behind the nut). Applies the pentatonic-degree filter when
+ *  lower offsets land behind the nut), and drops cells on strings beyond `stringCount`
+ *  (for shorter instruments like bass). Applies the pentatonic-degree filter when
  *  requested. Returns null if no cells survive. */
 function resolveShapeCells(
   shape: CagedShape,
   anchorFret: number,
   capo: number,
   fretCount: number,
+  stringCount: number,
   pentatonic: boolean,
 ): ResolvedShape | null {
   const cells: AbsoluteCell[] = [];
   let minFret = Infinity;
   let maxFret = -Infinity;
   for (const c of shape.cells) {
+    if (c.stringIndex >= stringCount) continue;
     if (pentatonic && !PENTATONIC_DEGREES.has(c.degree)) continue;
     const fret = anchorFret + c.offset;
     if (fret < capo || fret > fretCount) continue;
@@ -208,7 +219,7 @@ function resolveShape(shape: CagedShape, input: ResolveInput): ResolvedShape | n
   if (input.mode === 'arpeggios') {
     return resolveArpeggioShape(shape, input);
   }
-  const { tuning, key, capo, fretCount, scaleType } = input;
+  const { tuning, key, capo, fretCount, scaleType, instrumentId } = input;
   const offset = parentMajorOffsetFor(scaleType);
   if (offset == null) return null;
   const keyPC = pitchClass(key);
@@ -218,15 +229,16 @@ function resolveShape(shape: CagedShape, input: ResolveInput): ResolvedShape | n
   if (!openNote) return null;
   const openNotePC = pitchClass(openNote);
 
-  const anchorFret = findValidAnchorFret(shape, anchorPC, openNotePC, capo, fretCount);
+  const stringCount = getInstrument(instrumentId)?.stringCount ?? tuning.strings.length;
+  const anchorFret = findValidAnchorFret(shape, anchorPC, openNotePC, capo, fretCount, stringCount);
   if (anchorFret == null) return null;
 
-  return resolveShapeCells(shape, anchorFret, capo, fretCount, isPentatonic(scaleType));
+  return resolveShapeCells(shape, anchorFret, capo, fretCount, stringCount, isPentatonic(scaleType));
 }
 
 /** Arpeggio path: anchor at root pc, slice highlights by the shape's fret window. */
 function resolveArpeggioShape(shape: CagedShape, input: ResolveInput): ResolvedShape | null {
-  const { tuning, key, capo, fretCount, highlights, arpeggioType } = input;
+  const { tuning, key, capo, fretCount, highlights, arpeggioType, instrumentId } = input;
   if (!arpeggioType) return null;
   const keyPC = pitchClass(key);
 
@@ -234,15 +246,18 @@ function resolveArpeggioShape(shape: CagedShape, input: ResolveInput): ResolvedS
   if (!openNote) return null;
   const openNotePC = pitchClass(openNote);
 
+  const stringCount = getInstrument(instrumentId)?.stringCount ?? tuning.strings.length;
+
   // Anchor at the arpeggio's root pitch class. Validity is still gauged by the
   // major-shape's cell layout — that ensures the resulting box is recognisable,
   // even though the arpeggio itself fills only some of those cells.
-  const anchorFret = findValidAnchorFret(shape, keyPC, openNotePC, capo, fretCount);
+  const anchorFret = findValidAnchorFret(shape, keyPC, openNotePC, capo, fretCount, stringCount);
   if (anchorFret == null) return null;
 
   let minOff = Infinity;
   let maxOff = -Infinity;
   for (const c of shape.cells) {
+    if (c.stringIndex >= stringCount) continue;
     if (c.offset < minOff) minOff = c.offset;
     if (c.offset > maxOff) maxOff = c.offset;
   }
@@ -256,6 +271,7 @@ function resolveArpeggioShape(shape: CagedShape, input: ResolveInput): ResolvedS
   let minFret = Infinity;
   let maxFret = -Infinity;
   for (const h of highlights) {
+    if (h.stringIndex >= stringCount) continue;
     if (h.fret < minFretWindow || h.fret > maxFretWindow) continue;
     cells.push({ stringIndex: h.stringIndex, fret: h.fret, degree: h.degreeNumber });
     if (h.fret < minFret) minFret = h.fret;
@@ -331,9 +347,9 @@ function buildCagedPattern(letter: CagedLetter, id: CagedShapeId): PlaybackPatte
     id,
     name: `${letter} shape`,
     group: 'CAGED',
-    applicableInstruments: ['guitar'],
+    applicableInstruments: ['guitar', 'bass'],
     isApplicable: (input) => {
-      if (input.instrumentId !== 'guitar') return false;
+      if (input.instrumentId !== 'guitar' && input.instrumentId !== 'bass') return false;
       if (input.mode !== 'scales' && input.mode !== 'arpeggios') return false;
       const set = shapeSetForInput(input);
       if (!set) return false;

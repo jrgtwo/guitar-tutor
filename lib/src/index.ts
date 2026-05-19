@@ -154,6 +154,16 @@ export {
 
 // Types
 // Patterns (Phase 1: pattern editor, library, composition arrangement)
+export { planCagedInsert, isCagedInsertApplicable } from './patterns';
+export type {
+  CagedInsertRequest,
+  CagedInsertMode,
+  CagedInsertPlan,
+  CagedTraversal,
+  PlannedNote,
+  ChordQuality,
+} from './patterns';
+
 export {
   generateId,
   generateUuid,

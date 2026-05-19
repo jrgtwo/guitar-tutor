@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { usePatternsStore, DEFAULT_PATTERNS_STATE, selectEditingPattern } from '../src/patterns/store/usePatternsStore';
 import { PPQ } from '../src/patterns';
+import type { CagedInsertPlan } from '../src/patterns/caged-insert';
+import { ticksPerBar } from '../src/patterns/timebase';
 
 beforeEach(() => {
   // Reset state and clear persisted storage so each test starts clean.
@@ -167,5 +169,77 @@ describe('usePatternsStore', () => {
         .library.patterns.find((x) => x.id === editingId);
       expect(p?.suggestedBpm).toBe(95);
     });
+  });
+});
+
+describe('usePatternsStore.stampCagedPlan', () => {
+  it('stamps notes at the cursor and advances cursor by totalTicks', () => {
+    const { createPattern, setCursorTick, stampCagedPlan } = usePatternsStore.getState();
+    const id = createPattern('t');
+    setCursorTick(0);
+    const plan: CagedInsertPlan = {
+      notes: [
+        { stringIndex: 0, fret: 3, startTickOffset: 0, durationTicks: 240 },
+        { stringIndex: 1, fret: 5, startTickOffset: 240, durationTicks: 240 },
+      ],
+      totalTicks: 480,
+    };
+    stampCagedPlan(plan);
+    const s = usePatternsStore.getState();
+    const pat = s.library.patterns.find((p) => p.id === id)!;
+    expect(pat.events.map((e) => ({ s: e.stringIndex, f: e.fret, t: e.startTick }))).toEqual([
+      { s: 0, f: 3, t: 0 },
+      { s: 1, f: 5, t: 240 },
+    ]);
+    expect(s.cursorTick).toBe(480);
+  });
+
+  it('extends pattern duration to next bar when stamping past the end', () => {
+    const { createPattern, setCursorTick, stampCagedPlan } = usePatternsStore.getState();
+    const id = createPattern('t');
+    const pat0 = usePatternsStore.getState().library.patterns.find((p) => p.id === id)!;
+    const tpb = ticksPerBar(pat0.timeSignature);
+    setCursorTick(pat0.durationTicks - 240);
+    const plan: CagedInsertPlan = {
+      notes: [
+        { stringIndex: 0, fret: 3, startTickOffset: 0, durationTicks: 240 },
+        { stringIndex: 0, fret: 5, startTickOffset: 240, durationTicks: 240 },
+        { stringIndex: 0, fret: 7, startTickOffset: 480, durationTicks: 240 },
+      ],
+      totalTicks: 720,
+    };
+    stampCagedPlan(plan);
+    const pat = usePatternsStore.getState().library.patterns.find((p) => p.id === id)!;
+    expect(pat.durationTicks % tpb).toBe(0);
+    expect(pat.durationTicks).toBeGreaterThanOrEqual(pat0.durationTicks - 240 + 720);
+  });
+
+  it('skips conflicting notes silently and still advances cursor by totalTicks', () => {
+    const { createPattern, setCursorTick, stampAt, stampCagedPlan } = usePatternsStore.getState();
+    const id = createPattern('t');
+    setCursorTick(0);
+    stampAt({ stringIndex: 0, fret: 1 }, false);
+    setCursorTick(0);
+    const plan: CagedInsertPlan = {
+      notes: [
+        { stringIndex: 0, fret: 99, startTickOffset: 0, durationTicks: 240 }, // conflicts
+        { stringIndex: 1, fret: 7, startTickOffset: 240, durationTicks: 240 },
+      ],
+      totalTicks: 480,
+    };
+    stampCagedPlan(plan);
+    const s = usePatternsStore.getState();
+    const pat = s.library.patterns.find((p) => p.id === id)!;
+    expect(pat.events.find((e) => e.fret === 99)).toBeUndefined();
+    expect(pat.events.find((e) => e.stringIndex === 1 && e.fret === 7)).toBeDefined();
+    expect(s.cursorTick).toBe(480);
+  });
+
+  it('is a no-op when the plan is empty', () => {
+    const { createPattern, stampCagedPlan } = usePatternsStore.getState();
+    createPattern('t');
+    const tickBefore = usePatternsStore.getState().cursorTick;
+    stampCagedPlan({ notes: [], totalTicks: 0 });
+    expect(usePatternsStore.getState().cursorTick).toBe(tickBefore);
   });
 });

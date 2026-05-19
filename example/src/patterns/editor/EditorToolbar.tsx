@@ -1,12 +1,18 @@
-import { ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
+import { useState } from 'react';
+import { ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-react';
 import {
   usePatternsStore,
   selectEditingPattern,
   ticksPerBar,
+  getInstrument,
 } from '@fretwork/lib';
 import { StepLengthPicker } from './StepLengthPicker';
+import { SimplePopover } from '../../components/ui/SimplePopover';
+import { CagedInsertPopover } from './CagedInsertPopover';
 
 export function EditorToolbar() {
+  const [cagedOpen, setCagedOpen] = useState(false);
+
   const fretboardCollapsed = usePatternsStore((s) => s.fretboardCollapsed);
   const setFretboardCollapsed = usePatternsStore((s) => s.setFretboardCollapsed);
   const cursorTick = usePatternsStore((s) => s.cursorTick);
@@ -17,12 +23,36 @@ export function EditorToolbar() {
   const pattern = usePatternsStore(selectEditingPattern);
   const setEditingPatternDuration = usePatternsStore((s) => s.setEditingPatternDuration);
 
+  const instrumentId = pattern?.instrumentId;
+  const instrument = instrumentId ? getInstrument(instrumentId) : null;
+  const showCagedButton = instrument?.id === 'guitar' || instrument?.id === 'bass';
+
   const tpb = pattern ? ticksPerBar(pattern.timeSignature) : 0;
   const bars = pattern && tpb > 0 ? Math.max(1, Math.round(pattern.durationTicks / tpb)) : 4;
 
   return (
     <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-border/40 bg-charcoal-raised/20">
       <StepLengthPicker />
+
+      {showCagedButton && (
+        <SimplePopover
+          open={cagedOpen}
+          onOpenChange={setCagedOpen}
+          trigger={
+            <button
+              type="button"
+              className="h-7 px-2.5 inline-flex items-center gap-1 rounded-md text-[11px] font-mono uppercase tracking-wider border border-degree-root/40 bg-degree-root/10 hover:bg-degree-root/20 text-foreground"
+              aria-label="Insert CAGED shape"
+              title="Insert a CAGED shape at the cursor"
+            >
+              <Plus size={11} /> CAGED
+            </button>
+          }
+          panelClassName=""
+        >
+          <CagedInsertPopover onClose={() => setCagedOpen(false)} />
+        </SimplePopover>
+      )}
 
       <button
         type="button"
