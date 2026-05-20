@@ -243,3 +243,33 @@ describe('usePatternsStore.stampCagedPlan', () => {
     expect(usePatternsStore.getState().cursorTick).toBe(tickBefore);
   });
 });
+
+describe('setEditingPatternKeyScale', () => {
+  it('sets both key and scaleType', () => {
+    const { createPattern, setEditingPatternKeyScale } = usePatternsStore.getState();
+    const id = createPattern('t');
+    setEditingPatternKeyScale('A', 'major');
+    const pat = usePatternsStore.getState().library.patterns.find((p) => p.id === id)!;
+    expect(pat.key).toBe('A');
+    expect(pat.scaleType).toBe('major');
+  });
+
+  it('clearing key also clears scaleType', () => {
+    const { createPattern, setEditingPatternKeyScale } = usePatternsStore.getState();
+    const id = createPattern('t');
+    setEditingPatternKeyScale('A', 'major');
+    setEditingPatternKeyScale(null, null);
+    const pat = usePatternsStore.getState().library.patterns.find((p) => p.id === id)!;
+    expect(pat.key).toBeNull();
+    expect(pat.scaleType).toBeNull();
+  });
+
+  it('setting a key without a scaleType defaults scaleType to major', () => {
+    const { createPattern, setEditingPatternKeyScale } = usePatternsStore.getState();
+    const id = createPattern('t');
+    setEditingPatternKeyScale('C', null);
+    const pat = usePatternsStore.getState().library.patterns.find((p) => p.id === id)!;
+    expect(pat.key).toBe('C');
+    expect(pat.scaleType).toBe('major');
+  });
+});

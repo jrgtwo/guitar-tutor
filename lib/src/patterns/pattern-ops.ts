@@ -15,9 +15,12 @@ import type {
   PatternTimeSignature,
   Tick,
 } from './types';
+import type { IntervalSet, TuningDef } from '../types';
 import { generateId, generateUuid } from './ids';
 import { defaultPatternDurationTicks } from './timebase';
 import { DEFAULT_INSTRUMENT_ID } from '../lib/instruments';
+import { pitchOf } from '../lib/fretboard';
+import { pitchClass } from '../lib/theory';
 
 const DEFAULT_TS: PatternTimeSignature = { numerator: 4, denominator: 4 };
 
@@ -38,6 +41,8 @@ export function createEmptyPattern(
     lanes: [],
     suggestedBpm: null,
     groove: null,
+    key: null,
+    scaleType: null,
     description: null,
     difficulty: null,
     genres: [],
@@ -193,6 +198,35 @@ export function resizeEvent(pattern: Pattern, eventId: string, newDurationTicks:
   };
 }
 
+/** Resize multiple events by the same `deltaTicks`. Each event is clamped
+ *  independently: against the next event on the same string (no overlap) and
+ *  against a floor of 1 tick. Snapshots are captured at grab time so per-pointer
+ *  reductions don't compound on top of intermediate state.
+ *
+ *  Returns the same pattern reference when no snapshot matches an event (so
+ *  callers can short-circuit with reference equality, matching `moveEventsBy`). */
+export function resizeEventsBy(
+  pattern: Pattern,
+  snapshots: readonly EventResizeSnapshot[],
+  deltaTicks: Tick,
+): Pattern {
+  const snapshotById = new Map(snapshots.map((s) => [s.id, s] as const));
+  let touched = false;
+  const nextEvents = pattern.events.map((e) => {
+    const snap = snapshotById.get(e.id);
+    if (!snap) return e;
+    const nextStart = nextEventStartOnString(pattern.events, e.stringIndex, e.startTick, e.id);
+    const maxDuration = nextStart === Infinity ? Number.MAX_SAFE_INTEGER : nextStart - e.startTick;
+    const desired = snap.durationTicks + deltaTicks;
+    const clamped = Math.max(1, Math.min(desired, maxDuration));
+    if (clamped === e.durationTicks) return e;
+    touched = true;
+    return { ...e, durationTicks: clamped };
+  });
+  if (!touched) return pattern;
+  return { ...pattern, events: nextEvents, updatedAt: Date.now() };
+}
+
 /** Move an event in time and/or to a different string. Rejects moves that would cause
  *  same-string overlap. */
 export function moveEvent(
@@ -228,6 +262,11 @@ export interface EventDragSnapshot {
   startTick: Tick;
   stringIndex: number;
   durationTicks: Tick;
+}
+
+export interface EventResizeSnapshot {
+  readonly id: string;
+  readonly durationTicks: Tick;
 }
 
 /** Apply a (deltaTicks, deltaStringIdx) move to a group of events using their drag-start
@@ -355,6 +394,59 @@ export function setEventFret(pattern: Pattern, eventId: string, newFret: number)
     ),
     updatedAt: Date.now(),
   };
+}
+
+/**
+ * Move selected events by one scale step in the given direction (1 = up, -1 = down).
+ * Each event is transposed individually, preserving its chromatic offset from the
+ * nearest scale tone at or below it ("relative pitch compared to the key" is preserved).
+ *
+ * Events whose new fret falls outside `[0, fretCount]` on the same string are
+ * left unchanged. The fret stays on the same string — no string changes.
+ *
+ * Returns the same pattern reference when nothing changes.
+ */
+export function transposeEventsDiatonic(
+  pattern: Pattern,
+  eventIds: readonly string[],
+  direction: 1 | -1,
+  key: string,
+  intervals: IntervalSet,
+  tuning: TuningDef,
+  fretCount: number,
+): Pattern {
+  if (eventIds.length === 0) return pattern;
+  const rootPC = pitchClass(key);
+  const scalePcSet = new Set(intervals.map((i) => ((rootPC + i) % 12 + 12) % 12));
+  const selected = new Set(eventIds);
+  let touched = false;
+  const nextEvents = pattern.events.map((e) => {
+    if (!selected.has(e.id)) return e;
+    const oldPitch = pitchOf({ stringIndex: e.stringIndex, fret: e.fret }, tuning);
+    const newPitch = transposeDiatonicPitch(oldPitch, direction, scalePcSet);
+    const delta = newPitch - oldPitch;
+    const newFret = e.fret + delta;
+    if (newFret < 0 || newFret > fretCount) return e;
+    touched = true;
+    return { ...e, fret: newFret };
+  });
+  if (!touched) return pattern;
+  return { ...pattern, events: nextEvents, updatedAt: Date.now() };
+}
+
+function transposeDiatonicPitch(
+  pitch: number,
+  direction: 1 | -1,
+  scalePcSet: ReadonlySet<number>,
+): number {
+  // Anchor: nearest scale tone <= pitch.
+  let anchor = pitch;
+  while (!scalePcSet.has(((anchor % 12) + 12) % 12)) anchor--;
+  const offset = pitch - anchor;
+  // Step the anchor up or down one scale tone.
+  let nextAnchor = anchor + direction;
+  while (!scalePcSet.has(((nextAnchor % 12) + 12) % 12)) nextAnchor += direction;
+  return nextAnchor + offset;
 }
 
 /** Remove events by id. */

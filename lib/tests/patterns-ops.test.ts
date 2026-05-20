@@ -4,6 +4,7 @@ import {
   clonePattern,
   stampEvent,
   resizeEvent,
+  resizeEventsBy,
   moveEvent,
   deleteEvents,
   nextEventStartOnString,
@@ -12,6 +13,10 @@ import {
   setPatternSuggestedBpm,
   setPatternGroove,
 } from '../src/patterns';
+import { transposeEventsDiatonic } from '../src/patterns/pattern-ops';
+import { getScale } from '../src/lib/scales';
+import { getTuning } from '../src/lib/tunings';
+import type { Pattern } from '../src/patterns/types';
 
 describe('pattern-ops', () => {
   describe('createEmptyPattern', () => {
@@ -206,5 +211,133 @@ describe('pattern-ops', () => {
       const p = setPatternGroove(createEmptyPattern('riff'), { swing: 0.67, appliedTo: 'eighths' });
       expect(setPatternGroove(p, null).groove).toBeNull();
     });
+  });
+
+  describe('resizeEventsBy', () => {
+    it('grows multiple events by the same delta, each clamped independently', () => {
+      let pattern = createEmptyPattern('t');
+      const r1 = stampEvent({ pattern, stringIndex: 0, fret: 1, startTick: 0, durationTicks: 240 });
+      pattern = r1.pattern;
+      const r2 = stampEvent({ pattern, stringIndex: 1, fret: 3, startTick: 0, durationTicks: 240 });
+      pattern = r2.pattern;
+      const r3 = stampEvent({ pattern, stringIndex: 2, fret: 5, startTick: 0, durationTicks: 240 });
+      pattern = r3.pattern;
+
+      const snapshots = pattern.events.map((e) => ({
+        id: e.id,
+        durationTicks: e.durationTicks,
+      }));
+
+      const next = resizeEventsBy(pattern, snapshots, 240);
+      expect(next.events.find((e) => e.id === r1.event.id)!.durationTicks).toBe(480);
+      expect(next.events.find((e) => e.id === r2.event.id)!.durationTicks).toBe(480);
+      expect(next.events.find((e) => e.id === r3.event.id)!.durationTicks).toBe(480);
+    });
+
+    it('clamps individual events against the next event on the same string', () => {
+      let pattern = createEmptyPattern('t');
+      const a = stampEvent({ pattern, stringIndex: 0, fret: 1, startTick: 0, durationTicks: 240 });
+      pattern = a.pattern;
+      const b = stampEvent({ pattern, stringIndex: 0, fret: 3, startTick: 240, durationTicks: 240 });
+      pattern = b.pattern;
+
+      const snapshots = [
+        { id: a.event.id, durationTicks: 240 },
+        { id: b.event.id, durationTicks: 240 },
+      ];
+
+      const next = resizeEventsBy(pattern, snapshots, 240);
+      expect(next.events.find((e) => e.id === a.event.id)!.durationTicks).toBe(240);
+      expect(next.events.find((e) => e.id === b.event.id)!.durationTicks).toBe(480);
+    });
+
+    it('returns the same pattern reference when no events match', () => {
+      const pattern = createEmptyPattern('t');
+      const result = resizeEventsBy(pattern, [{ id: 'nonexistent', durationTicks: 100 }], 100);
+      expect(result).toBe(pattern);
+    });
+
+    it('clamps each event to a minimum duration of 1', () => {
+      let pattern = createEmptyPattern('t');
+      const a = stampEvent({ pattern, stringIndex: 0, fret: 1, startTick: 0, durationTicks: 240 });
+      pattern = a.pattern;
+      const snapshots = [{ id: a.event.id, durationTicks: 240 }];
+
+      const next = resizeEventsBy(pattern, snapshots, -1000);
+      expect(next.events.find((e) => e.id === a.event.id)!.durationTicks).toBe(1);
+    });
+  });
+});
+
+describe('Pattern key + scale defaults', () => {
+  it('createEmptyPattern sets key and scaleType to null', () => {
+    const p = createEmptyPattern('t');
+    expect(p.key).toBeNull();
+    expect(p.scaleType).toBeNull();
+  });
+});
+
+describe('transposeEventsDiatonic', () => {
+  const tuning = getTuning('standard')!;
+  const majorIntervals = getScale('major')!.intervals;
+
+  function stampMany(p: Pattern, notes: Array<{ s: number; f: number }>): Pattern {
+    let next = p;
+    for (const n of notes) {
+      const r = stampEvent({ pattern: next, stringIndex: n.s, fret: n.f, startTick: 0, durationTicks: 240 });
+      next = r.pattern;
+    }
+    return next;
+  }
+
+  it('A major up 1 step: A (A string fret 0) → B (A string fret 2)', () => {
+    let p = createEmptyPattern('t');
+    p = stampMany(p, [{ s: 1, f: 0 }]);
+    const ids = p.events.map((e) => e.id);
+    const next = transposeEventsDiatonic(p, ids, 1, 'A', majorIntervals, tuning, 22);
+    expect(next.events[0].fret).toBe(2);
+    expect(next.events[0].stringIndex).toBe(1);
+  });
+
+  it('A major up 1 step: C# (A fret 4) → D (A fret 5)', () => {
+    let p = createEmptyPattern('t');
+    p = stampMany(p, [{ s: 1, f: 4 }]);
+    const next = transposeEventsDiatonic(p, p.events.map((e) => e.id), 1, 'A', majorIntervals, tuning, 22);
+    expect(next.events[0].fret).toBe(5);
+  });
+
+  it('A major up 1 step: chromatic F (A fret 8) → G (A fret 10)', () => {
+    // F = 1 semitone above E (scale tone, degree 5). Up one step: anchor E → F# (degree 6);
+    // new pitch = F# + 1 = G. On A string: G = fret 10.
+    let p = createEmptyPattern('t');
+    p = stampMany(p, [{ s: 1, f: 8 }]);
+    const next = transposeEventsDiatonic(p, p.events.map((e) => e.id), 1, 'A', majorIntervals, tuning, 22);
+    expect(next.events[0].fret).toBe(10);
+  });
+
+  it('A major down 1 step: A on A string (fret 0) would need fret -1 — left unchanged', () => {
+    let p = createEmptyPattern('t');
+    p = stampMany(p, [{ s: 1, f: 0 }]);
+    const next = transposeEventsDiatonic(p, p.events.map((e) => e.id), -1, 'A', majorIntervals, tuning, 22);
+    expect(next.events[0].fret).toBe(0);
+  });
+
+  it('skips events not in the selection', () => {
+    let p = createEmptyPattern('t');
+    // Use different strings so both events can share startTick: 0 without conflict.
+    // s:1 = A string (fret 0 = A), s:2 = D string (fret 4 = F#).
+    p = stampMany(p, [{ s: 1, f: 0 }, { s: 2, f: 4 }]);
+    const [selectedId] = p.events.map((e) => e.id);
+    const next = transposeEventsDiatonic(p, [selectedId], 1, 'A', majorIntervals, tuning, 22);
+    expect(next.events.find((e) => e.id === selectedId)!.fret).toBe(2);
+    expect(next.events.find((e) => e.id !== selectedId)!.fret).toBe(4);
+  });
+
+  it('returns same pattern reference when no selected events change', () => {
+    let p = createEmptyPattern('t');
+    p = stampMany(p, [{ s: 1, f: 0 }]);
+    // Down one step from A on A string would go to fret -1 → unchanged.
+    const next = transposeEventsDiatonic(p, p.events.map((e) => e.id), -1, 'A', majorIntervals, tuning, 22);
+    expect(next).toBe(p);
   });
 });

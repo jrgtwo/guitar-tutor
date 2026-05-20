@@ -19,6 +19,7 @@ import {
   INSTRUMENTS,
   RadioGroup,
   RadioGroupItem,
+  SCALES,
   SelectControl,
   TAGS,
   TAG_LABELS,
@@ -91,6 +92,7 @@ function MetadataView({
   const setFretworkInstrumentId = useFretworkStore((s) => s.setInstrumentId);
   const setPatternSuggestedBpm = usePatternsStore((s) => s.setEditingPatternSuggestedBpm);
   const setPatternGroove = usePatternsStore((s) => s.setEditingPatternGroove);
+  const setEditingPatternKeyScale = usePatternsStore((s) => s.setEditingPatternKeyScale);
   const setTempoMode = usePatternsStore((s) => s.setEditingCompositionTempoMode);
   const setCompGroove = usePatternsStore((s) => s.setEditingCompositionGroove);
   const setGrooveMode = usePatternsStore((s) => s.setEditingCompositionGrooveMode);
@@ -251,6 +253,56 @@ function MetadataView({
             <div className="flex flex-col gap-1 text-xs font-mono">
               <span className="text-muted-foreground uppercase tracking-wider text-[10px]">Groove</span>
               <GroovePicker value={pattern.groove} onChange={setPatternGroove} />
+            </div>
+          </Section>
+        );
+      })()}
+
+      {/* ── PATTERN-ONLY: Musical key ────────────────────────────────────────── */}
+      {isPattern && (() => {
+        const pattern = item as import('@fretwork/lib').Pattern;
+        const keyOptions = ['A', 'A#', 'B', 'C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#'] as const;
+        return (
+          <Section title="Musical key">
+            <div className="flex flex-col gap-2 text-xs font-mono">
+              <label className="flex items-center gap-2">
+                <span className="text-muted-foreground uppercase tracking-wider text-[10px] w-12">Key</span>
+                <select
+                  value={pattern.key ?? ''}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === '') {
+                      setEditingPatternKeyScale(null, null);
+                    } else {
+                      setEditingPatternKeyScale(v, pattern.scaleType ?? 'major');
+                    }
+                  }}
+                  className="h-8 px-2 bg-charcoal-deep/60 border border-border/60 rounded text-foreground"
+                >
+                  <option value="">None</option>
+                  {keyOptions.map((k) => (
+                    <option key={k} value={k}>{k}</option>
+                  ))}
+                </select>
+              </label>
+              {pattern.key && (
+                <label className="flex items-center gap-2">
+                  <span className="text-muted-foreground uppercase tracking-wider text-[10px] w-12">Scale</span>
+                  <select
+                    value={pattern.scaleType ?? 'major'}
+                    onChange={(e) => setEditingPatternKeyScale(pattern.key!, e.target.value)}
+                    className="h-8 px-2 bg-charcoal-deep/60 border border-border/60 rounded text-foreground flex-1"
+                  >
+                    {SCALES.map((s) => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <p className="text-[10px] text-muted-foreground/70 leading-relaxed">
+                When a key is set, the fretboard input highlights in-key notes and dims the rest.
+                Out-of-key entry stays free-form. Use <span className="font-mono">⌘</span>+<span className="font-mono">↑</span>/<span className="font-mono">↓</span> to transpose the current selection by one scale step.
+              </p>
             </div>
           </Section>
         );

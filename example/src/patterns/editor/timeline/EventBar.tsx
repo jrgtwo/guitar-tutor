@@ -12,10 +12,23 @@ interface Props {
   selected: boolean;
   playing: boolean;
   onSelect(mode: 'replace' | 'add' | 'toggle'): void;
+  /** Single-event resize (the grabbed bar is not in a multi-selection). */
   onResize(newDurationTicks: number): void;
-  /** Called once per pointer-move with the desired group delta. The parent applies it
-   *  through `moveEventsBy`, which clamps against collisions and pattern bounds. */
-  onMoveBy(snapshots: readonly EventDragSnapshot[], deltaTicks: number, deltaStringIdx: number): void;
+  /** Group resize: called once per pointer-move with the delta. Snapshots are
+   *  captured at grab time via `getResizeSnapshots`. */
+  onResizeBy(
+    snapshots: readonly { id: string; durationTicks: number }[],
+    deltaTicks: number,
+  ): void;
+  /** Snapshots of the events that should be group-resized — the whole selection
+   *  if this bar is selected, otherwise undefined (the parent should only call
+   *  this when the bar is selected; single-event resize doesn't need snapshots). */
+  getResizeSnapshots(): readonly { id: string; durationTicks: number }[];
+  onMoveBy(
+    snapshots: readonly EventDragSnapshot[],
+    deltaTicks: number,
+    deltaStringIdx: number,
+  ): void;
   /** Returns the snapshots to drag — the current selection if this bar is selected,
    *  otherwise just this bar. Captured once at pointer-down so the drag uses stable
    *  origins. */
@@ -40,6 +53,8 @@ export function EventBar({
   playing,
   onSelect,
   onResize,
+  onResizeBy,
+  getResizeSnapshots,
   onMoveBy,
   getDragSnapshots,
   rowHeight,
@@ -52,10 +67,16 @@ export function EventBar({
         snapshots: readonly EventDragSnapshot[];
       }
     | {
-        mode: 'resize';
+        mode: 'resize-single';
         startClientX: number;
         startClientY: number;
         startDuration: number;
+      }
+    | {
+        mode: 'resize-group';
+        startClientX: number;
+        startClientY: number;
+        snapshots: readonly { id: string; durationTicks: number }[];
       }
     | null
   >(null);
@@ -89,12 +110,25 @@ export function EventBar({
   function onResizePointerDown(e: React.PointerEvent) {
     e.stopPropagation();
     if (e.button !== 0) return;
-    dragStateRef.current = {
-      mode: 'resize',
-      startClientX: e.clientX,
-      startClientY: e.clientY,
-      startDuration: event.durationTicks,
-    };
+    if (selected) {
+      dragStateRef.current = {
+        mode: 'resize-group',
+        startClientX: e.clientX,
+        startClientY: e.clientY,
+        snapshots: getResizeSnapshots(),
+      };
+    } else {
+      // Grabbing an unselected bar's resize handle replaces selection with this
+      // one bar (matches the body-grab "replace selection" behavior), then runs
+      // a single-event resize.
+      onSelect('replace');
+      dragStateRef.current = {
+        mode: 'resize-single',
+        startClientX: e.clientX,
+        startClientY: e.clientY,
+        startDuration: event.durationTicks,
+      };
+    }
     (e.target as Element).setPointerCapture(e.pointerId);
   }
 
@@ -106,12 +140,16 @@ export function EventBar({
     const dyPx = e.clientY - state.startClientY;
     const dxTicks = pxToTicks(dxPx);
 
-    if (state.mode === 'resize') {
-      const newDur = Math.max(SNAP_TICKS, Math.round((state.startDuration + dxTicks) / SNAP_TICKS) * SNAP_TICKS);
-      if (newDur !== event.durationTicks) {
-        onResize(newDur);
-      }
-    } else {
+    if (state.mode === 'resize-single') {
+      const newDur = Math.max(
+        SNAP_TICKS,
+        Math.round((state.startDuration + dxTicks) / SNAP_TICKS) * SNAP_TICKS,
+      );
+      if (newDur !== event.durationTicks) onResize(newDur);
+    } else if (state.mode === 'resize-group') {
+      const delta = Math.round(dxTicks / SNAP_TICKS) * SNAP_TICKS;
+      onResizeBy(state.snapshots, delta);
+    } else if (state.mode === 'move') {
       // dyRows > 0 means the pointer moved down (toward lower-pitch row), which maps
       // to a lower stringIndex — invert.
       const dyRows = Math.round(dyPx / rowHeight);

@@ -57,6 +57,23 @@ export interface FretboardProps {
    * decoupled from Practice's programming state.
    */
   alwaysClickable?: boolean;
+  /**
+   * Caller-supplied override of the internally-computed scale highlights. When
+   * provided, the component uses this set as its "active highlights" instead of
+   * deriving them from `useFretworkStore`. Consumers that drive highlights from
+   * a non-global source (e.g., the pattern editor's pattern-specific key) pass
+   * this. Has no effect in `neutralGrid` mode.
+   */
+  highlights?: readonly Highlight[];
+  /**
+   * Render every fret × string cell as a visible marker (like `neutralGrid`),
+   * but apply the normal degree-colored styling to cells in the active
+   * highlights set and a dimmed/ghosted styling to the rest. Mutually
+   * exclusive with `neutralGrid`. Used by the Patterns editor's fretboard
+   * input when the pattern has a key set — in-key cells stand out by color,
+   * out-of-key cells stay clickable but visually de-emphasized.
+   */
+  dimNonHighlighted?: boolean;
 }
 
 export function Fretboard({
@@ -64,6 +81,8 @@ export function Fretboard({
   neutralGrid,
   activeCells,
   alwaysClickable,
+  highlights: highlightsProp,
+  dimNonHighlighted,
 }: FretboardProps = {}) {
   const instrumentId = useFretworkStore((s) => s.instrumentId);
   const mode = useFretworkStore((s) => s.mode);
@@ -97,14 +116,20 @@ export function Fretboard({
     () => computeHighlights(grid, effectiveKey, intervals, capo),
     [grid, effectiveKey, intervals, capo],
   );
+
+  const effectiveScaleHighlights = useMemo<readonly Highlight[]>(
+    () => highlightsProp ?? scaleHighlights,
+    [highlightsProp, scaleHighlights],
+  );
+
   const openStrings = useMemo(() => effectiveOpenStrings(tuning, capo), [tuning, capo]);
 
   // Neutral-grid highlights: one synthetic Highlight per cell, all flagged as 'tone'
   // so NoteMarker's color resolver yields the neutral color. Note names are computed
   // from the effective open strings; interval/degree fields are blank because there
-  // is no key.
+  // is no key. Also used by dimNonHighlighted mode as the base render set.
   const neutralHighlights = useMemo<Highlight[]>(() => {
-    if (!neutralGrid) return [];
+    if (!neutralGrid && !dimNonHighlighted) return [];
     const out: Highlight[] = [];
     for (let s = 0; s < stringCount; s++) {
       const openNote = openStrings[s];
@@ -121,9 +146,24 @@ export function Fretboard({
       }
     }
     return out;
-  }, [neutralGrid, stringCount, fretCount, openStrings]);
+  }, [neutralGrid, dimNonHighlighted, stringCount, fretCount, openStrings]);
 
-  const highlights = neutralGrid ? neutralHighlights : scaleHighlights;
+  // Render set: in neutralGrid OR dimNonHighlighted, every cell renders; otherwise
+  // just the scale-derived highlights.
+  const renderHighlights =
+    neutralGrid || dimNonHighlighted ? neutralHighlights : effectiveScaleHighlights;
+
+  // In dimNonHighlighted mode we need O(1) "is this cell in-scale?" lookup so we
+  // can render in-scale cells with their degree color (from effectiveScaleHighlights)
+  // and out-of-scale cells with the neutral cell + ghosted styling.
+  const scaleHighlightByCell = useMemo<Map<string, Highlight> | null>(() => {
+    if (!dimNonHighlighted) return null;
+    const m = new Map<string, Highlight>();
+    for (const h of effectiveScaleHighlights) {
+      m.set(`${h.stringIndex}:${h.fret}`, h);
+    }
+    return m;
+  }, [dimNonHighlighted, effectiveScaleHighlights]);
 
   // Active CAGED shape — when set, build a Set of (string,fret) keys for fast
   // lookup so we can split highlights into "in-shape" (full prominence) and
@@ -134,7 +174,7 @@ export function Fretboard({
     if (!isCagedShapeId(shapeId)) return null;
     if (mode !== 'scales' && mode !== 'arpeggios') return null;
     const input: ResolveInput = {
-      highlights: scaleHighlights,
+      highlights: effectiveScaleHighlights,
       tuning,
       key,
       capo,
@@ -147,7 +187,7 @@ export function Fretboard({
     const cells = resolveShapeAbsoluteCells(shapeId, input);
     if (cells.length === 0) return null;
     return new Set(cells.map((c) => `${c.stringIndex}:${c.fret}`));
-  }, [neutralGrid, shapeId, mode, scaleHighlights, tuning, key, capo, instrumentId, fretCount, type]);
+  }, [neutralGrid, shapeId, mode, effectiveScaleHighlights, tuning, key, capo, instrumentId, fretCount, type]);
 
   // Playback state — read directly from the store. We DON'T call usePlayback() here
   // because that's an opinionated hook that drives the singleton from fretwork-store
@@ -280,14 +320,13 @@ export function Fretboard({
           return <g aria-hidden>{cells}</g>;
         })()}
 
-        {highlights.map((h) => {
+        {renderHighlights.map((h) => {
           const cellKey = `${h.stringIndex}:${h.fret}`;
           const isPlayhead =
             (activeCellKeys && activeCellKeys.has(cellKey)) ||
             (playheadCell != null && cellsEqual(playheadCell, h));
-          // Index of this cell within the custom sequence (-1 if absent).
           let programmingIndex = -1;
-          if (!neutralGrid && isProgramming) {
+          if (!neutralGrid && !dimNonHighlighted && isProgramming) {
             for (let i = 0; i < customSequence.length; i++) {
               const c = customSequence[i];
               if (cellsEqual(c, h)) {
@@ -296,40 +335,59 @@ export function Fretboard({
               }
             }
           }
-          // Shape filter: when a shape is active, decide whether this cell is
-          // in the shape (full prominence), or outside it (ghost or hide).
-          const inShape = inShapeKeys
-            ? inShapeKeys.has(cellKey)
-            : true;
+          // CAGED shape filter — only applies in the standard (non-neutral, non-dim) mode.
+          const inShape = inShapeKeys ? inShapeKeys.has(cellKey) : true;
           if (!inShape && !settings.showGhostMarkers) return null;
-          // Pick the labels mode: in neutralGrid, force note-names since intervals
-          // don't apply without a key. Otherwise honor the fretwork-store setting.
-          const effectiveLabels = neutralGrid ? 'notes' : labels;
-          // In neutral mode every cell renders as 'tone' (neutral color), but the
-          // active-cells set still gets the playhead treatment. Settings are also
-          // forced to non-colored mode so the entire grid stays uniform.
-          const effectiveSettings = neutralGrid
-            ? { ...settings, colorByDegree: false, highlightRoot: false }
-            : settings;
+
+          // In dimNonHighlighted mode: in-scale cells get the degree-rich highlight from
+          // the scale set; out-of-scale cells render as the neutral cell, ghosted.
+          let renderHighlight: Highlight = h;
+          let dimGhosted = false;
+          if (dimNonHighlighted && scaleHighlightByCell) {
+            const inScale = scaleHighlightByCell.get(cellKey);
+            if (inScale) {
+              renderHighlight = inScale;
+            } else {
+              dimGhosted = true;
+            }
+          }
+
+          // Labels: neutralGrid and dim out-of-scale cells should show note names (no key
+          // context). Dim in-scale cells use the configured labels.
+          const effectiveLabels =
+            neutralGrid || (dimNonHighlighted && dimGhosted) ? 'notes' : labels;
+
+          // Settings: dim out-of-scale cells render as neutral tone (no degree color).
+          // In-scale cells in dim mode use the normal settings. NeutralGrid forces neutral.
+          const effectiveSettings =
+            neutralGrid || (dimNonHighlighted && dimGhosted)
+              ? { ...settings, colorByDegree: false, highlightRoot: false }
+              : settings;
+
           return (
             <NoteMarker
               key={`${h.stringIndex}-${h.fret}`}
-              highlight={h}
+              highlight={renderHighlight}
               labels={effectiveLabels}
               settings={effectiveSettings}
               stringCount={stringCount}
               fretCount={fretCount}
               isPlayhead={isPlayhead}
-              programmingIndex={!neutralGrid && isProgramming ? programmingIndex : undefined}
-              onClick={clickable
-                ? (e: ReactMouseEvent) =>
-                    onCellClick(
-                      { stringIndex: h.stringIndex, fret: h.fret },
-                      e.shiftKey || e.metaKey,
-                    )
-                : undefined
+              programmingIndex={
+                !neutralGrid && !dimNonHighlighted && isProgramming
+                  ? programmingIndex
+                  : undefined
               }
-              ghosted={!inShape}
+              onClick={
+                clickable
+                  ? (e: ReactMouseEvent) =>
+                      onCellClick(
+                        { stringIndex: h.stringIndex, fret: h.fret },
+                        e.shiftKey || e.metaKey,
+                      )
+                  : undefined
+              }
+              ghosted={!inShape || dimGhosted}
             />
           );
         })}

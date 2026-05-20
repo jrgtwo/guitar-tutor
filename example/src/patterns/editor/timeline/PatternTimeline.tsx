@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   usePatternsStore,
   selectEditingPattern,
@@ -26,6 +26,7 @@ export function PatternTimeline() {
   const selectEvents = usePatternsStore((s) => s.selectEvents);
   const moveEventsBy = usePatternsStore((s) => s.moveEventsBy);
   const resizeEvent = usePatternsStore((s) => s.resizeEvent);
+  const resizeEventsBy = usePatternsStore((s) => s.resizeEventsBy);
   const instrumentId = useFretworkStore((s) => s.instrumentId);
   const tuningId = useFretworkStore((s) => s.tuning);
   const playback = usePatternsPlayback();
@@ -83,6 +84,13 @@ export function PatternTimeline() {
   const lastScrollAtRef = useRef(0);
   const stampAt = usePatternsStore((s) => s.stampAt);
 
+  const marqueeRef = useRef<
+    | { x1: number; y1: number; clientX0: number; clientY0: number; shift: boolean }
+    | null
+  >(null);
+  const [marqueeRect, setMarqueeRect] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
+  const CLICK_THRESHOLD_PX = 3;
+
   // Auto-scroll the playhead into view during playback. Two modes:
   //
   // - Forward page-flip: when the playhead crosses 75% of the visible width,
@@ -120,6 +128,66 @@ export function PatternTimeline() {
     if (!playback.isPlaying) lastScrollAtRef.current = 0;
   }, [playback.isPlaying]);
 
+  // Window-level mousemove/mouseup handlers for marquee drag-select.
+  // Attached unconditionally so React's dep-tracking stays stable, but they
+  // early-return immediately when no marquee is in progress.
+  useEffect(() => {
+    function onMove(e: MouseEvent) {
+      const m = marqueeRef.current;
+      if (!m || !svgRef.current) return;
+      const rect = svgRef.current.getBoundingClientRect();
+      setMarqueeRect({
+        x1: m.x1,
+        y1: m.y1,
+        x2: e.clientX - rect.left,
+        y2: e.clientY - rect.top,
+      });
+    }
+
+    function onUp(e: MouseEvent) {
+      const m = marqueeRef.current;
+      if (!m) return;
+      marqueeRef.current = null;
+      const finalRect = marqueeRect;
+      setMarqueeRect(null);
+      if (!pattern) return;
+      const dx = Math.abs(e.clientX - m.clientX0);
+      const dy = Math.abs(e.clientY - m.clientY0);
+      const moved = Math.hypot(dx, dy) >= CLICK_THRESHOLD_PX;
+      if (!moved) {
+        stampAtClickPoint(m.x1, m.y1, m.shift);
+        return;
+      }
+      if (!finalRect) return;
+      const x1 = Math.min(finalRect.x1, finalRect.x2);
+      const x2 = Math.max(finalRect.x1, finalRect.x2);
+      const y1 = Math.min(finalRect.y1, finalRect.y2);
+      const y2 = Math.max(finalRect.y1, finalRect.y2);
+      const hits: string[] = [];
+      for (const ev of pattern.events) {
+        const rowIdx = stringCount - 1 - ev.stringIndex;
+        if (rowIdx < 0 || rowIdx >= stringCount) continue;
+        const evX1 = STRING_LABEL_WIDTH + ticksToPx(ev.startTick);
+        const evX2 = evX1 + Math.max(8, ticksToPx(ev.durationTicks));
+        const evY1 = RULER_HEIGHT + rowIdx * ROW_HEIGHT + 3;
+        const evY2 = evY1 + (ROW_HEIGHT - 6);
+        if (evX2 >= x1 && evX1 <= x2 && evY2 >= y1 && evY1 <= y2) {
+          hits.push(ev.id);
+        }
+      }
+      selectEvents(hits, m.shift ? 'add' : 'replace');
+    }
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    // marqueeRect is read inside onUp to recover the final rect — include it as a dep
+    // so onUp closes over the latest value when it fires.
+  }, [marqueeRect, pattern, stringCount, selectEvents]);
+
   // Most-recently-used fret across the pattern's events — used as the default fret
   // when the user clicks on a timeline row to stamp directly. Falls back to 0.
   const defaultFret = useMemo(() => {
@@ -135,31 +203,21 @@ export function PatternTimeline() {
     return bestFret;
   }, [pattern]);
 
-  function handleBackgroundClick(e: React.MouseEvent) {
-    if (!svgRef.current || !pattern) return;
-    // Bail out if the click originated from an existing event bar — that lets
-    // the EventBar's own select/drag/resize handlers run unimpeded. Without this
-    // guard, the SVG-level mousedown handler also fires for clicks on bars and
-    // overwrites their selection by stamping a new note + moving the cursor.
-    const target = e.target as Element | null;
-    if (target && target.closest('[data-event-bar]')) return;
-    const rect = svgRef.current.getBoundingClientRect();
-    const localX = e.clientX - rect.left - STRING_LABEL_WIDTH;
-    const localY = e.clientY - rect.top;
-    if (localX < 0) return;
-    const tick = Math.max(0, Math.round(pxToTicks(localX) / (PPQ / 4)) * (PPQ / 4));
-    const clampedTick = Math.min(tick, pattern.durationTicks);
+  function handleRulerClick(localX: number) {
+    if (!pattern) return;
+    const x = localX - STRING_LABEL_WIDTH;
+    if (x < 0) return;
+    const tick = Math.max(0, Math.round(pxToTicks(x) / (PPQ / 4)) * (PPQ / 4));
+    setCursorTick(Math.min(tick, pattern.durationTicks));
+    selectEvents([], 'replace');
+  }
 
-    // Hit-test the y coordinate to decide between "ruler click → cursor only" and
-    // "row click → stamp a note at that position on that string". The string is
-    // identified by the row index; the fret defaults to the most recently used fret
-    // in this pattern (or 0 if empty).
-    const inRuler = localY < RULER_HEIGHT;
-    if (inRuler) {
-      setCursorTick(clampedTick);
-      selectEvents([], 'replace');
-      return;
-    }
+  function stampAtClickPoint(localX: number, localY: number, shift: boolean) {
+    if (!pattern) return;
+    const xInGrid = localX - STRING_LABEL_WIDTH;
+    if (xInGrid < 0) return;
+    const tick = Math.max(0, Math.round(pxToTicks(xInGrid) / (PPQ / 4)) * (PPQ / 4));
+    const clampedTick = Math.min(tick, pattern.durationTicks);
     const rowIdx = Math.floor((localY - RULER_HEIGHT) / ROW_HEIGHT);
     if (rowIdx < 0 || rowIdx >= stringCount) {
       setCursorTick(clampedTick);
@@ -168,7 +226,28 @@ export function PatternTimeline() {
     }
     const stringIndex = stringCount - 1 - rowIdx;
     setCursorTick(clampedTick);
-    stampAt({ stringIndex, fret: defaultFret }, e.shiftKey);
+    stampAt({ stringIndex, fret: defaultFret }, shift);
+  }
+
+  function handleBackgroundMouseDown(e: React.MouseEvent) {
+    if (!svgRef.current || !pattern) return;
+    const target = e.target as Element | null;
+    if (target && target.closest('[data-event-bar]')) return;
+    const rect = svgRef.current.getBoundingClientRect();
+    const localX = e.clientX - rect.left;
+    const localY = e.clientY - rect.top;
+    if (localY < RULER_HEIGHT) {
+      handleRulerClick(localX);
+      return;
+    }
+    marqueeRef.current = {
+      x1: localX,
+      y1: localY,
+      clientX0: e.clientX,
+      clientY0: e.clientY,
+      shift: e.shiftKey,
+    };
+    setMarqueeRect({ x1: localX, y1: localY, x2: localX, y2: localY });
   }
 
   if (!pattern) return null;
@@ -181,14 +260,14 @@ export function PatternTimeline() {
       : null;
 
   return (
-    <div ref={scrollRef} className="overflow-auto bg-charcoal-deep/40 border border-border/40 rounded-md relative">
+    <div ref={scrollRef} className="overflow-auto bg-charcoal-deep/40 border border-border/40 rounded-md relative select-none">
       <svg
         ref={svgRef}
         width={STRING_LABEL_WIDTH + widthPx + 12}
         height={heightPx}
         role="img"
         aria-label={`Pattern timeline: ${pattern.name}`}
-        onMouseDown={handleBackgroundClick}
+        onMouseDown={handleBackgroundMouseDown}
         style={{ display: 'block' }}
       >
         {/* Ruler */}
@@ -286,6 +365,15 @@ export function PatternTimeline() {
               playing={isPlayheadEvent}
               onSelect={(mode) => selectEvents([e.id], mode)}
               onResize={(newDur) => resizeEvent(e.id, newDur)}
+              onResizeBy={(snapshots, dT) => resizeEventsBy(snapshots, dT)}
+              getResizeSnapshots={() => {
+                const dragIds = isSelected ? selectedEventIds : [e.id];
+                const lookup = new Map(pattern.events.map((ev) => [ev.id, ev] as const));
+                return dragIds
+                  .map((id) => lookup.get(id))
+                  .filter((ev): ev is typeof e => Boolean(ev))
+                  .map((ev) => ({ id: ev.id, durationTicks: ev.durationTicks }));
+              }}
               onMoveBy={(snaps, dT, dR) => moveEventsBy(snaps, dT, dR, stringCount)}
               getDragSnapshots={() => {
                 // If the grabbed bar is in the selection, drag the whole selection;
@@ -307,6 +395,21 @@ export function PatternTimeline() {
             />
           );
         })}
+
+        {/* Marquee selection rect */}
+        {marqueeRect && (
+          <rect
+            x={Math.min(marqueeRect.x1, marqueeRect.x2)}
+            y={Math.min(marqueeRect.y1, marqueeRect.y2)}
+            width={Math.abs(marqueeRect.x2 - marqueeRect.x1)}
+            height={Math.abs(marqueeRect.y2 - marqueeRect.y1)}
+            fill="rgba(56, 189, 248, 0.10)"
+            stroke="rgba(56, 189, 248, 0.6)"
+            strokeWidth={1}
+            strokeDasharray="3 3"
+            pointerEvents="none"
+          />
+        )}
 
         {/* Cursor */}
         <g>

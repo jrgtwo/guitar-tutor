@@ -31,6 +31,7 @@ import {
   moveEvent as opsMoveEvent,
   moveEventsBy as opsMoveEventsBy,
   resizeEvent as opsResizeEvent,
+  resizeEventsBy as opsResizeEventsBy,
   setEventFret as opsSetEventFret,
   setPatternDuration as opsSetPatternDuration,
   setPatternGroove,
@@ -38,9 +39,13 @@ import {
   setPatternName,
   setPatternSuggestedBpm,
   stampEvent,
+  transposeEventsDiatonic as opsTransposeDiatonic,
   type EventDragSnapshot,
+  type EventResizeSnapshot,
   type PatternMetadataPatch,
 } from '../pattern-ops';
+import { getScale } from '../../lib/scales';
+import type { TuningDef } from '../../types';
 import {
   addPlacement as opsAddPlacement,
   applyCompositionMetadata,
@@ -181,11 +186,14 @@ export interface PatternsActions {
     stringCount: number,
   ): void;
   resizeEvent(eventId: string, newDurationTicks: Tick): void;
+  resizeEventsBy(snapshots: readonly EventResizeSnapshot[], deltaTicks: Tick): void;
   setEventFret(eventId: string, fret: number): void;
   nudgeSelectedFret(delta: number): void;
+  transposeSelectedDiatonic(direction: 1 | -1, tuning: TuningDef, fretCount: number): void;
   deleteEvents(ids: readonly string[]): void;
   selectEvents(ids: readonly string[], mode: SelectionMode): void;
   setEditingPatternDuration(durationTicks: Tick): void;
+  setEditingPatternKeyScale(key: string | null, scaleType: string | null): void;
 
   // Arrange mutations
   addPlacement(patternId: string, atTick?: Tick): string | null;
@@ -243,7 +251,19 @@ const persistOptions: PersistOptions<PatternsStoreState, Pick<PatternsStoreState
     unpersistedDraftId: state.unpersistedDraftId,
   }),
   // Migration stub for future schema changes.
-  migrate: (persisted, _version) => persisted as PatternsState,
+  migrate: (persisted, _version) => {
+    const state = persisted as PatternsState;
+    // Older persisted libraries don't have key/scaleType on patterns; coerce to null
+    // so consumers can rely on the both-or-neither invariant.
+    if (state.library?.patterns) {
+      state.library.patterns = state.library.patterns.map((p) => ({
+        ...p,
+        key: p.key ?? null,
+        scaleType: p.scaleType ?? null,
+      }));
+    }
+    return state;
+  },
 };
 
 /** In-memory localStorage shim for SSR / non-DOM environments. Persistence still
@@ -836,6 +856,14 @@ export const usePatternsStore = create<PatternsStoreState>()(
         if (next === target.pattern) return;
         set(updateTarget(s, next));
       },
+      resizeEventsBy(snapshots, deltaTicks) {
+        const s = get();
+        const target = currentEditTarget(s);
+        if (!target) return;
+        const next = opsResizeEventsBy(target.pattern, snapshots, deltaTicks);
+        if (next === target.pattern) return;
+        set(updateTarget(s, next));
+      },
       setEventFret(eventId, fret) {
         const s = get();
         const target = currentEditTarget(s);
@@ -855,6 +883,26 @@ export const usePatternsStore = create<PatternsStoreState>()(
           next = opsSetEventFret(next, id, ev.fret + delta);
         }
         if (next === target.pattern) return;
+        set(updateTarget(s, next));
+      },
+      transposeSelectedDiatonic(direction, tuning, fretCount) {
+        const s = get();
+        const target = currentEditTarget(s);
+        if (!target || s.selectedEventIds.length === 0) return;
+        const { pattern } = target;
+        if (pattern.key === null || pattern.scaleType === null) return;
+        const scale = getScale(pattern.scaleType);
+        if (!scale) return;
+        const next = opsTransposeDiatonic(
+          pattern,
+          s.selectedEventIds,
+          direction,
+          pattern.key,
+          scale.intervals,
+          tuning,
+          fretCount,
+        );
+        if (next === pattern) return;
         set(updateTarget(s, next));
       },
       deleteEvents(ids) {
@@ -894,6 +942,23 @@ export const usePatternsStore = create<PatternsStoreState>()(
         if (!target) return;
         const next = opsSetPatternDuration(target.pattern, durationTicks);
         if (next === target.pattern) return;
+        set(updateTarget(s, next));
+      },
+      setEditingPatternKeyScale(key, scaleType) {
+        const s = get();
+        const target = currentEditTarget(s);
+        if (!target) return;
+        // Both-or-neither invariant: setting key=null clears scaleType too;
+        // setting key with no scaleType defaults scaleType to 'major'.
+        const finalKey = key === null ? null : key;
+        const finalScale = key === null ? null : (scaleType ?? 'major');
+        if (finalKey === target.pattern.key && finalScale === target.pattern.scaleType) return;
+        const next: Pattern = {
+          ...target.pattern,
+          key: finalKey,
+          scaleType: finalScale,
+          updatedAt: Date.now(),
+        };
         set(updateTarget(s, next));
       },
 

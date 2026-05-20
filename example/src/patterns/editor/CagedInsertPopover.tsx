@@ -79,16 +79,29 @@ let cachedState: PopoverState = {
 };
 
 export function CagedInsertPopover({ onClose }: { onClose: () => void }) {
-  const [state, setState] = useState<PopoverState>(cachedState);
+  const editingPattern = usePatternsStore(selectEditingPattern);
+
+  const [state, setState] = useState<PopoverState>(() => {
+    const patternKey = editingPattern?.key;
+    const patternScale = editingPattern?.scaleType;
+    return {
+      ...cachedState,
+      key: patternKey ?? cachedState.key,
+      scaleType: patternScale ?? cachedState.scaleType,
+    };
+  });
+
   const update = (patch: Partial<PopoverState>) => {
     setState((prev) => {
       const next = { ...prev, ...patch };
-      cachedState = next;
+      cachedState = {
+        ...next,
+        key: cachedState.key,
+        scaleType: cachedState.scaleType,
+      };
       return next;
     });
   };
-
-  const editingPattern = usePatternsStore(selectEditingPattern);
   const stepLength = usePatternsStore((s) => s.stepLength);
   const stampCagedPlan = usePatternsStore((s) => s.stampCagedPlan);
   const tuningId = useFretworkStore((s) => s.tuning);

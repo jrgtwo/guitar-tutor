@@ -68,6 +68,12 @@ export interface Pattern {
   suggestedBpm: number | null;
   /** Author's preferred feel for this pattern. Null = straight (no swing). */
   groove: GrooveSpec | null;
+  /** Optional musical key (note name like 'A', 'C#'). null = no key set,
+   *  free-form chromatic editing. Invariant: key and scaleType are either
+   *  both set or both null. */
+  key: string | null;
+  /** Optional scale id (e.g. 'major', 'minor-pentatonic'). null when key is null. */
+  scaleType: string | null;
   events: PatternEvent[];
   /** Empty in Phase 1. */
   lanes: Lane[];
