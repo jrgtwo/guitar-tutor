@@ -119,8 +119,20 @@ export interface Placement {
   patternSnapshot: Pattern;
   /** Absolute tick within the composition where this placement begins. */
   startTick: Tick;
-  /** Number of times the snapshot is repeated back-to-back. >= 1. */
+  /** Number of times the effective length is repeated back-to-back. >= 1.
+   *  Kept on the model for backward-compatibility with persisted data. The
+   *  new arranger UI hides this control; new placements always have repeat 1.
+   *  Legacy placements with repeat > 1 still play correctly. */
   repeat: number;
+  /** Render-time pitch shift in semitones. Default 0. Non-destructive — the
+   *  snapshot's events are unchanged; `flattenComposition` applies the shift.
+   *  Out-of-range frets (< 0 or > fretCount) are dropped from playback. */
+  transposeSemitones: number;
+  /** Render-time truncation. When non-null, only the first `lengthTicks` of
+   *  the snapshot are emitted by `flattenComposition`. Events straddling the
+   *  cut have their `durationTicks` clipped. null = use the snapshot's full
+   *  duration. */
+  lengthTicks: Tick | null;
 }
 
 export interface Composition {
@@ -141,6 +153,9 @@ export interface Composition {
   grooveMode: 'global' | 'inherit';
   timeSignature: PatternTimeSignature;
   placements: Placement[];
+  /** When true, composition playback wraps end → 0 and continues indefinitely.
+   *  When false, playback stops at the end of the last placement. */
+  loop: boolean;
 
   // ─── Catalog metadata (parallel to Pattern; see notes there) ──────────────
   description: string | null;

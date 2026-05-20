@@ -234,7 +234,7 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
     metronome.setBpm(composition.bpm);
     metronome.setSwing(composition.groove?.swing ?? 0.5);
     scheduler.setStream(new CompositionSource(composition));
-    scheduler.setLoop(false);
+    scheduler.setLoop(composition.loop);
     void metronome.start();
   }, [scheduler, metronome]);
 

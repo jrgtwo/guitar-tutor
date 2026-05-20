@@ -60,6 +60,9 @@ import {
   setCompositionTempoMode,
   setPlacementRepeat as opsSetPlacementRepeat,
   setPlacementSnapshot as opsSetPlacementSnapshot,
+  setPlacementTranspose as opsSetPlacementTranspose,
+  resizePlacement as opsResizePlacement,
+  setCompositionLoop as opsSetCompositionLoop,
   type CompositionMetadataPatch,
 } from '../composition-ops';
 import {
@@ -199,6 +202,9 @@ export interface PatternsActions {
   addPlacement(patternId: string, atTick?: Tick): string | null;
   reorderPlacement(placementId: string, newIndex: number): void;
   setPlacementRepeat(placementId: string, repeat: number): void;
+  setPlacementTranspose(placementId: string, semitones: number): void;
+  resizePlacement(placementId: string, lengthTicks: Tick): void;
+  setCompositionLoop(compositionId: string, loop: boolean): void;
   removePlacement(placementId: string): void;
   selectPlacement(id: string | null): void;
 
@@ -260,6 +266,17 @@ const persistOptions: PersistOptions<PatternsStoreState, Pick<PatternsStoreState
         ...p,
         key: p.key ?? null,
         scaleType: p.scaleType ?? null,
+      }));
+    }
+    if (state.library?.compositions) {
+      state.library.compositions = state.library.compositions.map((c) => ({
+        ...c,
+        loop: c.loop ?? false,
+        placements: c.placements.map((pl) => ({
+          ...pl,
+          transposeSemitones: pl.transposeSemitones ?? 0,
+          lengthTicks: pl.lengthTicks ?? null,
+        })),
       }));
     }
     return state;
@@ -581,6 +598,8 @@ export const usePatternsStore = create<PatternsStoreState>()(
             id: generateId('place'),
             startTick: p.startTick,
             repeat: p.repeat,
+            transposeSemitones: p.transposeSemitones,
+            lengthTicks: p.lengthTicks,
             patternSnapshot: clonePattern(p.patternSnapshot),
           })),
           visibility: 'private',
@@ -986,6 +1005,25 @@ export const usePatternsStore = create<PatternsStoreState>()(
       },
       setPlacementRepeat(placementId, repeat) {
         applyComposition(set, get, (comp) => opsSetPlacementRepeat(comp, placementId, repeat));
+      },
+      setPlacementTranspose(placementId, semitones) {
+        applyComposition(set, get, (comp) => opsSetPlacementTranspose(comp, placementId, semitones));
+      },
+      resizePlacement(placementId, lengthTicks) {
+        applyComposition(set, get, (comp) => opsResizePlacement(comp, placementId, lengthTicks));
+      },
+      setCompositionLoop(compositionId, loop) {
+        const s = get();
+        const comp = s.library.compositions.find((c) => c.id === compositionId);
+        if (!comp) return;
+        const next = opsSetCompositionLoop(comp, loop);
+        if (next === comp) return;
+        set({
+          library: {
+            ...s.library,
+            compositions: s.library.compositions.map((c) => (c.id === compositionId ? next : c)),
+          },
+        });
       },
       removePlacement(placementId) {
         applyComposition(set, get, (comp) => opsRemovePlacement(comp, placementId));

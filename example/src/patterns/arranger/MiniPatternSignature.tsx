@@ -9,18 +9,29 @@ interface Props {
    *  current fretwork instrument — but a shared-content viewer needs to honor the
    *  pattern's own instrument rather than mutate the viewer's preferences. */
   instrumentId?: string;
+  /** When set, render only the first `effectiveLengthTicks` of the pattern and
+   *  scale the time axis to that length (instead of the snapshot's full duration).
+   *  Used by truncated placements so events appear at their natural density —
+   *  events past the cut are dropped, events straddling the cut are clipped. */
+  effectiveLengthTicks?: number;
 }
 
 /** Tiny visualization of a pattern's event distribution. One row per string; events
  *  shown as small marks at their time position. Used inside BlockCard and the
  *  shared-pattern viewer. */
-export function MiniPatternSignature({ pattern, width = 100, height = 28, instrumentId }: Props) {
+export function MiniPatternSignature({
+  pattern,
+  width = 100,
+  height = 28,
+  instrumentId,
+  effectiveLengthTicks,
+}: Props) {
   const storeInstrumentId = useFretworkStore((s) => s.instrumentId);
   const resolvedId = instrumentId ?? pattern.instrumentId ?? storeInstrumentId;
   const inst = getInstrument(resolvedId) ?? getInstrument(DEFAULT_INSTRUMENT_ID)!;
   const stringCount = inst.stringCount;
   const rowHeight = height / stringCount;
-  const dur = pattern.durationTicks || 1;
+  const dur = (effectiveLengthTicks ?? pattern.durationTicks) || 1;
   return (
     <svg width={width} height={height} aria-hidden style={{ display: 'block' }}>
       {Array.from({ length: stringCount }).map((_, i) => (
@@ -37,8 +48,12 @@ export function MiniPatternSignature({ pattern, width = 100, height = 28, instru
       {pattern.events.map((e) => {
         const rowIdx = stringCount - 1 - e.stringIndex;
         if (rowIdx < 0 || rowIdx >= stringCount) return null;
+        // Drop events that start at or past the (effective) end.
+        if (e.startTick >= dur) return null;
+        // Clip durations that straddle the cut.
+        const clippedDuration = Math.min(e.durationTicks, dur - e.startTick);
         const x = (e.startTick / dur) * width;
-        const w = Math.max(1.5, (e.durationTicks / dur) * width);
+        const w = Math.max(1.5, (clippedDuration / dur) * width);
         return (
           <rect
             key={e.id}

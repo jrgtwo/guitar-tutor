@@ -1,4 +1,5 @@
 import { usePatternsStore, selectEditingComposition } from '@fretwork/lib';
+import { Repeat } from 'lucide-react';
 import { AddPlacementPopover } from './AddPlacementPopover';
 import { CompositionTimeline } from './CompositionTimeline';
 import { BlockInspector } from './BlockInspector';
@@ -9,6 +10,7 @@ export function ArrangeCompositionTab() {
   const composition = usePatternsStore(selectEditingComposition);
   const createComposition = usePatternsStore((s) => s.createComposition);
   const renameComposition = usePatternsStore((s) => s.renameComposition);
+  const setCompositionLoop = usePatternsStore((s) => s.setCompositionLoop);
 
   if (!composition) {
     return (
@@ -42,6 +44,21 @@ export function ArrangeCompositionTab() {
             className="h-7 px-2 w-40 bg-charcoal-deep/60 border border-border/60 rounded text-foreground outline-none focus:border-degree-root/60 text-[11px]"
           />
         </label>
+        <button
+          type="button"
+          onClick={() => setCompositionLoop(composition.id, !composition.loop)}
+          aria-pressed={composition.loop}
+          title={composition.loop ? 'Looping until stopped' : 'Play once'}
+          className={
+            'h-7 px-2.5 inline-flex items-center gap-1 rounded-md text-[11px] font-mono uppercase tracking-wider border ' +
+            (composition.loop
+              ? 'border-degree-root bg-degree-root/20 text-foreground'
+              : 'border-border/60 text-muted-foreground hover:bg-white/5')
+          }
+        >
+          <Repeat size={11} />
+          Loop
+        </button>
       </div>
 
       <div className="flex-1 overflow-auto flex flex-col gap-3">

@@ -15,7 +15,10 @@ import type {
 } from './types';
 import { generateId, generateUuid } from './ids';
 import { snapshotPatternForPlacement } from './pattern-ops';
-import { DEFAULT_INSTRUMENT_ID } from '../lib/instruments';
+import { DEFAULT_INSTRUMENT_ID, getInstrument } from '../lib/instruments';
+import { PPQ } from './timebase';
+
+const DEFAULT_FRETBOARD_FRET_COUNT = 22;
 
 const DEFAULT_TS: PatternTimeSignature = { numerator: 4, denominator: 4 };
 const DEFAULT_BPM = 120;
@@ -33,6 +36,7 @@ export function createEmptyComposition(
     bpm: DEFAULT_BPM,
     timeSignature: { ...DEFAULT_TS },
     placements: [],
+    loop: false,
     tempoMode: 'global',
     groove: null,
     grooveMode: 'global',
@@ -73,6 +77,8 @@ export function addPlacement(
     patternSnapshot: snapshotPatternForPlacement(sourcePattern),
     startTick: atTick ?? totalDurationTicks(comp),
     repeat: 1,
+    transposeSemitones: 0,
+    lengthTicks: null,
   };
   return {
     composition: {
@@ -205,6 +211,14 @@ export function setPlacementSnapshot(
   return { ...comp, placements: flowed, updatedAt: Date.now() };
 }
 
+/** Effective length of one repetition of a placement, in ticks. Honors the
+ *  optional `lengthTicks` truncation; falls back to the snapshot's full
+ *  durationTicks when null. Centralized so call sites (width math, playhead
+ *  mapping, flatten) all agree. */
+export function placementEffectiveLength(p: Placement): Tick {
+  return p.lengthTicks ?? p.patternSnapshot.durationTicks;
+}
+
 /** A single flattened event in absolute-composition-tick space. */
 export interface FlattenedEvent {
   /** Stable per-flatten id, useful for React keys in playback UI. */
@@ -229,15 +243,26 @@ export interface FlattenedEvent {
 export function flattenComposition(comp: Composition): FlattenedEvent[] {
   const out: FlattenedEvent[] = [];
   for (const p of comp.placements) {
+    const effLen = placementEffectiveLength(p);
+    const transpose = p.transposeSemitones ?? 0;
+    const fretCount =
+      getInstrument(p.patternSnapshot.instrumentId)?.fretCount ?? DEFAULT_FRETBOARD_FRET_COUNT;
     for (let r = 0; r < p.repeat; r++) {
-      const baseTick = p.startTick + r * p.patternSnapshot.durationTicks;
+      const baseTick = p.startTick + r * effLen;
       for (const e of p.patternSnapshot.events) {
+        // Truncate: drop events that start at or after the cut.
+        if (e.startTick >= effLen) continue;
+        // Clip durations that straddle the cut.
+        const clippedDuration = Math.min(e.durationTicks, effLen - e.startTick);
+        // Transpose: shift fret; drop if out of range.
+        const newFret = e.fret + transpose;
+        if (newFret < 0 || newFret > fretCount) continue;
         out.push({
           id: `${p.id}:${r}:${e.id}`,
           startTick: baseTick + e.startTick,
-          durationTicks: e.durationTicks,
+          durationTicks: clippedDuration,
           stringIndex: e.stringIndex,
-          fret: e.fret,
+          fret: newFret,
           sourceMeta: {
             placementId: p.id,
             patternId: p.patternSnapshot.id,
@@ -282,4 +307,50 @@ export function setCompositionGrooveMode(
   mode: 'global' | 'inherit',
 ): Composition {
   return { ...comp, grooveMode: mode, updatedAt: Date.now() };
+}
+
+/** Set transpose offset in semitones for a placement. Clamps to [-24, +24].
+ *  Returns the same composition reference when no change. */
+export function setPlacementTranspose(
+  comp: Composition,
+  placementId: string,
+  semitones: number,
+): Composition {
+  const clamped = Math.max(-24, Math.min(24, Math.round(semitones)));
+  const idx = comp.placements.findIndex((p) => p.id === placementId);
+  if (idx === -1) return comp;
+  if (comp.placements[idx].transposeSemitones === clamped) return comp;
+  const list = comp.placements.map((p) =>
+    p.id === placementId ? { ...p, transposeSemitones: clamped } : p,
+  );
+  return { ...comp, placements: list, updatedAt: Date.now() };
+}
+
+/** Truncate a placement to `lengthTicks` ticks (one cycle). Clamps to
+ *  [PPQ, snapshot.durationTicks] — i.e., minimum one beat. If the placement
+ *  previously had `repeat > 1`, collapses to `repeat = 1` as part of the same
+ *  update (the user accepts losing the repeat grouping the moment they
+ *  truncate). Returns same reference when no change. */
+export function resizePlacement(
+  comp: Composition,
+  placementId: string,
+  lengthTicks: Tick,
+): Composition {
+  const placement = comp.placements.find((p) => p.id === placementId);
+  if (!placement) return comp;
+  const snapshotDur = placement.patternSnapshot.durationTicks;
+  const clamped = Math.max(PPQ, Math.min(lengthTicks, snapshotDur));
+  if (clamped === placement.lengthTicks && placement.repeat === 1) return comp;
+  const list = comp.placements.map((p) =>
+    p.id === placementId
+      ? { ...p, lengthTicks: clamped, repeat: 1 }
+      : p,
+  );
+  return { ...comp, placements: list, updatedAt: Date.now() };
+}
+
+/** Set the composition's loop flag. Returns same reference when no change. */
+export function setCompositionLoop(comp: Composition, loop: boolean): Composition {
+  if (comp.loop === loop) return comp;
+  return { ...comp, loop, updatedAt: Date.now() };
 }

@@ -5,6 +5,7 @@ import {
   PPQ,
   ticksPerBar,
   totalDurationTicks,
+  placementEffectiveLength,
 } from '@fretwork/lib';
 import { BlockCard } from './BlockCard';
 import { usePatternsPlayback } from '../playback/usePatternsPlayback';
@@ -20,6 +21,7 @@ export function CompositionTimeline() {
   const removePlacement = usePatternsStore((s) => s.removePlacement);
   const openPlacementForEditing = usePatternsStore((s) => s.openPlacementForEditing);
   const reorderPlacement = usePatternsStore((s) => s.reorderPlacement);
+  const resizePlacement = usePatternsStore((s) => s.resizePlacement);
   const playback = usePatternsPlayback();
 
   // Drag-and-drop state — local to this component. Stores the placement id being
@@ -36,7 +38,7 @@ export function CompositionTimeline() {
     const widths = new Map<string, number>();
     let cursor = 0;
     for (const p of composition.placements) {
-      const beats = (p.patternSnapshot.durationTicks * p.repeat) / PPQ;
+      const beats = (placementEffectiveLength(p) * p.repeat) / PPQ;
       const w = Math.max(MIN_BLOCK_WIDTH, beats * PX_PER_BEAT);
       widths.set(p.id, w);
       cursor += w;
@@ -51,7 +53,7 @@ export function CompositionTimeline() {
     let cursor = 0;
     for (const p of composition.placements) {
       const w = blockLayout.widths.get(p.id) ?? MIN_BLOCK_WIDTH;
-      const placementDur = p.patternSnapshot.durationTicks * p.repeat;
+      const placementDur = placementEffectiveLength(p) * p.repeat;
       const placementEnd = p.startTick + placementDur;
       if (playback.headTick >= p.startTick && playback.headTick < placementEnd) {
         const progress = (playback.headTick - p.startTick) / Math.max(1, placementDur);
@@ -68,7 +70,7 @@ export function CompositionTimeline() {
   const playingPlacementId = (() => {
     if (!playback.isPlaying) return null;
     for (const p of composition.placements) {
-      const end = p.startTick + p.patternSnapshot.durationTicks * p.repeat;
+      const end = p.startTick + placementEffectiveLength(p) * p.repeat;
       if (playback.headTick >= p.startTick && playback.headTick < end) return p.id;
     }
     return null;
@@ -135,7 +137,7 @@ export function CompositionTimeline() {
     let barIdx = 0;
     for (const p of composition.placements) {
       const w = blockLayout.widths.get(p.id) ?? MIN_BLOCK_WIDTH;
-      const placementDur = p.patternSnapshot.durationTicks * p.repeat;
+      const placementDur = placementEffectiveLength(p) * p.repeat;
       const beatsInBlock = placementDur / PPQ;
       const pxPerBeatInBlock = w / Math.max(1, beatsInBlock);
       const beatsPerBar = tpb / PPQ;
@@ -186,11 +188,20 @@ export function CompositionTimeline() {
               const width = blockLayout.widths.get(p.id) ?? MIN_BLOCK_WIDTH;
               const hint =
                 dropTarget && dropTarget.id === p.id ? dropTarget.side : 'none';
+              const effLen = placementEffectiveLength(p);
+              const totalEffLen = effLen * p.repeat;
+              const pxPerTick = totalEffLen > 0 ? width / totalEffLen : 0;
+              const tpb = ticksPerBar(composition.timeSignature);
               return (
                 <BlockCard
                   key={p.id}
                   placement={p}
                   width={width}
+                  effectiveLengthTicks={effLen}
+                  snapshotDurationTicks={p.patternSnapshot.durationTicks}
+                  ticksPerBar={tpb}
+                  pxPerTick={pxPerTick}
+                  onResize={(newLen) => resizePlacement(p.id, newLen)}
                   selected={p.id === selectedPlacementId}
                   playing={p.id === playingPlacementId}
                   dropHint={hint}

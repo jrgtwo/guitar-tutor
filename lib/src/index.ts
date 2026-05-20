@@ -210,6 +210,8 @@ export {
   getCollectionDepth,
   wouldCreateCycle,
   flattenComposition,
+  placementEffectiveLength,
+  resizePlacement,
   GROOVE_PRESETS,
   presetMatching,
   resolveEffectivePlayback,

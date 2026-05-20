@@ -17,6 +17,8 @@ function makePlacement(p: ReturnType<typeof createEmptyPattern>) {
     patternSnapshot: p,
     startTick: 0,
     repeat: 1,
+    transposeSemitones: 0,
+    lengthTicks: null,
   };
 }
 

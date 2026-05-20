@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { GrooveSpec, Placement } from '@fretwork/lib';
 import { PPQ, presetMatching, selectEditingComposition, usePatternsStore } from '@fretwork/lib';
 import { MiniPatternSignature } from './MiniPatternSignature';
@@ -9,6 +9,16 @@ interface Props {
   playing: boolean;
   /** Computed width in px so blocks are proportional to their playback duration. */
   width: number;
+  /** Effective length of one repetition in ticks. */
+  effectiveLengthTicks: number;
+  /** Maximum allowed length when dragging right — the snapshot's full duration. */
+  snapshotDurationTicks: number;
+  /** Ticks per bar — drag snaps to multiples of this. */
+  ticksPerBar: number;
+  /** Pixels per tick, derived from the parent's layout. Used to convert pointer
+   *  delta to tick delta during drag. */
+  pxPerTick: number;
+  onResize(lengthTicks: number): void;
   /** Drag-and-drop drop-target indicator. */
   dropHint?: 'none' | 'before' | 'after';
   /** Drag-and-drop "being dragged" indicator (ghost / lifted treatment). */
@@ -31,6 +41,11 @@ export function BlockCard({
   selected,
   playing,
   width,
+  effectiveLengthTicks,
+  snapshotDurationTicks,
+  ticksPerBar,
+  pxPerTick,
+  onResize,
   dropHint = 'none',
   dragging,
   onClick,
@@ -42,8 +57,11 @@ export function BlockCard({
   onDrop,
   onDragEnd,
 }: Props) {
-  const beats = placement.patternSnapshot.durationTicks / PPQ;
-  const totalBeats = beats * placement.repeat;
+  const fullBeats = placement.patternSnapshot.durationTicks / PPQ;
+  const effectiveBeats =
+    placement.lengthTicks !== null ? placement.lengthTicks / PPQ : fullBeats;
+  const totalBeats = effectiveBeats * placement.repeat;
+  const truncated = placement.lengthTicks !== null;
   const sigW = Math.max(40, width - 18);
 
   const composition = usePatternsStore(selectEditingComposition);
@@ -69,6 +87,51 @@ export function BlockCard({
     return parts.join(' · ');
   }, [composition, placement, showInheritAnnotation]);
 
+  const dragRef = useRef<{ startX: number; startLen: number } | null>(null);
+  const [, setDragTick] = useState(0); // force re-render during drag for cursor preview
+  // Toggle the card's native HTML5 `draggable` off while the mouse is over the
+  // resize handle (or actively resizing). Otherwise mousedown on the handle
+  // starts a native image-style drag of the whole card instead of running our
+  // resize logic — `stopPropagation` on the handle's pointerdown doesn't help
+  // because `draggable` is intrinsic to the element.
+  const [resizeArmed, setResizeArmed] = useState(false);
+
+  function onResizePointerDown(e: React.PointerEvent) {
+    e.stopPropagation();
+    if (e.button !== 0) return;
+    dragRef.current = {
+      startX: e.clientX,
+      startLen: effectiveLengthTicks,
+    };
+    (e.target as Element).setPointerCapture(e.pointerId);
+  }
+
+  function onResizePointerMove(e: React.PointerEvent) {
+    const d = dragRef.current;
+    if (!d) return;
+    const dxPx = e.clientX - d.startX;
+    const dxTicks = pxPerTick > 0 ? dxPx / pxPerTick : 0;
+    const desired = d.startLen + dxTicks;
+    // Snap to beat (PPQ ticks) for finer truncation control than bar-level snap.
+    // `ticksPerBar` is kept on the prop in case we want to expose a per-arranger
+    // snap setting later; the minimum length is one beat to mirror the snap unit.
+    void ticksPerBar;
+    const snapUnit = PPQ;
+    const snapped = Math.round(desired / snapUnit) * snapUnit;
+    const clamped = Math.max(snapUnit, Math.min(snapshotDurationTicks, snapped));
+    // Live preview: trigger re-render and queue the commit; commit on pointerup.
+    if (clamped !== effectiveLengthTicks) {
+      onResize(clamped);
+    }
+    setDragTick((x) => x + 1);
+  }
+
+  function onResizePointerUp(e: React.PointerEvent) {
+    if (!dragRef.current) return;
+    dragRef.current = null;
+    (e.target as Element).releasePointerCapture?.(e.pointerId);
+  }
+
   return (
     <div
       className={[
@@ -87,7 +150,7 @@ export function BlockCard({
       onDoubleClick={onDoubleClick}
       role="button"
       tabIndex={0}
-      draggable
+      draggable={!resizeArmed}
       onDragStart={onDragStart}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
@@ -96,20 +159,39 @@ export function BlockCard({
     >
       <div className="flex items-center justify-between gap-1">
         <span className="text-[11px] font-mono text-foreground truncate">{placement.patternSnapshot.name}</span>
-        {placement.repeat > 1 && (
-          <span className="text-[10px] font-mono text-degree-root bg-degree-root/10 px-1 py-0.5 rounded shrink-0">
-            ×{placement.repeat}
-          </span>
-        )}
+        <div className="flex items-center gap-1 shrink-0">
+          {placement.transposeSemitones !== 0 && (
+            <span className="text-[10px] font-mono text-degree-root bg-degree-root/10 px-1 py-0.5 rounded">
+              {placement.transposeSemitones > 0 ? '+' : ''}{placement.transposeSemitones}
+            </span>
+          )}
+          {placement.repeat > 1 && (
+            <span className="text-[10px] font-mono text-degree-root bg-degree-root/10 px-1 py-0.5 rounded">
+              ×{placement.repeat}
+            </span>
+          )}
+        </div>
       </div>
       {annotationParts && (
         <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/70">
           → {annotationParts}
         </span>
       )}
-      <MiniPatternSignature pattern={placement.patternSnapshot} width={sigW} height={24} />
+      <MiniPatternSignature
+        pattern={placement.patternSnapshot}
+        width={sigW}
+        height={24}
+        effectiveLengthTicks={effectiveLengthTicks}
+      />
       <div className="text-[9px] font-mono text-muted-foreground/70 flex items-center justify-between">
-        <span>{totalBeats.toFixed(totalBeats % 1 === 0 ? 0 : 1)} beats</span>
+        <span>
+          {totalBeats.toFixed(totalBeats % 1 === 0 ? 0 : 1)} beats
+          {truncated && (
+            <span className="opacity-70 ml-1">
+              · {Math.round(effectiveBeats / 4)} of {Math.round(fullBeats / 4)} bars
+            </span>
+          )}
+        </span>
         {onDelete && (
           <button
             type="button"
@@ -124,6 +206,23 @@ export function BlockCard({
           </button>
         )}
       </div>
+      <div
+        draggable={false}
+        onMouseEnter={() => setResizeArmed(true)}
+        onMouseLeave={() => {
+          if (!dragRef.current) setResizeArmed(false);
+        }}
+        onPointerDown={onResizePointerDown}
+        onPointerMove={onResizePointerMove}
+        onPointerUp={(e) => { onResizePointerUp(e); setResizeArmed(false); }}
+        onPointerCancel={(e) => { onResizePointerUp(e); setResizeArmed(false); }}
+        onMouseDown={(e) => e.stopPropagation()}
+        onDragStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
+        onClick={(e) => e.stopPropagation()}
+        className="absolute top-0 right-0 bottom-0 w-1.5 cursor-ew-resize hover:bg-degree-root/40 rounded-r-md"
+        title="Drag to truncate"
+        aria-label="Resize placement"
+      />
     </div>
   );
 }

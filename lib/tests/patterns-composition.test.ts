@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import type { Placement, Pattern } from '../src/patterns';
 import {
   createEmptyPattern,
   createEmptyComposition,
@@ -9,9 +10,14 @@ import {
   reorderPlacement,
   totalDurationTicks,
   flattenComposition,
+  placementEffectiveLength,
   setCompositionTempoMode,
   setCompositionGroove,
   setCompositionGrooveMode,
+  setPlacementTranspose,
+  resizePlacement,
+  setCompositionLoop,
+  ticksPerBar,
   PPQ,
 } from '../src/patterns';
 
@@ -186,5 +192,225 @@ describe('setCompositionGrooveMode', () => {
     const c = createEmptyComposition();
     expect(setCompositionGrooveMode(c, 'inherit').grooveMode).toBe('inherit');
     expect(setCompositionGrooveMode(c, 'global').grooveMode).toBe('global');
+  });
+});
+
+describe('flattenComposition — transpose + truncate', () => {
+  function patternWith4Events(): Pattern {
+    let p = createEmptyPattern('p');
+    p = stampEvent({ pattern: p, stringIndex: 1, fret: 5, startTick: 0, durationTicks: 240 }).pattern;
+    p = stampEvent({ pattern: p, stringIndex: 1, fret: 7, startTick: 480, durationTicks: 240 }).pattern;
+    p = stampEvent({ pattern: p, stringIndex: 1, fret: 9, startTick: 960, durationTicks: 240 }).pattern;
+    p = stampEvent({ pattern: p, stringIndex: 1, fret: 11, startTick: 1440, durationTicks: 240 }).pattern;
+    return p;
+  }
+
+  it('transpose +5 shifts every event\'s fret by 5 (same string)', () => {
+    const pat = patternWith4Events();
+    let comp = createEmptyComposition('c');
+    const r = addPlacement(comp, pat);
+    comp = r.composition;
+    comp = {
+      ...comp,
+      placements: comp.placements.map((p) =>
+        p.id === r.placement.id ? { ...p, transposeSemitones: 5 } : p,
+      ),
+    };
+    const flat = flattenComposition(comp);
+    expect(flat).toHaveLength(4);
+    expect(flat.map((e) => e.fret)).toEqual([10, 12, 14, 16]);
+    for (const e of flat) {
+      expect(e.stringIndex).toBe(1);
+    }
+  });
+
+  it('transpose drops events whose new fret is out of range', () => {
+    const pat = patternWith4Events();
+    let comp = createEmptyComposition('c');
+    const r = addPlacement(comp, pat);
+    comp = r.composition;
+    comp = {
+      ...comp,
+      placements: comp.placements.map((p) =>
+        p.id === r.placement.id ? { ...p, transposeSemitones: -6 } : p,
+      ),
+    };
+    const flat = flattenComposition(comp);
+    // Frets 5,7,9,11 → -1,1,3,5. -1 is dropped; 3 survive.
+    expect(flat).toHaveLength(3);
+    expect(flat.map((e) => e.fret).sort((a, b) => a - b)).toEqual([1, 3, 5]);
+  });
+
+  it('truncate drops events at or past lengthTicks', () => {
+    const pat = patternWith4Events();
+    let comp = createEmptyComposition('c');
+    const r = addPlacement(comp, pat);
+    comp = r.composition;
+    comp = {
+      ...comp,
+      placements: comp.placements.map((p) =>
+        p.id === r.placement.id ? { ...p, lengthTicks: 960 } : p,
+      ),
+    };
+    const flat = flattenComposition(comp);
+    expect(flat).toHaveLength(2);
+    expect(flat.map((e) => e.startTick)).toEqual([0, 480]);
+  });
+
+  it('truncate clips events that straddle the cut', () => {
+    let pat = createEmptyPattern('p');
+    pat = stampEvent({ pattern: pat, stringIndex: 1, fret: 5, startTick: 720, durationTicks: 480 }).pattern;
+    let comp = createEmptyComposition('c');
+    const r = addPlacement(comp, pat);
+    comp = r.composition;
+    comp = {
+      ...comp,
+      placements: comp.placements.map((p) =>
+        p.id === r.placement.id ? { ...p, lengthTicks: 960 } : p,
+      ),
+    };
+    const flat = flattenComposition(comp);
+    expect(flat).toHaveLength(1);
+    expect(flat[0].startTick).toBe(720);
+    expect(flat[0].durationTicks).toBe(240); // clipped to 960-720
+  });
+
+  it('combined: truncate first, then transpose', () => {
+    const pat = patternWith4Events();
+    let comp = createEmptyComposition('c');
+    const r = addPlacement(comp, pat);
+    comp = r.composition;
+    comp = {
+      ...comp,
+      placements: comp.placements.map((p) =>
+        p.id === r.placement.id ? { ...p, lengthTicks: 960, transposeSemitones: 2 } : p,
+      ),
+    };
+    const flat = flattenComposition(comp);
+    expect(flat).toHaveLength(2);
+    expect(flat.map((e) => e.fret)).toEqual([7, 9]);
+  });
+
+  it('repeat > 1 with lengthTicks: each iteration uses effective length', () => {
+    const pat = patternWith4Events();
+    let comp = createEmptyComposition('c');
+    const r = addPlacement(comp, pat);
+    comp = r.composition;
+    comp = {
+      ...comp,
+      placements: comp.placements.map((p) =>
+        p.id === r.placement.id ? { ...p, lengthTicks: 960, repeat: 2 } : p,
+      ),
+    };
+    const flat = flattenComposition(comp);
+    expect(flat).toHaveLength(4);
+    expect(flat.map((e) => e.startTick).sort((a, b) => a - b)).toEqual([0, 480, 960, 1440]);
+  });
+
+  it('snapshot events are not mutated by flatten', () => {
+    const pat = patternWith4Events();
+    let comp = createEmptyComposition('c');
+    const r = addPlacement(comp, pat);
+    comp = r.composition;
+    comp = {
+      ...comp,
+      placements: comp.placements.map((p) =>
+        p.id === r.placement.id ? { ...p, transposeSemitones: 5, lengthTicks: 960 } : p,
+      ),
+    };
+    const before = comp.placements[0].patternSnapshot.events.map((e) => ({ ...e }));
+    flattenComposition(comp);
+    const after = comp.placements[0].patternSnapshot.events.map((e) => ({ ...e }));
+    expect(after).toEqual(before);
+  });
+});
+
+describe('Placement + Composition new fields', () => {
+  it('createEmptyComposition has loop=false', () => {
+    const c = createEmptyComposition('t');
+    expect(c.loop).toBe(false);
+  });
+
+  it('addPlacement initializes transposeSemitones=0 and lengthTicks=null', () => {
+    const comp = createEmptyComposition('t');
+    const pattern = createEmptyPattern('p');
+    const { composition, placement } = addPlacement(comp, pattern);
+    expect(placement.transposeSemitones).toBe(0);
+    expect(placement.lengthTicks).toBeNull();
+    expect(placement.repeat).toBe(1);
+    expect(composition.placements).toHaveLength(1);
+  });
+
+  it('placementEffectiveLength returns lengthTicks when set', () => {
+    const pattern = createEmptyPattern('p');
+    const placement: Placement = {
+      id: 'pl1',
+      patternSnapshot: pattern,
+      startTick: 0,
+      repeat: 1,
+      transposeSemitones: 0,
+      lengthTicks: 960,
+    };
+    expect(placementEffectiveLength(placement)).toBe(960);
+  });
+
+  it('placementEffectiveLength falls back to snapshot duration when lengthTicks is null', () => {
+    const pattern = createEmptyPattern('p');
+    const placement: Placement = {
+      id: 'pl1',
+      patternSnapshot: pattern,
+      startTick: 0,
+      repeat: 1,
+      transposeSemitones: 0,
+      lengthTicks: null,
+    };
+    expect(placementEffectiveLength(placement)).toBe(pattern.durationTicks);
+  });
+});
+
+describe('setPlacementTranspose / resizePlacement / setCompositionLoop', () => {
+  it('setPlacementTranspose clamps to [-24, +24]', () => {
+    let comp = createEmptyComposition('c');
+    const pat = createEmptyPattern('p');
+    const r = addPlacement(comp, pat);
+    comp = r.composition;
+    let next = setPlacementTranspose(comp, r.placement.id, 100);
+    expect(next.placements[0].transposeSemitones).toBe(24);
+    next = setPlacementTranspose(comp, r.placement.id, -100);
+    expect(next.placements[0].transposeSemitones).toBe(-24);
+  });
+
+  it('setPlacementTranspose returns same ref when unchanged', () => {
+    let comp = createEmptyComposition('c');
+    const pat = createEmptyPattern('p');
+    const r = addPlacement(comp, pat);
+    comp = r.composition;
+    const next = setPlacementTranspose(comp, r.placement.id, 0);
+    expect(next).toBe(comp);
+  });
+
+  it('resizePlacement clamps to [tpb, snapshotDuration] and collapses repeat to 1', () => {
+    let comp = createEmptyComposition('c');
+    const pat = createEmptyPattern('p');
+    const r = addPlacement(comp, pat);
+    comp = r.composition;
+    comp = {
+      ...comp,
+      placements: comp.placements.map((p) =>
+        p.id === r.placement.id ? { ...p, repeat: 3 } : p,
+      ),
+    };
+    const tpb = ticksPerBar(comp.timeSignature);
+    const next = resizePlacement(comp, r.placement.id, tpb * 2);
+    expect(next.placements[0].lengthTicks).toBe(tpb * 2);
+    expect(next.placements[0].repeat).toBe(1);
+  });
+
+  it('setCompositionLoop toggles the flag and returns same ref when unchanged', () => {
+    let comp = createEmptyComposition('c');
+    expect(comp.loop).toBe(false);
+    comp = setCompositionLoop(comp, true);
+    expect(comp.loop).toBe(true);
+    expect(setCompositionLoop(comp, true)).toBe(comp);
   });
 });

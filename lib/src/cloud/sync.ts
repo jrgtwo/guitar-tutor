@@ -223,6 +223,12 @@ function hydrateCompositionRow(row: Record<string, unknown>): Composition {
     tempoMode: data.tempoMode ?? 'global',
     groove: data.groove ?? null,
     grooveMode: data.grooveMode ?? 'global',
+    loop: data.loop ?? false,
+    placements: (data.placements ?? []).map((pl) => ({
+      ...pl,
+      transposeSemitones: pl.transposeSemitones ?? 0,
+      lengthTicks: pl.lengthTicks ?? null,
+    })),
   };
 }
 

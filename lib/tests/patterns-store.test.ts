@@ -244,6 +244,45 @@ describe('usePatternsStore.stampCagedPlan', () => {
   });
 });
 
+describe('placement transpose / resize / composition loop', () => {
+  function setupCompositionWithPlacement(): { compId: string; placementId: string } {
+    const store = usePatternsStore.getState();
+    const patId = store.createPattern('p');
+    const compId = store.createComposition('c');
+    store.openCompositionForArranging(compId);
+    const placementId = store.addPlacement(patId);
+    if (!placementId) throw new Error('addPlacement returned null');
+    return { compId, placementId };
+  }
+
+  it('setPlacementTranspose writes through the store', () => {
+    const { compId, placementId } = setupCompositionWithPlacement();
+    usePatternsStore.getState().setPlacementTranspose(placementId, 7);
+    const comp = usePatternsStore.getState().library.compositions.find((c) => c.id === compId)!;
+    const placement = comp.placements.find((p) => p.id === placementId)!;
+    expect(placement.transposeSemitones).toBe(7);
+  });
+
+  it('resizePlacement collapses legacy repeat', () => {
+    const { compId, placementId } = setupCompositionWithPlacement();
+    usePatternsStore.getState().setPlacementRepeat(placementId, 3);
+    let comp = usePatternsStore.getState().library.compositions.find((c) => c.id === compId)!;
+    const tpb = ticksPerBar(comp.timeSignature);
+    usePatternsStore.getState().resizePlacement(placementId, tpb * 2);
+    comp = usePatternsStore.getState().library.compositions.find((c) => c.id === compId)!;
+    const placement = comp.placements.find((p) => p.id === placementId)!;
+    expect(placement.lengthTicks).toBe(tpb * 2);
+    expect(placement.repeat).toBe(1);
+  });
+
+  it('setCompositionLoop toggles', () => {
+    const { compId } = setupCompositionWithPlacement();
+    usePatternsStore.getState().setCompositionLoop(compId, true);
+    const comp = usePatternsStore.getState().library.compositions.find((c) => c.id === compId)!;
+    expect(comp.loop).toBe(true);
+  });
+});
+
 describe('setEditingPatternKeyScale', () => {
   it('sets both key and scaleType', () => {
     const { createPattern, setEditingPatternKeyScale } = usePatternsStore.getState();

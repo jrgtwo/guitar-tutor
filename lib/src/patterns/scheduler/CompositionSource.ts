@@ -7,7 +7,7 @@
  * lazy slicing per placement.
  */
 import type { Composition } from '../types';
-import { flattenComposition } from '../composition-ops';
+import { flattenComposition, placementEffectiveLength } from '../composition-ops';
 import type { EventStream, ScheduledEvent } from './EventScheduler';
 
 export class CompositionSource implements EventStream {
@@ -37,14 +37,14 @@ export class CompositionSource implements EventStream {
     }));
     let max = 0;
     for (const p of composition.placements) {
-      const end = p.startTick + p.patternSnapshot.durationTicks * p.repeat;
+      const end = p.startTick + placementEffectiveLength(p) * p.repeat;
       if (end > max) max = end;
     }
     this._durationTicks = max;
 
     const boundaries: { placementId: string; startTick: number; endTick: number }[] = [];
     for (const p of composition.placements) {
-      const end = p.startTick + p.patternSnapshot.durationTicks * p.repeat;
+      const end = p.startTick + placementEffectiveLength(p) * p.repeat;
       boundaries.push({ placementId: p.id, startTick: p.startTick, endTick: end });
     }
     boundaries.sort((a, b) => a.startTick - b.startTick);

@@ -66,10 +66,14 @@ export {
   setCompositionBpm,
   setPlacementSnapshot,
   flattenComposition,
+  placementEffectiveLength,
   applyCompositionMetadata,
   setCompositionTempoMode,
   setCompositionGroove,
   setCompositionGrooveMode,
+  setPlacementTranspose,
+  resizePlacement,
+  setCompositionLoop,
 } from './composition-ops';
 export type { CompositionMetadataPatch } from './composition-ops';
 
