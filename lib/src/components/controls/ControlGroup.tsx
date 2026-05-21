@@ -6,13 +6,14 @@ interface Props {
 }
 
 /**
- * Wrapper used by every TopBar control. Renders the small uppercased label above the
- * dropdown trigger, matching the mockup's "MODE / KEY / TYPE" layout.
+ * Wrapper used by every control on the Setup and Patterns ribbons. Renders the
+ * small uppercased label inline-left of the control so the ribbon reads as a
+ * flowing line of label+input pairs rather than stacked vertical columns.
  */
 export function ControlGroup({ label, children }: Props) {
   return (
-    <div className="flex flex-col gap-1 min-w-[110px]">
-      <span className="text-[10px] font-mono uppercase tracking-[0.16em] text-muted-foreground/80">
+    <div className="inline-flex items-center gap-2">
+      <span className="text-[10px] font-mono uppercase tracking-[0.16em] text-muted-foreground/80 whitespace-nowrap">
         {label}
       </span>
       {children}

@@ -1,16 +1,16 @@
 import { usePatternsStore, selectEditingComposition } from '@fretwork/lib';
-import { Repeat } from 'lucide-react';
 import { AddPlacementPopover } from './AddPlacementPopover';
 import { CompositionTimeline } from './CompositionTimeline';
 import { BlockInspector } from './BlockInspector';
 import { FretboardInput } from '../editor/FretboardInput';
-import { PatternsMetronomeStrip } from '../../components/metronome/PatternsMetronomeStrip';
+import { PlaybackRibbon } from '../../components/playback/PlaybackRibbon';
+import { usePatternsArrangeRibbonSections } from '../playback/patternsArrangeRibbonSections';
 
 export function ArrangeCompositionTab() {
   const composition = usePatternsStore(selectEditingComposition);
   const createComposition = usePatternsStore((s) => s.createComposition);
   const renameComposition = usePatternsStore((s) => s.renameComposition);
-  const setCompositionLoop = usePatternsStore((s) => s.setCompositionLoop);
+  const ribbonSections = usePatternsArrangeRibbonSections();
 
   if (!composition) {
     return (
@@ -44,29 +44,15 @@ export function ArrangeCompositionTab() {
             className="h-7 px-2 w-40 bg-charcoal-deep/60 border border-border/60 rounded text-foreground outline-none focus:border-degree-root/60 text-[11px]"
           />
         </label>
-        <button
-          type="button"
-          onClick={() => setCompositionLoop(composition.id, !composition.loop)}
-          aria-pressed={composition.loop}
-          title={composition.loop ? 'Looping until stopped' : 'Play once'}
-          className={
-            'h-7 px-2.5 inline-flex items-center gap-1 rounded-md text-[11px] font-mono uppercase tracking-wider border ' +
-            (composition.loop
-              ? 'border-degree-root bg-degree-root/20 text-foreground'
-              : 'border-border/60 text-muted-foreground hover:bg-white/5')
-          }
-        >
-          <Repeat size={11} />
-          Loop
-        </button>
+        {/* Loop button removed — now in the ribbon */}
       </div>
 
       <div className="flex-1 overflow-auto flex flex-col gap-3">
         <section className="px-3 pt-3" aria-label="Currently playing">
           <FretboardInput />
         </section>
-        <section aria-label="Metronome" className="relative z-30">
-          <PatternsMetronomeStrip />
+        <section aria-label="Playback ribbon" className="relative z-30">
+          <PlaybackRibbon sections={ribbonSections} />
         </section>
         <section aria-label="Composition timeline">
           <CompositionTimeline />

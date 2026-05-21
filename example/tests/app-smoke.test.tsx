@@ -30,12 +30,10 @@ describe('App smoke test', () => {
     expect(screen.getByText('Scale tone')).toBeInTheDocument();
   });
 
-  it('exposes the context summary chip in the top bar', () => {
+  it('exposes the setup ribbon with Musical section label', () => {
     render(<App />);
-    // The chip is the single entry point to config. Smoke-check that it
-    // renders with the current key/scale baked into its summary text.
-    expect(
-      screen.getByText(/MAJOR/i, { selector: 'span.truncate' }),
-    ).toBeInTheDocument();
+    // The Setup ribbon replaces the old chip-popover. Smoke-check that the
+    // "Musical" section label is rendered in the ribbon.
+    expect(screen.getByText('Musical')).toBeInTheDocument();
   });
 });

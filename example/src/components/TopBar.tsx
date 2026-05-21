@@ -1,46 +1,12 @@
-import { useEffect, useState } from 'react';
 import {
-  Dialog,
-  DialogContent,
-  DialogTitle,
-  ModeSelect,
-  KeySelect,
-  TypeSelect,
-  ShapeSelect,
-  CapoSelect,
   SettingsDialog,
   INSTRUMENTS,
   useFretworkStore,
 } from '@fretwork/lib';
-import { SimplePopover } from './ui/SimplePopover';
-import { Section } from './ui/Section';
-import { useContextSummary } from './useContextSummary';
 import { SignInButton } from '@/auth/SignInButton';
 import { Link, useLocation } from '@/router';
 
-const DESKTOP_QUERY = '(min-width: 768px)';
-
-function useIsDesktop(): boolean {
-  const [isDesktop, setIsDesktop] = useState(() => {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
-    return window.matchMedia(DESKTOP_QUERY).matches;
-  });
-  useEffect(() => {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
-    const mql = window.matchMedia(DESKTOP_QUERY);
-    const onChange = () => setIsDesktop(mql.matches);
-    mql.addEventListener('change', onChange);
-    return () => mql.removeEventListener('change', onChange);
-  }, []);
-  return isDesktop;
-}
-
 export function TopBar() {
-  const summary = useContextSummary();
-  const isDesktop = useIsDesktop();
-  const [desktopOpen, setDesktopOpen] = useState(false);
-  const [mobileOpen, setMobileOpen] = useState(false);
-
   // Active route detection for nav highlighting. Anything that isn't an
   // explicit page lands on Practice (`?` with no recognized routing params).
   const { params } = useLocation();
@@ -57,109 +23,40 @@ export function TopBar() {
       ? 'bg-white/5 text-foreground'
       : 'text-muted-foreground hover:text-foreground hover:bg-white/5');
 
-  // Single chip button reused as the trigger in both surfaces. On mobile we don't
-  // use SimplePopover (a full Dialog handles it instead), so we wire the mobile
-  // open state via the same button rendering by switching parents.
-  const chipButton = (
-    <button
-      type="button"
-      onClick={isDesktop ? undefined : () => setMobileOpen(true)}
-      className="w-full min-w-0 inline-flex items-center justify-between gap-2 h-10 px-4 rounded-full border border-border/60 bg-charcoal-deep/40 hover:bg-white/5 text-sm"
-    >
-      <span className="truncate text-foreground">{summary}</span>
-      <span className="text-muted-foreground text-xs">▾</span>
-    </button>
-  );
-
   return (
-    <>
-      <header className="sticky top-0 z-30 flex flex-col gap-2 px-4 sm:px-6 py-3 bg-charcoal-raised/70 backdrop-blur border-b border-border/40">
-        {/* Row 1: brand + instrument pills on the left, nav in the middle, utilities on the right. */}
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 shrink-0">
-            <Brand />
-            <InstrumentPills />
-          </div>
-          <nav className="flex items-center gap-1">
-            <Link
-              to={{ kind: 'home' }}
-              aria-current={isPracticePage ? 'page' : undefined}
-              className={navLinkClass(isPracticePage)}
-            >
-              Practice
-            </Link>
-            <Link
-              to={{ kind: 'patterns' }}
-              aria-current={isPatternsPage ? 'page' : undefined}
-              className={navLinkClass(isPatternsPage)}
-            >
-              Patterns
-            </Link>
-            <Link
-              to={{ kind: 'catalog' }}
-              aria-current={isCatalogPage ? 'page' : undefined}
-              className={navLinkClass(isCatalogPage)}
-            >
-              Catalog
-            </Link>
-          </nav>
-          <div className="flex items-center gap-2 shrink-0">
-            <SettingsDialog audioSection={<SoundLabLink />} />
-            <SignInButton />
-          </div>
-        </div>
-
-        {/* Row 2: chip centered. Width-capped so it doesn't stretch end-to-end on
-            very wide displays. */}
-        <div className="flex justify-center">
-          <div className="w-full max-w-2xl">
-            {isDesktop ? (
-              <SimplePopover
-                open={desktopOpen}
-                onOpenChange={setDesktopOpen}
-                align="start"
-                rootClassName="relative block w-full"
-                panelClassName="w-[min(720px,calc(100vw-2rem))] p-5"
-                trigger={chipButton}
-              >
-                <ConfigSections />
-              </SimplePopover>
-            ) : (
-              chipButton
-            )}
-          </div>
-        </div>
-      </header>
-
-      <Dialog open={mobileOpen} onOpenChange={setMobileOpen}>
-        <DialogContent className="w-[calc(100vw-2rem)] max-w-md sm:max-w-lg max-h-[calc(100dvh-2rem)] flex flex-col">
-          <DialogTitle className="shrink-0">Configure</DialogTitle>
-          <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-5 mt-2 -mr-2 pr-2">
-            <ConfigSections />
-          </div>
-        </DialogContent>
-      </Dialog>
-    </>
-  );
-}
-
-/**
- * The single source-of-truth for the chip's configuration UI. Rendered inside the
- * desktop popover and the mobile dialog. Both popovers (chip + strip overflow) share
- * the same Zustand store, so toggling here updates the strip and vice versa.
- */
-function ConfigSections() {
-  return (
-    <div className="flex flex-col gap-5">
-      <Section title="Setup">
-        <ModeSelect />
-        <KeySelect />
-        <TypeSelect />
-        <ShapeSelect />
-        <div className="basis-full" />
-        <CapoSelect />
-      </Section>
-    </div>
+    <header className="sticky top-0 z-30 flex items-center justify-between gap-3 px-4 sm:px-6 py-3 bg-charcoal-raised/70 backdrop-blur border-b border-border/40">
+      <div className="flex items-center gap-3 shrink-0">
+        <Brand />
+        <InstrumentPills />
+      </div>
+      <nav className="flex items-center gap-1">
+        <Link
+          to={{ kind: 'home' }}
+          aria-current={isPracticePage ? 'page' : undefined}
+          className={navLinkClass(isPracticePage)}
+        >
+          Practice
+        </Link>
+        <Link
+          to={{ kind: 'patterns' }}
+          aria-current={isPatternsPage ? 'page' : undefined}
+          className={navLinkClass(isPatternsPage)}
+        >
+          Patterns
+        </Link>
+        <Link
+          to={{ kind: 'catalog' }}
+          aria-current={isCatalogPage ? 'page' : undefined}
+          className={navLinkClass(isCatalogPage)}
+        >
+          Catalog
+        </Link>
+      </nav>
+      <div className="flex items-center gap-2 shrink-0">
+        <SettingsDialog audioSection={<SoundLabLink />} />
+        <SignInButton />
+      </div>
+    </header>
   );
 }
 
@@ -223,4 +120,3 @@ function Brand() {
     </div>
   );
 }
-

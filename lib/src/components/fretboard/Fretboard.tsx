@@ -1,4 +1,4 @@
-import { useCallback, useMemo, type MouseEvent as ReactMouseEvent } from 'react';
+import { useCallback, useMemo, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { useFretworkStore } from '../../store/useFretworkStore';
 import { getTuning } from '../../lib/tunings';
 import { getInstrument, DEFAULT_INSTRUMENT_ID } from '../../lib/instruments';
@@ -26,6 +26,9 @@ import { usePlayback } from '../../playback/usePlayback';
 import { resolveShapeAbsoluteCells } from '../../playback/patterns/caged';
 import { isCagedShapeId } from '../../playback/patterns/caged-shapes-data';
 import type { ResolveInput } from '../../playback/types';
+
+// Set of fret numbers that always show a marker in inlayGrid mode: open strings
+// (fret 0) plus all standard inlay positions (3, 5, 7, 9, 12, 15, 17, 19, 21).
 
 export interface FretboardProps {
   /**
@@ -74,6 +77,15 @@ export interface FretboardProps {
    * out-of-key cells stay clickable but visually de-emphasized.
    */
   dimNonHighlighted?: boolean;
+  /**
+   * When true, renders neutral markers only at fret 0 (open notes) and at the
+   * standard inlay frets (3, 5, 7, 9, 12, 15, 17, 19, 21). Plus, whichever cell
+   * is currently being hovered — providing a "where would I stamp?" preview at
+   * any fret while keeping the default view uncluttered. Mutually exclusive
+   * with `neutralGrid` and `dimNonHighlighted`. Used by the Patterns editor
+   * when the pattern has no key set.
+   */
+  inlayGrid?: boolean;
 }
 
 export function Fretboard({
@@ -83,6 +95,7 @@ export function Fretboard({
   alwaysClickable,
   highlights: highlightsProp,
   dimNonHighlighted,
+  inlayGrid,
 }: FretboardProps = {}) {
   const instrumentId = useFretworkStore((s) => s.instrumentId);
   const mode = useFretworkStore((s) => s.mode);
@@ -129,6 +142,9 @@ export function Fretboard({
   // from the effective open strings; interval/degree fields are blank because there
   // is no key. Also used by dimNonHighlighted mode as the base render set.
   const neutralHighlights = useMemo<Highlight[]>(() => {
+    // inlayGrid alone renders NO static markers — the fretboard's own inlay
+    // dots are the visual guide; only the hovered cell shows a marker (see
+    // the hover-marker render below the main loop).
     if (!neutralGrid && !dimNonHighlighted) return [];
     const out: Highlight[] = [];
     for (let s = 0; s < stringCount; s++) {
@@ -148,22 +164,18 @@ export function Fretboard({
     return out;
   }, [neutralGrid, dimNonHighlighted, stringCount, fretCount, openStrings]);
 
-  // Render set: in neutralGrid OR dimNonHighlighted, every cell renders; otherwise
-  // just the scale-derived highlights.
+  // Render set: in neutralGrid OR dimNonHighlighted, every cell renders; inlayGrid
+  // renders the sparse set built above; otherwise just the scale-derived highlights.
   const renderHighlights =
-    neutralGrid || dimNonHighlighted ? neutralHighlights : effectiveScaleHighlights;
+    neutralGrid ? neutralHighlights : effectiveScaleHighlights;
 
-  // In dimNonHighlighted mode we need O(1) "is this cell in-scale?" lookup so we
-  // can render in-scale cells with their degree color (from effectiveScaleHighlights)
-  // and out-of-scale cells with the neutral cell + ghosted styling.
-  const scaleHighlightByCell = useMemo<Map<string, Highlight> | null>(() => {
-    if (!dimNonHighlighted) return null;
-    const m = new Map<string, Highlight>();
-    for (const h of effectiveScaleHighlights) {
-      m.set(`${h.stringIndex}:${h.fret}`, h);
-    }
-    return m;
-  }, [dimNonHighlighted, effectiveScaleHighlights]);
+  // O(1) "is this cell currently rendered?" lookup for the hover-marker logic
+  // below — we suppress the hover marker if the hovered cell is already drawn.
+  const renderedKeys = useMemo<Set<string>>(() => {
+    const s = new Set<string>();
+    for (const h of renderHighlights) s.add(`${h.stringIndex}:${h.fret}`);
+    return s;
+  }, [renderHighlights]);
 
   // Active CAGED shape — when set, build a Set of (string,fret) keys for fast
   // lookup so we can split highlights into "in-shape" (full prominence) and
@@ -227,6 +239,8 @@ export function Fretboard({
   );
 
   const clickable = alwaysClickable || isProgramming || Boolean(onCellClickOverride);
+
+  const [hoverCell, setHoverCell] = useState<{ stringIndex: number; fret: number } | null>(null);
 
   const leftHanded = settings.handedness === 'left';
 
@@ -312,6 +326,12 @@ export function Fretboard({
                   onClick={(e: ReactMouseEvent) =>
                     onCellClick({ stringIndex: s, fret: f }, e.shiftKey || e.metaKey)
                   }
+                  onMouseEnter={() => setHoverCell({ stringIndex: s, fret: f })}
+                  onMouseLeave={() =>
+                    setHoverCell((cur) =>
+                      cur && cur.stringIndex === s && cur.fret === f ? null : cur,
+                    )
+                  }
                   style={{ cursor: 'pointer' }}
                 />,
               );
@@ -326,7 +346,7 @@ export function Fretboard({
             (activeCellKeys && activeCellKeys.has(cellKey)) ||
             (playheadCell != null && cellsEqual(playheadCell, h));
           let programmingIndex = -1;
-          if (!neutralGrid && !dimNonHighlighted && isProgramming) {
+          if (!neutralGrid && isProgramming) {
             for (let i = 0; i < customSequence.length; i++) {
               const c = customSequence[i];
               if (cellsEqual(c, h)) {
@@ -335,48 +355,28 @@ export function Fretboard({
               }
             }
           }
-          // CAGED shape filter — only applies in the standard (non-neutral, non-dim) mode.
+          // CAGED shape filter — only applies in the standard (non-neutral) mode.
           const inShape = inShapeKeys ? inShapeKeys.has(cellKey) : true;
           if (!inShape && !settings.showGhostMarkers) return null;
 
-          // In dimNonHighlighted mode: in-scale cells get the degree-rich highlight from
-          // the scale set; out-of-scale cells render as the neutral cell, ghosted.
-          let renderHighlight: Highlight = h;
-          let dimGhosted = false;
-          if (dimNonHighlighted && scaleHighlightByCell) {
-            const inScale = scaleHighlightByCell.get(cellKey);
-            if (inScale) {
-              renderHighlight = inScale;
-            } else {
-              dimGhosted = true;
-            }
-          }
-
-          // Labels: neutralGrid and dim out-of-scale cells should show note names (no key
-          // context). Dim in-scale cells use the configured labels.
-          const effectiveLabels =
-            neutralGrid || (dimNonHighlighted && dimGhosted) ? 'notes' : labels;
-
-          // Settings: dim out-of-scale cells render as neutral tone (no degree color).
-          // In-scale cells in dim mode use the normal settings. NeutralGrid forces neutral.
-          const effectiveSettings =
-            neutralGrid || (dimNonHighlighted && dimGhosted)
-              ? { ...settings, colorByDegree: false, highlightRoot: false }
-              : settings;
+          // NeutralGrid forces every cell to render as a neutral tone; other modes
+          // use the highlight's own degree styling.
+          const effectiveLabels = neutralGrid ? 'notes' : labels;
+          const effectiveSettings = neutralGrid
+            ? { ...settings, colorByDegree: false, highlightRoot: false }
+            : settings;
 
           return (
             <NoteMarker
               key={`${h.stringIndex}-${h.fret}`}
-              highlight={renderHighlight}
+              highlight={h}
               labels={effectiveLabels}
               settings={effectiveSettings}
               stringCount={stringCount}
               fretCount={fretCount}
               isPlayhead={isPlayhead}
               programmingIndex={
-                !neutralGrid && !dimNonHighlighted && isProgramming
-                  ? programmingIndex
-                  : undefined
+                !neutralGrid && isProgramming ? programmingIndex : undefined
               }
               onClick={
                 clickable
@@ -387,10 +387,44 @@ export function Fretboard({
                       )
                   : undefined
               }
-              ghosted={!inShape || dimGhosted}
+              ghosted={!inShape}
             />
           );
         })}
+
+        {(inlayGrid || dimNonHighlighted) && hoverCell &&
+          !renderedKeys.has(`${hoverCell.stringIndex}:${hoverCell.fret}`) && (() => {
+          // Build a synthetic Highlight for the hovered cell — provides a "where would
+          // I stamp?" preview for cells that aren't already rendered (out-of-key in
+          // dim mode; any non-inlay cell in inlay-only mode). Wrap in
+          // pointer-events:none so the marker itself doesn't intercept mouse events
+          // from the underlying click-target rect, which would otherwise cause a
+          // hover-flicker loop.
+          const openNote = openStrings[hoverCell.stringIndex];
+          if (!openNote) return null;
+          const hoverHighlight: Highlight = {
+            stringIndex: hoverCell.stringIndex,
+            fret: hoverCell.fret,
+            noteName: noteAt(openNote, hoverCell.fret),
+            intervalLabel: '',
+            degreeNumber: 0,
+            category: 'tone',
+          };
+          return (
+            <g pointerEvents="none">
+              <NoteMarker
+                key="hover-marker"
+                highlight={hoverHighlight}
+                labels="notes"
+                settings={{ ...settings, colorByDegree: false, highlightRoot: false }}
+                stringCount={stringCount}
+                fretCount={fretCount}
+                isPlayhead={false}
+                ghosted={false}
+              />
+            </g>
+          );
+        })()}
       </svg>
     </div>
   );

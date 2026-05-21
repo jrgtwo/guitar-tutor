@@ -3,12 +3,14 @@ import { EditorToolbar } from './EditorToolbar';
 import { FretboardInput } from './FretboardInput';
 import { PatternTimeline } from './timeline/PatternTimeline';
 import { useEditorKeybinds } from '../hooks/useEditorKeybinds';
-import { PatternsMetronomeStrip } from '../../components/metronome/PatternsMetronomeStrip';
+import { PlaybackRibbon } from '../../components/playback/PlaybackRibbon';
+import { usePatternsEditRibbonSections } from '../playback/patternsEditRibbonSections';
 
 export function EditPatternTab() {
   useEditorKeybinds();
   const pattern = usePatternsStore(selectEditingPattern);
   const fretboardCollapsed = usePatternsStore((s) => s.fretboardCollapsed);
+  const ribbonSections = usePatternsEditRibbonSections();
 
   // `PatternsPage` guarantees an editing pattern via `ensureEditingPattern`. This
   // branch only renders for the one frame between mount and that effect firing.
@@ -25,8 +27,8 @@ export function EditPatternTab() {
             <FretboardInput />
           </section>
         )}
-        <section aria-label="Metronome" className="relative z-30">
-          <PatternsMetronomeStrip />
+        <section aria-label="Playback ribbon" className="relative z-30">
+          <PlaybackRibbon sections={ribbonSections} />
         </section>
         <section aria-label="Pattern timeline">
           <PatternTimeline />

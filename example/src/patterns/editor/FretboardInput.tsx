@@ -44,7 +44,8 @@ export function FretboardInput() {
   return (
     <Fretboard
       alwaysClickable
-      neutralGrid={!hasKey}
+      neutralGrid={false}
+      inlayGrid={!hasKey}
       dimNonHighlighted={hasKey}
       highlights={highlights}
       activeCells={playback.activeCells}

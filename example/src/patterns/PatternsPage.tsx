@@ -1,8 +1,9 @@
 import { useEffect } from 'react';
 import { usePatternsStore } from '@fretwork/lib';
 import { useMetronome, usePlaybackStore } from '@fretwork/lib';
-import { PatternsTopBar } from './layout/PatternsTopBar';
-import { PatternControlsBar } from './layout/PatternControlsBar';
+import { TopBar } from '../components/TopBar';
+import { PlaybackRibbon } from '../components/playback/PlaybackRibbon';
+import { usePatternsSetupRibbonSections } from './playback/patternsSetupRibbonSections';
 import { WorkspaceTabs } from './layout/WorkspaceTabs';
 import { EditPatternTab } from './editor/EditPatternTab';
 import { ArrangeCompositionTab } from './arranger/ArrangeCompositionTab';
@@ -10,6 +11,7 @@ import { ArrangeCompositionTab } from './arranger/ArrangeCompositionTab';
 export function PatternsPage() {
   const activeTab = usePatternsStore((s) => s.activeTab);
   const editingPatternId = usePatternsStore((s) => s.editingPatternId);
+  const setupSections = usePatternsSetupRibbonSections();
   const libraryCount = usePatternsStore((s) => s.library.patterns.length);
   const { metronome } = useMetronome();
   const setPlaybackEnabled = usePlaybackStore((s) => s.setEnabled);
@@ -45,9 +47,12 @@ export function PatternsPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-charcoal-deep text-foreground">
-      <PatternsTopBar />
-      <PatternControlsBar />
-      <main className="flex-1 flex flex-col overflow-hidden">
+      <TopBar />
+      <main className="flex-1 flex flex-col gap-3 px-4 sm:px-8 py-3 max-w-[1400px] mx-auto w-full overflow-hidden">
+        <PlaybackRibbon
+          sections={setupSections}
+          storageKey="fretwork.patterns-setup-ribbon.collapsed"
+        />
         <WorkspaceTabs />
         <div className="flex-1 overflow-auto">
           {activeTab === 'edit' ? <EditPatternTab /> : <ArrangeCompositionTab />}
