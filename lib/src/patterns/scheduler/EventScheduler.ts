@@ -17,6 +17,7 @@
  */
 import * as Tone from 'tone';
 import type { Metronome } from '../../metronome/Metronome';
+import { applySwingToTick } from '../../metronome/types';
 import type { GuitarInstrument } from '../../playback/types';
 import type { TuningDef } from '../../types';
 import { effectiveOpenStrings } from '../../lib/fretboard';
@@ -338,13 +339,20 @@ export class EventScheduler {
 
     const sec = secondsPerTick(this._metronome.bpm);
     const openStrings = effectiveOpenStrings(this._tuning, this._capo);
+    // Pattern notes apply the same swing the metronome applies to its sub-ticks
+    // so a "swing 8ths at 67%" setting feels consistent across the click and the
+    // pattern audio. Pairs anchor at tick 0; quarter-note (PPQ) is the beat unit.
+    const subdivision = this._metronome.subdivision;
+    const swing = this._metronome.swing;
 
     for (const e of events) {
       const openString = openStrings[e.stringIndex];
       if (!openString) continue;
       const note = noteAt(openString, e.fret);
-      const playAudioTime = audioTime + (e.startTick - fromTick) * sec;
-      const durationSec = e.durationTicks * sec;
+      const swungStart = applySwingToTick(e.startTick, subdivision, swing, PPQ);
+      const swungEnd = applySwingToTick(e.startTick + e.durationTicks, subdivision, swing, PPQ);
+      const playAudioTime = audioTime + (swungStart - fromTick) * sec;
+      const durationSec = Math.max(0, swungEnd - swungStart) * sec;
       try {
         this._instrument.play(note, durationSec, playAudioTime);
       } catch {

@@ -172,13 +172,15 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
   const editingSuggestedBpm = editingPattern?.suggestedBpm ?? null;
   const editingGrooveSwing = editingPattern?.groove?.swing ?? null;
   const editingGrooveAppliedTo = editingPattern?.groove?.appliedTo ?? null;
+  const editingSubdivision = editingPattern?.subdivision ?? null;
 
   useEffect(() => {
     if (!metronome) return;
     if (editingSuggestedBpm !== null) metronome.setBpm(editingSuggestedBpm);
     metronome.setSwing(editingGrooveSwing ?? 0.5);
+    if (editingSubdivision) metronome.setSubdivision(editingSubdivision);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [metronome, editingPatternId, editingSuggestedBpm, editingGrooveSwing, editingGrooveAppliedTo]);
+  }, [metronome, editingPatternId, editingSuggestedBpm, editingGrooveSwing, editingGrooveAppliedTo, editingSubdivision]);
 
   // Track current placement id so consumers (PatternsMetronomeStrip etc.) can
   // pull the current placement's TS for beat-dot rendering during composition
@@ -220,6 +222,7 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
     if (metronome.isRunning) metronome.stop();
     if (pattern.suggestedBpm !== null) metronome.setBpm(pattern.suggestedBpm);
     metronome.setSwing(pattern.groove?.swing ?? 0.5);
+    if (pattern.subdivision) metronome.setSubdivision(pattern.subdivision);
     scheduler.setStream(new PatternSource(pattern));
     scheduler.setLoop(true);
     void metronome.start();
@@ -233,6 +236,7 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
     if (metronome.isRunning) metronome.stop();
     metronome.setBpm(composition.bpm);
     metronome.setSwing(composition.groove?.swing ?? 0.5);
+    if (composition.subdivision) metronome.setSubdivision(composition.subdivision);
     scheduler.setStream(new CompositionSource(composition));
     scheduler.setLoop(composition.loop);
     void metronome.start();

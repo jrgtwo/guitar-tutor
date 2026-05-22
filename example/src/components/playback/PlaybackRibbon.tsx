@@ -72,14 +72,17 @@ export function PlaybackRibbon({
               const nodes: ReactNode[] = [];
               // Section label as an inline pill marker preceding the section's
               // controls. Visually demarcates groups without forcing a row break.
-              nodes.push(
-                <span
-                  key={`label-${s.id}`}
-                  className="text-[10px] font-mono uppercase tracking-[0.16em] text-muted-foreground/60 whitespace-nowrap"
-                >
-                  {s.label}
-                </span>,
-              );
+              // Empty label = unlabeled section (e.g. the output volume slot).
+              if (s.label) {
+                nodes.push(
+                  <span
+                    key={`label-${s.id}`}
+                    className="text-[10px] font-mono uppercase tracking-[0.16em] text-muted-foreground/60 whitespace-nowrap"
+                  >
+                    {s.label}
+                  </span>,
+                );
+              }
               for (let i = 0; i < s.controls.length; i++) {
                 nodes.push(
                   <div key={`${s.id}-${i}`} className="shrink-0">

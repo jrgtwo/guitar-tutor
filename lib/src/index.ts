@@ -292,6 +292,12 @@ export {
   tickSubdivision,
   subdivisionCount,
   subdivisionSupportsSwing,
+  FEEL_OPTIONS,
+  FEEL_LABELS,
+  DEFAULT_SWUNG_INTENSITY,
+  feelIsSwung,
+  feelToSubdivision,
+  deriveFeel,
 } from './metronome';
 export type {
   TimeSignature,
@@ -304,6 +310,7 @@ export type {
   ClickSound,
   SubdivisionId,
   UseMetronomeReturn,
+  Feel,
 } from './metronome';
 
 // Note playback — class, hook, store, patterns, instrument, types

@@ -30,6 +30,41 @@ export function subdivisionSupportsSwing(id: SubdivisionId): boolean {
   return id === '8ths' || id === '16ths';
 }
 
+/**
+ * Time-warp a tick position by the active swing setting.
+ *
+ * For supported subdivisions (8ths, 16ths) at swing > 0.5, sub-ticks pair as
+ * [down, up]; the down half of each pair stretches to fill `2*s*ticksPerSub`
+ * and the up half compresses into the remaining `2*(1-s)*ticksPerSub`. Pairs
+ * are anchored at the timeline origin (tick 0).
+ *
+ * Returns the input unchanged when swing is inactive (subdivision off/triplets/
+ * sextuplets, or swing == 0.5). Used by the pattern EventScheduler to apply
+ * the same swing feel to pattern notes that the metronome applies to clicks.
+ */
+export function applySwingToTick(
+  tick: number,
+  subdivision: SubdivisionId,
+  swing: number,
+  ticksPerBeat: number,
+): number {
+  if (!subdivisionSupportsSwing(subdivision)) return tick;
+  if (swing <= 0.5) return tick;
+  const n = subdivisionCount(subdivision);
+  const ticksPerSub = ticksPerBeat / n;
+  const pairTicks = 2 * ticksPerSub;
+  const pairIndex = Math.floor(tick / pairTicks);
+  const positionInPair = tick - pairIndex * pairTicks;
+  let swungInPair: number;
+  if (positionInPair < ticksPerSub) {
+    swungInPair = positionInPair * 2 * swing;
+  } else {
+    const excess = positionInPair - ticksPerSub;
+    swungInPair = 2 * swing * ticksPerSub + excess * 2 * (1 - swing);
+  }
+  return pairIndex * pairTicks + swungInPair;
+}
+
 export interface TimeSignature {
   /** Stable identifier for URL state and dropdowns, e.g. "4/4". */
   readonly id: string;

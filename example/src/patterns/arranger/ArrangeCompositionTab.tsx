@@ -51,11 +51,11 @@ export function ArrangeCompositionTab() {
         <section className="px-3 pt-3" aria-label="Currently playing">
           <FretboardInput />
         </section>
-        <section aria-label="Playback ribbon" className="relative z-30">
-          <PlaybackRibbon sections={ribbonSections} />
-        </section>
         <section aria-label="Composition timeline">
           <CompositionTimeline />
+        </section>
+        <section aria-label="Playback ribbon" className="relative z-30">
+          <PlaybackRibbon sections={ribbonSections} />
         </section>
       </div>
 

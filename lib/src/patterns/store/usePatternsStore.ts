@@ -149,9 +149,11 @@ export interface PatternsActions {
   setCompositionBpm(id: string, bpm: number): void;
   setEditingPatternSuggestedBpm(bpm: number | null): void;
   setEditingPatternGroove(groove: GrooveSpec | null): void;
+  setEditingPatternSubdivision(subdivision: import('../../metronome/types').SubdivisionId | null): void;
   setEditingCompositionTempoMode(mode: 'global' | 'inherit'): void;
   setEditingCompositionGroove(groove: GrooveSpec | null): void;
   setEditingCompositionGrooveMode(mode: 'global' | 'inherit'): void;
+  setEditingCompositionSubdivision(subdivision: import('../../metronome/types').SubdivisionId | null): void;
   /**
    * Fork a (typically public/unlisted) composition into the user's library.
    * Mirrors `forkPattern` semantics — fresh uuid, fresh placement ids, fresh
@@ -262,12 +264,14 @@ const persistOptions: PersistOptions<PatternsStoreState, Pick<PatternsStoreState
         ...p,
         key: p.key ?? null,
         scaleType: p.scaleType ?? null,
+        subdivision: p.subdivision ?? null,
       }));
     }
     if (state.library?.compositions) {
       state.library.compositions = state.library.compositions.map((c) => ({
         ...c,
         loop: c.loop ?? false,
+        subdivision: c.subdivision ?? null,
         placements: c.placements.map((pl) => ({
           ...pl,
           transposeSemitones: pl.transposeSemitones ?? 0,
@@ -563,6 +567,21 @@ export const usePatternsStore = create<PatternsStoreState>()(
           };
         });
       },
+      setEditingPatternSubdivision(subdivision) {
+        set((s) => {
+          const id = s.editingPatternId;
+          if (!id) return s;
+          return {
+            library: {
+              ...s.library,
+              patterns: s.library.patterns.map((p) =>
+                p.id === id ? { ...p, subdivision, updatedAt: Date.now() } : p,
+              ),
+            },
+            ...clearDraftIf(s, id),
+          };
+        });
+      },
       setEditingCompositionTempoMode(mode) {
         set((s) => {
           const id = s.editingCompositionId;
@@ -586,6 +605,20 @@ export const usePatternsStore = create<PatternsStoreState>()(
               ...s.library,
               compositions: s.library.compositions.map((c) =>
                 c.id === id ? setCompositionGroove(c, groove) : c,
+              ),
+            },
+          };
+        });
+      },
+      setEditingCompositionSubdivision(subdivision) {
+        set((s) => {
+          const id = s.editingCompositionId;
+          if (!id) return s;
+          return {
+            library: {
+              ...s.library,
+              compositions: s.library.compositions.map((c) =>
+                c.id === id ? { ...c, subdivision, updatedAt: Date.now() } : c,
               ),
             },
           };

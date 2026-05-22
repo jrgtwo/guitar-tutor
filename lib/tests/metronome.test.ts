@@ -605,9 +605,9 @@ describe('Metronome — swing', () => {
     m.dispose();
   });
 
-  it('clamps swing to [0.5, 0.75]', () => {
+  it('clamps swing to [0.5, 0.95]', () => {
     expect(new Metronome({ swing: 0.1 }).swing).toBe(0.5);
-    expect(new Metronome({ swing: 0.99 }).swing).toBe(0.75);
+    expect(new Metronome({ swing: 0.99 }).swing).toBe(0.95);
     expect(new Metronome({ swing: 0.6 }).swing).toBeCloseTo(0.6);
   });
 

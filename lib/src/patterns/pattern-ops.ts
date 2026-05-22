@@ -41,6 +41,7 @@ export function createEmptyPattern(
     lanes: [],
     suggestedBpm: null,
     groove: null,
+    subdivision: null,
     key: null,
     scaleType: null,
     description: null,
@@ -519,7 +520,7 @@ export function setPatternTimeSignature(pattern: Pattern, ts: PatternTimeSignatu
 const MIN_BPM = 40;
 const MAX_BPM = 240;
 const SWING_MIN = 0.5;
-const SWING_MAX = 0.75;
+const SWING_MAX = 0.95;
 
 function clampBpm(bpm: number): number {
   return Math.max(MIN_BPM, Math.min(MAX_BPM, Math.round(bpm)));

@@ -40,6 +40,7 @@ export function createEmptyComposition(
     tempoMode: 'global',
     groove: null,
     grooveMode: 'global',
+    subdivision: null,
     description: null,
     difficulty: null,
     genres: [],

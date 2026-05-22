@@ -201,6 +201,7 @@ function hydratePatternRow(row: Record<string, unknown>): Pattern {
     // New (Task 9): default for legacy rows that pre-date the fields.
     suggestedBpm: data.suggestedBpm ?? null,
     groove: data.groove ?? null,
+    subdivision: data.subdivision ?? null,
   };
 }
 
@@ -223,6 +224,7 @@ function hydrateCompositionRow(row: Record<string, unknown>): Composition {
     tempoMode: data.tempoMode ?? 'global',
     groove: data.groove ?? null,
     grooveMode: data.grooveMode ?? 'global',
+    subdivision: data.subdivision ?? null,
     loop: data.loop ?? false,
     placements: (data.placements ?? []).map((pl) => ({
       ...pl,

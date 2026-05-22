@@ -12,7 +12,17 @@ export {
 export {
   subdivisionCount,
   subdivisionSupportsSwing,
+  applySwingToTick,
 } from './types';
+export {
+  FEEL_OPTIONS,
+  FEEL_LABELS,
+  DEFAULT_SWUNG_INTENSITY,
+  feelIsSwung,
+  feelToSubdivision,
+  deriveFeel,
+} from './feel';
+export type { Feel } from './feel';
 export type {
   TimeSignature,
   MetronomeTickEvent,

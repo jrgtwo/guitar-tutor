@@ -201,10 +201,10 @@ describe('pattern-ops', () => {
       expect(next.groove).toEqual({ swing: 0.67, appliedTo: 'eighths' });
     });
 
-    it('clamps swing into [0.5, 0.75]', () => {
+    it('clamps swing into [0.5, 0.95]', () => {
       const p = createEmptyPattern('riff');
       expect(setPatternGroove(p, { swing: 0.1, appliedTo: 'eighths' }).groove?.swing).toBe(0.5);
-      expect(setPatternGroove(p, { swing: 0.9, appliedTo: 'eighths' }).groove?.swing).toBe(0.75);
+      expect(setPatternGroove(p, { swing: 0.99, appliedTo: 'eighths' }).groove?.swing).toBe(0.95);
     });
 
     it('accepts null to clear groove (straight)', () => {

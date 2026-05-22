@@ -68,6 +68,12 @@ export interface Pattern {
   suggestedBpm: number | null;
   /** Author's preferred feel for this pattern. Null = straight (no swing). */
   groove: GrooveSpec | null;
+  /** Author's preferred click subdivision for this pattern. Null = no
+   *  preference; metronome uses whatever value it currently holds. Combined
+   *  with `groove` (swing) by the UI's Feel picker to express a single
+   *  rhythmic concept (e.g. "Swung 8ths" = subdivision '8ths' + groove with
+   *  appliedTo 'eighths' and swing > 0.5). */
+  subdivision: import('../metronome/types').SubdivisionId | null;
   /** Optional musical key (note name like 'A', 'C#'). null = no key set,
    *  free-form chromatic editing. Invariant: key and scaleType are either
    *  both set or both null. */
@@ -151,6 +157,9 @@ export interface Composition {
   /** Whether composition playback uses `groove` globally ('global') or pulls
    *  each placement's source pattern groove ('inherit'). */
   grooveMode: 'global' | 'inherit';
+  /** Composition-level click subdivision. Null = use the metronome's current
+   *  value at play time. See `Pattern.subdivision` for the per-pattern field. */
+  subdivision: import('../metronome/types').SubdivisionId | null;
   timeSignature: PatternTimeSignature;
   placements: Placement[];
   /** When true, composition playback wraps end → 0 and continues indefinitely.

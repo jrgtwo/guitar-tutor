@@ -34,7 +34,7 @@ import {
 const MIN_BPM = 40;
 const MAX_BPM = 240;
 const SWING_MIN = 0.5;
-const SWING_MAX = 0.75;
+const SWING_MAX = 0.95;
 
 function clampSwing(swing: number): number {
   if (!Number.isFinite(swing)) return SWING_MIN;

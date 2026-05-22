@@ -27,11 +27,11 @@ export function EditPatternTab() {
           </section>
         )}
         <EditorToolbar />
-        <section aria-label="Playback ribbon" className="relative z-30">
-          <PlaybackRibbon sections={ribbonSections} />
-        </section>
         <section aria-label="Pattern timeline">
           <PatternTimeline />
+        </section>
+        <section aria-label="Playback ribbon" className="relative z-30">
+          <PlaybackRibbon sections={ribbonSections} />
         </section>
       </div>
     </div>

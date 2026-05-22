@@ -3,7 +3,7 @@ import { DEFAULT_TIME_SIGNATURE_ID, getTimeSignature } from './time-signatures';
 import type { SubdivisionId } from './types';
 
 const SWING_MIN = 0.5;
-const SWING_MAX = 0.75;
+const SWING_MAX = 0.95;
 
 /**
  * UI-and-config state for the metronome, separate from the fretwork store. Keeping
