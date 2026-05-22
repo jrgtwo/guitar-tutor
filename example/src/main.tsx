@@ -2,7 +2,8 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
 import { SoundLab } from './sound-lab/SoundLab';
-import { PatternsPage } from './patterns/PatternsPage';
+import { PatternEditorPage } from './patterns/PatternEditorPage';
+import { CompositionArrangerPage } from './patterns/CompositionArrangerPage';
 import { CatalogPage } from './catalog/CatalogPage';
 import { AuthCallbackHandler } from './auth/AuthCallbackHandler';
 import { ProfilePage } from './profile/ProfilePage';
@@ -21,6 +22,7 @@ import './styles/index.css';
 // Query-param routing:
 //   ?lab=1              → Sound Lab (developer-facing audio tuning surface)
 //   ?page=patterns      → Patterns editor
+//   ?page=compositions  → Composition arranger
 //   ?page=catalog       → Library catalog (cross-kind browser)
 //   ?profile=<name>     → Public profile page (signed-in only)
 //   ?settings=1         → Profile Settings (signed-in only)
@@ -36,6 +38,7 @@ function Root() {
   const isSoundLab = params.get('lab') === '1';
   const page = params.get('page');
   const isPatterns = page === 'patterns';
+  const isCompositions = page === 'compositions';
   const isCatalog = page === 'catalog';
   const profileName = params.get('profile');
   const isSettings = params.get('settings') === '1';
@@ -53,7 +56,8 @@ function Root() {
   else if (sharedVoicePresetId) body = <SharedVoicePresetView presetId={sharedVoicePresetId} />;
   else if (sharedFolderId) body = <SharedFolderView folderId={sharedFolderId} />;
   else if (isSoundLab) body = <SoundLab />;
-  else if (isPatterns) body = <PatternsPage />;
+  else if (isPatterns) body = <PatternEditorPage />;
+  else if (isCompositions) body = <CompositionArrangerPage />;
   else if (isCatalog) body = <CatalogPage />;
   else if (profileName) body = <ProfilePage displayName={profileName} />;
   else if (isSettings) body = <ProfileSettings />;

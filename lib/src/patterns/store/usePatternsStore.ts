@@ -81,7 +81,6 @@ import { useAuthStore } from '../../auth/useAuthStore';
 import { canCreate, DEFAULT_SUBSCRIPTION } from '../../subscription';
 import { gateCreate } from '../../subscription/gate';
 
-export type WorkspaceTab = 'edit' | 'arrange';
 export type SelectionMode = 'replace' | 'add' | 'toggle';
 
 /** A pending stamp that hasn't been committed yet (shift-held chord buffering). */
@@ -93,7 +92,6 @@ export interface PendingStamp {
 export interface PatternsState {
   // Persisted
   library: Library;
-  activeTab: WorkspaceTab;
   fretboardCollapsed: boolean;
   stepLength: StepLength;
   /**
@@ -117,6 +115,7 @@ export interface PatternsState {
 export interface PatternsActions {
   // Lifecycle: idempotent guards used by PatternsPage on mount/unmount.
   ensureEditingPattern(): void;
+  ensureEditingComposition(): void;
   discardUnpersistedDraft(): void;
 
   // Library actions
@@ -163,8 +162,7 @@ export interface PatternsActions {
   forkComposition(source: Composition, sourceCreatorName?: string | null): string;
   deleteComposition(id: string): void;
 
-  // Tab & layout
-  setActiveTab(tab: WorkspaceTab): void;
+  // Layout
   setFretboardCollapsed(b: boolean): void;
 
   // Open for editing
@@ -226,7 +224,6 @@ const PERSIST_KEY = 'fretwork:patterns:v1';
 
 export const DEFAULT_PATTERNS_STATE: PatternsState = {
   library: { patterns: [], compositions: [], collections: [] },
-  activeTab: 'edit',
   fretboardCollapsed: false,
   stepLength: 'eighth',
   unpersistedDraftId: null,
@@ -243,13 +240,12 @@ export const DEFAULT_PATTERNS_STATE: PatternsState = {
 // Anon users persist to sessionStorage — survives reload within the same tab,
 // dies when the tab closes. Privacy stance: no public-computer leaks. Signed-in
 // users sync to Supabase (Group E) instead of relying on this layer.
-const persistOptions: PersistOptions<PatternsStoreState, Pick<PatternsStoreState, 'library' | 'activeTab' | 'fretboardCollapsed' | 'stepLength' | 'unpersistedDraftId'>> = {
+const persistOptions: PersistOptions<PatternsStoreState, Pick<PatternsStoreState, 'library' | 'fretboardCollapsed' | 'stepLength' | 'unpersistedDraftId'>> = {
   name: PERSIST_KEY,
   version: 1,
   storage: createJSONStorage(() => (typeof sessionStorage !== 'undefined' ? sessionStorage : memoryStorage())),
   partialize: (state) => ({
     library: state.library,
-    activeTab: state.activeTab,
     fretboardCollapsed: state.fretboardCollapsed,
     stepLength: state.stepLength,
     // Persisted so a refresh-within-tab keeps the draft as a draft rather than
@@ -344,7 +340,34 @@ export const usePatternsStore = create<PatternsStoreState>()(
           unpersistedDraftId: draft.id,
           cursorTick: 0,
           selectedEventIds: [],
-          activeTab: 'edit',
+        }));
+      },
+      // Mirror of ensureEditingPattern for compositions. Called on
+      // CompositionArrangerPage mount + whenever editingCompositionId becomes null.
+      ensureEditingComposition() {
+        const s = get();
+        if (s.editingCompositionId !== null) {
+          const stillExists = s.library.compositions.some(
+            (c) => c.id === s.editingCompositionId,
+          );
+          if (stillExists) return;
+        }
+        if (s.library.compositions.length > 0) {
+          let mostRecent = s.library.compositions[0];
+          for (const c of s.library.compositions) {
+            if (c.updatedAt > mostRecent.updatedAt) mostRecent = c;
+          }
+          set({ editingCompositionId: mostRecent.id });
+          return;
+        }
+        const subscription = useAuthStore.getState().subscription ?? DEFAULT_SUBSCRIPTION;
+        const check = canCreate(subscription.tier, 'compositions', 0);
+        if (!check.allowed) return;
+        const draft = createEmptyComposition('Untitled composition', useFretworkStore.getState().instrumentId);
+        set((cur) => ({
+          library: { ...cur.library, compositions: [...cur.library.compositions, draft] },
+          editingCompositionId: draft.id,
+          editingPlacementId: null,
         }));
       },
       // Remove a pristine auto-seeded draft from the library. Called when the user
@@ -380,7 +403,6 @@ export const usePatternsStore = create<PatternsStoreState>()(
           editingPlacementId: null,
           cursorTick: 0,
           selectedEventIds: [],
-          activeTab: 'edit',
         }));
         return p.id;
       },
@@ -455,7 +477,6 @@ export const usePatternsStore = create<PatternsStoreState>()(
           editingPlacementId: null,
           cursorTick: 0,
           selectedEventIds: [],
-          activeTab: 'edit',
         }));
         return fork.id;
       },
@@ -471,7 +492,6 @@ export const usePatternsStore = create<PatternsStoreState>()(
           editingPatternId: null,
           editingPlacementId: null,
           selectedPlacementId: null,
-          activeTab: 'arrange',
         }));
         return c.id;
       },
@@ -616,7 +636,6 @@ export const usePatternsStore = create<PatternsStoreState>()(
           editingPatternId: null,
           editingPlacementId: null,
           selectedPlacementId: null,
-          activeTab: 'arrange',
         }));
         return fork.id;
       },
@@ -722,10 +741,7 @@ export const usePatternsStore = create<PatternsStoreState>()(
         }));
       },
 
-      // ─── Tab & layout ────────────────────────────────────────────────────────
-      setActiveTab(tab) {
-        set({ activeTab: tab });
-      },
+      // ─── Layout ──────────────────────────────────────────────────────────────
       setFretboardCollapsed(b) {
         set({ fretboardCollapsed: b });
       },
@@ -738,7 +754,6 @@ export const usePatternsStore = create<PatternsStoreState>()(
           cursorTick: 0,
           selectedEventIds: [],
           pendingChordStamp: [],
-          activeTab: id ? 'edit' : get().activeTab,
         });
       },
       openPlacementForEditing(compositionId, placementId) {
@@ -749,7 +764,6 @@ export const usePatternsStore = create<PatternsStoreState>()(
           cursorTick: 0,
           selectedEventIds: [],
           pendingChordStamp: [],
-          activeTab: 'edit',
         });
       },
       openCompositionForArranging(id) {
@@ -757,7 +771,6 @@ export const usePatternsStore = create<PatternsStoreState>()(
           editingCompositionId: id,
           editingPlacementId: null,
           selectedPlacementId: null,
-          activeTab: id ? 'arrange' : get().activeTab,
         });
       },
 
@@ -1147,6 +1160,17 @@ export function selectEditingPattern(s: PatternsStoreState): Pattern | null {
 export function selectEditingComposition(s: PatternsStoreState): Composition | null {
   if (!s.editingCompositionId) return null;
   return s.library.compositions.find((c) => c.id === s.editingCompositionId) ?? null;
+}
+
+/** Compositions that reference the given pattern id via any placement.
+ *  Deduped by composition id (filter on library.compositions). Order: library order. */
+export function selectCompositionsUsingPattern(
+  s: PatternsStoreState,
+  patternId: string,
+): Composition[] {
+  return s.library.compositions.filter((c) =>
+    c.placements.some((pl) => pl.patternSnapshot.id === patternId),
+  );
 }
 
 /** Find a placement by id across all compositions. */

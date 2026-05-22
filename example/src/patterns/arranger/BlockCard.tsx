@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 import type { GrooveSpec, Placement } from '@fretwork/lib';
 import { PPQ, presetMatching, selectEditingComposition, usePatternsStore } from '@fretwork/lib';
 import { MiniPatternSignature } from './MiniPatternSignature';
+import { navigate } from '../../router';
 
 interface Props {
   placement: Placement;
@@ -170,6 +171,19 @@ export function BlockCard({
               ×{placement.repeat}
             </span>
           )}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              usePatternsStore.getState().openPatternForEditing(placement.patternSnapshot.id);
+              navigate({ kind: 'patterns' });
+            }}
+            className="opacity-0 group-hover:opacity-100 transition-opacity text-[9px] font-mono uppercase tracking-[0.12em] px-1.5 py-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-white/10"
+            title="Edit source pattern"
+            aria-label="Edit source pattern"
+          >
+            Edit ›
+          </button>
         </div>
       </div>
       {annotationParts && (

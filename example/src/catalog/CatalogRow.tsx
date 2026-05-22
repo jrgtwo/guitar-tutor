@@ -52,8 +52,7 @@ export function CatalogRow({ row }: Props) {
     }
     // composition
     usePatternsStore.getState().openCompositionForArranging(row.id);
-    usePatternsStore.getState().setActiveTab('arrange');
-    navigate({ kind: 'patterns' });
+    navigate({ kind: 'compositions' });
   };
 
   return (

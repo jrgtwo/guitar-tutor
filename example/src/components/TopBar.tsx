@@ -13,8 +13,9 @@ export function TopBar() {
   const currentPage = params.get('page');
   const isLab = params.get('lab') === '1';
   const isPatternsPage = currentPage === 'patterns';
+  const isCompositionsPage = currentPage === 'compositions';
   const isCatalogPage = currentPage === 'catalog';
-  const isPracticePage = !isLab && !isPatternsPage && !isCatalogPage &&
+  const isPracticePage = !isLab && !isPatternsPage && !isCompositionsPage && !isCatalogPage &&
     !params.get('profile') && params.get('settings') !== '1' && !params.get('pattern');
 
   const navLinkClass = (active: boolean) =>
@@ -43,6 +44,13 @@ export function TopBar() {
           className={navLinkClass(isPatternsPage)}
         >
           Patterns
+        </Link>
+        <Link
+          to={{ kind: 'compositions' }}
+          aria-current={isCompositionsPage ? 'page' : undefined}
+          className={navLinkClass(isCompositionsPage)}
+        >
+          Compositions
         </Link>
         <Link
           to={{ kind: 'catalog' }}

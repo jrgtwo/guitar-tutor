@@ -16,7 +16,7 @@ beforeEach(() => {
 });
 
 describe('usePatternsStore', () => {
-  it('createPattern adds to library, opens it for editing, and switches to edit tab', () => {
+  it('createPattern adds to library and opens it for editing', () => {
     const { createPattern } = usePatternsStore.getState();
     const id = createPattern('riff');
     const s = usePatternsStore.getState();
@@ -24,7 +24,6 @@ describe('usePatternsStore', () => {
     expect(s.library.patterns[0].id).toBe(id);
     expect(s.library.patterns[0].name).toBe('riff');
     expect(s.editingPatternId).toBe(id);
-    expect(s.activeTab).toBe('edit');
   });
 
   it('stampAt commits an event and advances cursor by step length', () => {

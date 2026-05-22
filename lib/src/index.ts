@@ -243,13 +243,13 @@ export {
   DEFAULT_PATTERNS_STATE,
   selectEditingPattern,
   selectEditingComposition,
+  selectCompositionsUsingPattern,
   findPlacement,
 } from './patterns/store/usePatternsStore';
 export type {
   PatternsState,
   PatternsActions,
   PatternsStoreState,
-  WorkspaceTab,
   SelectionMode,
   PendingStamp,
 } from './patterns/store/usePatternsStore';

@@ -20,13 +20,13 @@ export function EditPatternTab() {
 
   return (
     <div className="h-full flex flex-col gap-3 overflow-hidden">
-      <EditorToolbar />
       <div className="flex-1 overflow-auto px-3 pb-3 flex flex-col gap-3">
         {!fretboardCollapsed && (
           <section aria-label="Fretboard input">
             <FretboardInput />
           </section>
         )}
+        <EditorToolbar />
         <section aria-label="Playback ribbon" className="relative z-30">
           <PlaybackRibbon sections={ribbonSections} />
         </section>
