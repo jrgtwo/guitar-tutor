@@ -34,6 +34,9 @@ export {
   parseSlotId,
   makeDefaultActiveVariants,
   buildEffectiveVoice,
+  SAMPLE_PACKS,
+  getSamplePack,
+  detectSamplePack,
 } from './voices';
 export type {
   FretInstrumentId,
@@ -62,6 +65,7 @@ export type {
   VariantRef,
   ActiveVariantsMap,
   SlotId,
+  SamplePack,
 } from './voices';
 export {
   PLAYBACK_PATTERNS,

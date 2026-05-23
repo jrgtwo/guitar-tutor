@@ -16,100 +16,57 @@ import type {
   VoiceLevel,
   VoicePreset,
 } from './types';
+import { PHILHARMONIA_CLASSICAL } from './sample-packs';
 
 const NEUTRAL_LEVEL: VoiceLevel = { volumeDb: 0, pan: 0 };
 
-// Acoustic guitar — first locked-in tuning (2026-05-10). User-confirmed values.
+// Acoustic guitar — Philharmonia classical guitar samples (CC-BY-NC, hosted on
+// Supabase). No compressor — pre-recorded sample dynamics are already balanced
+// across the range, and a compressor on the chain just pumps unpredictably on
+// the pluck transients (creates *more* per-note inconsistency, not less).
+// Long release lets the sample's natural body ring out after the short
+// preview-hold duration so we hear closer to the full recording. v6: 2026-05-22.
 export const ACOUSTIC_GUITAR_PRESET: VoicePreset = {
   id: 'acoustic-guitar',
   name: 'Acoustic Guitar',
   instrumentId: 'guitar',
   family: 'acoustic',
   source: {
-    kind: 'fm-synth',
-    params: {
-      harmonicity: 1.95,
-      modulationIndex: 4,
-      detune: 0,
-      carrierWaveform: 'triangle',
-      modulatorWaveform: 'sine',
-      envelope: { attack: 0.005, decay: 0.44, sustain: 0.06, release: 0.75 },
-      modulationEnvelope: { attack: 0.002, decay: 0.5, sustain: 0.2, release: 0.7 },
-    },
+    kind: 'sampler',
+    samples: PHILHARMONIA_CLASSICAL,
+    release: 2.5,
   },
-  layer: {
-    source: {
-      kind: 'fm-synth',
-      params: {
-        harmonicity: 0.5,
-        modulationIndex: 2,
-        detune: 0,
-        carrierWaveform: 'sine',
-        modulatorWaveform: 'sine',
-        envelope: { attack: 0.005, decay: 0.5, sustain: 0.3, release: 0.8 },
-        modulationEnvelope: { attack: 0.005, decay: 0.5, sustain: 0.3, release: 0.7 },
-      },
-    },
-    gainDb: -10,
-    octaveOffset: 0,
-    detuneCents: 0,
-  },
-  level: NEUTRAL_LEVEL,
-  compressor: { threshold: -18, ratio: 4, attack: 0.005, release: 0.1, knee: 6 },
-  effects: {
-    eq: { low: 0, mid: 0, high: 0, lowFrequency: 400, highFrequency: 2500 },
-  },
+  level: { volumeDb: 3, pan: 0 },
 };
 
-// Electric guitar — brighter carrier, faster attack, full effects chain on by default.
+// Electric guitar — PluckSynth primary, brighter than acoustic, light overdrive,
+// drier reverb. v3 retune: 2026-05-22.
 export const ELECTRIC_GUITAR_PRESET: VoicePreset = {
   id: 'electric-guitar',
   name: 'Electric Guitar',
   instrumentId: 'guitar',
   family: 'electric',
   source: {
-    kind: 'fm-synth',
-    params: {
-      harmonicity: 2,
-      modulationIndex: 6,
-      detune: 0,
-      carrierWaveform: 'sawtooth',
-      modulatorWaveform: 'sine',
-      envelope: { attack: 0.002, decay: 0.4, sustain: 0.3, release: 0.6 },
-      modulationEnvelope: { attack: 0.001, decay: 0.4, sustain: 0.3, release: 0.5 },
-    },
-  },
-  layer: {
-    source: {
-      kind: 'fm-synth',
-      params: {
-        harmonicity: 1,
-        modulationIndex: 3,
-        detune: 0,
-        carrierWaveform: 'square',
-        modulatorWaveform: 'sine',
-        envelope: { attack: 0.002, decay: 0.4, sustain: 0.25, release: 0.6 },
-        modulationEnvelope: { attack: 0.002, decay: 0.4, sustain: 0.25, release: 0.5 },
-      },
-    },
-    gainDb: -10,
-    octaveOffset: -1,
-    detuneCents: 5,
+    kind: 'pluck-synth',
+    params: { attackNoise: 1.5, dampening: 6000, resonance: 0.85, release: 1.0 },
   },
   level: NEUTRAL_LEVEL,
-  effects: {
-    distortion: { drive: 0.3, wet: 0.25, oversample: '2x' },
-    chorus: {
-      frequency: 1.5,
-      depth: 0.3,
-      wet: 0.2,
-      type: 'sine',
-      feedback: 0.1,
-      delayTime: 0.0035,
-      spread: 180,
+  bodyFilter: {
+    cutoff: 5500,
+    q: 0.9,
+    envelope: {
+      attack: 0.003,
+      decay: 0.2,
+      sustain: 0.5,
+      release: 0.8,
+      baseFrequency: 2000,
+      octaves: 1.5,
     },
-    delay: { delayTime: 0.25, feedback: 0.3, wet: 0.15 },
-    eq: { low: 0, mid: 0, high: 0, lowFrequency: 400, highFrequency: 2500 },
+  },
+  compressor: { threshold: -16, ratio: 3.0, attack: 0.01, release: 0.1, knee: 4 },
+  effects: {
+    distortion: { drive: 0.18, wet: 0.35, oversample: '4x' },
+    eq: { low: 1, mid: 3, high: 0, lowFrequency: 250, highFrequency: 1500 },
   },
 };
 

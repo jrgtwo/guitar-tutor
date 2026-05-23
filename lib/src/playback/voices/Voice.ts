@@ -59,7 +59,7 @@ interface ChainNodes {
   panner?: Tone.Panner;
 }
 
-type SynthNode = Tone.PluckSynth | Tone.FMSynth;
+type SynthNode = Tone.PluckSynth | Tone.FMSynth | Tone.Sampler;
 
 export class Voice implements GuitarInstrument {
   private _preset: VoicePreset;
@@ -313,7 +313,7 @@ function applyLayerDetune(synth: SynthNode, cents: number): void {
 
 // ─── Build helpers ─────────────────────────────────────────────────────────────
 
-function buildSynth(source: VoiceSource): Tone.PluckSynth | Tone.FMSynth {
+function buildSynth(source: VoiceSource): SynthNode {
   if (source.kind === 'pluck-synth') {
     const { attackNoise, dampening, resonance, release } = source.params;
     return new Tone.PluckSynth({ attackNoise, dampening, resonance, release });
@@ -331,8 +331,18 @@ function buildSynth(source: VoiceSource): Tone.PluckSynth | Tone.FMSynth {
     });
     return synth;
   }
-  // Sampler not implemented yet — fall back to a neutral PluckSynth.
-  return new Tone.PluckSynth({ attackNoise: 0.5, dampening: 4000, resonance: 0.85, release: 0.5 });
+  // Sampler — Tone.Sampler pitch-shifts across a sparse note → URL map (every
+  // few semitones is enough). An empty map is meaningless; fall back to a
+  // neutral PluckSynth so the voice still makes sound until the user attaches
+  // a real sample pack.
+  const sampleEntries = Object.keys(source.samples);
+  if (sampleEntries.length === 0) {
+    return new Tone.PluckSynth({ attackNoise: 0.5, dampening: 4000, resonance: 0.85, release: 0.5 });
+  }
+  return new Tone.Sampler({
+    urls: source.samples,
+    release: source.release ?? 1,
+  });
 }
 
 function buildChain(preset: VoicePreset): ChainNodes {

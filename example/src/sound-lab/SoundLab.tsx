@@ -39,6 +39,8 @@ import {
   type VoiceLevel,
   type VoicePreset,
   type VoiceSource,
+  SAMPLE_PACKS,
+  detectSamplePack,
 } from '@fretwork/lib';
 import { ParameterSlider } from './ParameterSlider';
 import { AuditionDeck } from './AuditionDeck';
@@ -284,7 +286,25 @@ export function SoundLab() {
         </section>
 
         {/* Synth parameters */}
-        <Section title={`Synth (${pendingPreset.source.kind})`}>
+        <Section title="Synth">
+          <div className="flex items-center gap-2 mb-3">
+            <Label className="text-[10px] font-mono uppercase tracking-[0.16em] text-muted-foreground/80">
+              Type
+            </Label>
+            <select
+              value={pendingPreset.source.kind}
+              onChange={(e) => {
+                const next = e.target.value as 'pluck-synth' | 'fm-synth' | 'sampler';
+                if (next === pendingPreset.source.kind) return;
+                updateActive((p) => ({ ...p, source: defaultSourceForKind(next) }));
+              }}
+              className="h-9 px-2.5 bg-card border border-input rounded-md text-foreground text-xs font-mono"
+            >
+              <option value="pluck-synth">PluckSynth (Karplus-Strong)</option>
+              <option value="fm-synth">FMSynth</option>
+              <option value="sampler">Sampler</option>
+            </select>
+          </div>
           {pendingPreset.source.kind === 'pluck-synth' && (
             <PluckSynthControls
               params={pendingPreset.source.params}
@@ -298,6 +318,15 @@ export function SoundLab() {
               params={pendingPreset.source.params}
               onChange={(params) =>
                 updateActive((p) => ({ ...p, source: { kind: 'fm-synth', params } }))
+              }
+            />
+          )}
+          {pendingPreset.source.kind === 'sampler' && (
+            <SamplerControls
+              samples={pendingPreset.source.samples}
+              release={pendingPreset.source.release}
+              onChange={(samples, release) =>
+                updateActive((p) => ({ ...p, source: { kind: 'sampler', samples, release } }))
               }
             />
           )}
@@ -596,6 +625,159 @@ function FMSynthControls({
       <ParameterSlider label="Release" value={params.modulationEnvelope.release} min={0.05} max={4} step={0.05} unit="s" onChange={(release) => set({ modulationEnvelope: { ...params.modulationEnvelope, release } })} />
     </>
   );
+}
+
+// ─── Sampler controls ─────────────────────────────────────────────────────────
+
+function SamplerControls({
+  samples,
+  release,
+  onChange,
+}: {
+  samples: Readonly<Record<string, string>>;
+  release: number | undefined;
+  onChange: (samples: Record<string, string>, release: number) => void;
+}) {
+  const matchedPack = useMemo(() => detectSamplePack(samples), [samples]);
+  const sampleCount = Object.keys(samples).length;
+  const effectiveRelease = release ?? 1;
+  const [customOpen, setCustomOpen] = useState(false);
+  const [customJson, setCustomJson] = useState(() => JSON.stringify(samples, null, 2));
+  const [customError, setCustomError] = useState<string | null>(null);
+
+  const onPickPack = (packId: string) => {
+    const pack = SAMPLE_PACKS.find((p: { id: string }) => p.id === packId);
+    if (!pack) return;
+    onChange({ ...pack.samples }, effectiveRelease);
+    setCustomJson(JSON.stringify(pack.samples, null, 2));
+    setCustomError(null);
+  };
+
+  const applyCustom = () => {
+    try {
+      const parsed = JSON.parse(customJson);
+      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+        throw new Error('Expected a JSON object of { note: url } pairs');
+      }
+      const out: Record<string, string> = {};
+      for (const [k, v] of Object.entries(parsed)) {
+        if (typeof v !== 'string') {
+          throw new Error(`Value for "${k}" must be a string URL`);
+        }
+        out[k] = v;
+      }
+      onChange(out, effectiveRelease);
+      setCustomError(null);
+      setCustomOpen(false);
+    } catch (e) {
+      setCustomError(e instanceof Error ? e.message : 'Invalid JSON');
+    }
+  };
+
+  return (
+    <>
+      <div className="flex items-center gap-2 mb-3">
+        <Label className="text-[10px] font-mono uppercase tracking-[0.16em] text-muted-foreground/80">
+          Pack
+        </Label>
+        <select
+          value={matchedPack?.id ?? ''}
+          onChange={(e) => {
+            if (e.target.value === '__custom__') {
+              setCustomJson(JSON.stringify(samples, null, 2));
+              setCustomOpen(true);
+              return;
+            }
+            onPickPack(e.target.value);
+          }}
+          className="h-9 px-2.5 bg-card border border-input rounded-md text-foreground text-xs font-mono"
+        >
+          {!matchedPack && <option value="">Custom ({sampleCount} samples)</option>}
+          {SAMPLE_PACKS.map((p: { id: string; label: string }) => (
+            <option key={p.id} value={p.id}>
+              {p.label}
+            </option>
+          ))}
+          <option value="__custom__">Edit JSON…</option>
+        </select>
+      </div>
+      {matchedPack && (
+        <p className="text-[11px] text-muted-foreground/80 leading-relaxed mb-2">
+          {matchedPack.description}
+        </p>
+      )}
+      <ParameterSlider
+        label="Release"
+        value={effectiveRelease}
+        min={0.1}
+        max={4}
+        step={0.1}
+        unit="s"
+        onChange={(r) => onChange({ ...samples }, r)}
+      />
+      <p className="text-[10px] font-mono text-muted-foreground/60 leading-relaxed pt-2">
+        {sampleCount === 0
+          ? 'No samples — voice falls back to a neutral PluckSynth at play time. Pick a pack above to attach samples.'
+          : `${sampleCount} samples mapped · Tone.Sampler pitch-shifts between them. First note may lag slightly on cold load while samples decode.`}
+      </p>
+      {customOpen && (
+        <div className="mt-3 flex flex-col gap-2 rounded border border-border/60 bg-charcoal-deep/40 p-3">
+          <Label className="text-[10px] font-mono uppercase tracking-[0.16em] text-muted-foreground/80">
+            Custom sample map (JSON)
+          </Label>
+          <textarea
+            value={customJson}
+            onChange={(e) => setCustomJson(e.target.value)}
+            rows={10}
+            className="w-full px-2 py-1.5 text-[11px] font-mono leading-relaxed rounded border border-input bg-charcoal-deep/60 text-foreground"
+            placeholder={'{\n  "A2": "/samples/my-guitar/A2.mp3",\n  "C3": "/samples/my-guitar/C3.mp3"\n}'}
+          />
+          {customError && (
+            <p className="text-[11px] text-red-300">{customError}</p>
+          )}
+          <div className="flex justify-end gap-2">
+            <Button size="sm" variant="ghost" onClick={() => { setCustomOpen(false); setCustomError(null); }}>
+              Cancel
+            </Button>
+            <Button size="sm" onClick={applyCustom}>
+              Apply
+            </Button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ─── Source kind defaults ─────────────────────────────────────────────────────
+
+/** Sensible-default `VoiceSource` for each kind, used when the user switches
+ *  the synth type in the Lab. PluckSynth and FMSynth get middle-of-the-road
+ *  values; Sampler starts with no samples (it's a stub until the SamplerInstrument
+ *  ships — falls back to PluckSynth at play time). */
+function defaultSourceForKind(kind: VoiceSource['kind']): VoiceSource {
+  switch (kind) {
+    case 'pluck-synth':
+      return {
+        kind: 'pluck-synth',
+        params: { attackNoise: 1.0, dampening: 5000, resonance: 0.9, release: 1.5 },
+      };
+    case 'fm-synth':
+      return {
+        kind: 'fm-synth',
+        params: {
+          harmonicity: 2,
+          modulationIndex: 4,
+          detune: 0,
+          carrierWaveform: 'triangle',
+          modulatorWaveform: 'sine',
+          envelope: { attack: 0.005, decay: 0.4, sustain: 0.1, release: 0.7 },
+          modulationEnvelope: { attack: 0.005, decay: 0.4, sustain: 0.2, release: 0.6 },
+        },
+      };
+    case 'sampler':
+      return { kind: 'sampler', samples: {}, release: 1 };
+  }
 }
 
 // ─── Sub-body layer ───────────────────────────────────────────────────────────

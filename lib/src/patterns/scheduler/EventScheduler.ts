@@ -198,7 +198,7 @@ export class EventScheduler {
    *  taps a fret on the fretboard and hears that note immediately, without involving
    *  the metronome transport. Safe to call concurrently with active playback (the note
    *  will overlap whatever the scheduler is already playing). */
-  previewCell(stringIndex: number, fret: number, duration: string | number = '8n'): void {
+  previewCell(stringIndex: number, fret: number, duration: string | number = '2n'): void {
     const openStrings = effectiveOpenStrings(this._tuning, this._capo);
     const openString = openStrings[stringIndex];
     if (!openString) return;

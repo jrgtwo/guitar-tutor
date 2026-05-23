@@ -63,6 +63,12 @@ export function SimplePopover({
       // outside our DOM subtree. Treat clicks inside any Radix popper portal as
       // "inside" so picking a Select item doesn't dismiss the enclosing popover.
       if (target.closest('[data-radix-popper-content-wrapper]')) return;
+      // Same idea for Radix Dialogs (DialogContent has `role="dialog"` and is
+      // portaled to document.body). Without this, clicking any input inside a
+      // dialog launched from within the popover (e.g. SaveAsVariantDialog from
+      // the voice picker) would unmount the dialog. Our own popover panel also
+      // has role="dialog" but the inside-rootRef check above catches it first.
+      if (target.closest('[role="dialog"]')) return;
       setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {

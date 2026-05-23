@@ -16,6 +16,7 @@ const hoisted = vi.hoisted(() => {
   const calls = {
     pluckCtor: 0,
     fmCtor: 0,
+    samplerCtor: 0,
     distortionCtor: 0,
     chorusCtor: 0,
     delayCtor: 0,
@@ -28,6 +29,7 @@ const hoisted = vi.hoisted(() => {
     pannerCtor: 0,
     pluckDispose: 0,
     fmDispose: 0,
+    samplerDispose: 0,
     chorusStart: 0,
   };
   function reset() {
@@ -232,9 +234,19 @@ vi.mock('tone', () => {
     };
   }
 
+  class MockSampler extends MockNode {
+    triggerAttackRelease = noop;
+    constructor(_opts: { urls: Record<string, string>; release?: number }) {
+      super();
+      hoisted.calls.samplerCtor++;
+    }
+    override dispose = () => { hoisted.calls.samplerDispose++; };
+  }
+
   return {
     PluckSynth: MockPluckSynth,
     FMSynth: MockFMSynth,
+    Sampler: MockSampler,
     Distortion: MockDistortion,
     Chorus: MockChorus,
     FeedbackDelay: MockFeedbackDelay,
@@ -278,51 +290,60 @@ describe('Voice — construction is lazy', () => {
   it('builds the synth on first play()', () => {
     const v = new Voice(ACOUSTIC_GUITAR_PRESET);
     v.play('A3', '4n', 0);
-    // Acoustic guitar is FM primary + FM layer = 2 FM synths.
-    expect(hoisted.calls.fmCtor).toBeGreaterThan(0);
+    // Acoustic guitar (v4 retune) is a Sampler — Philharmonia samples, no layer.
+    expect(hoisted.calls.samplerCtor).toBeGreaterThan(0);
   });
 });
 
-describe('Voice — FMSynth-primary presets', () => {
+describe('Voice — primary-synth construction by preset', () => {
   it.each([
-    ACOUSTIC_GUITAR_PRESET,
-    ELECTRIC_GUITAR_PRESET,
     ACOUSTIC_BASS_PRESET,
     ACOUSTIC_UKULELE_PRESET,
-  ])('preset $id builds an FMSynth on play()', (preset) => {
+  ])('FM-primary preset $id builds an FMSynth on play()', (preset) => {
     const v = new Voice(preset);
     v.play('A3', '4n', 0);
     expect(hoisted.calls.fmCtor).toBeGreaterThanOrEqual(1);
     v.dispose();
   });
 
-  it('routes through distortion + chorus + delay + EQ for the electric guitar preset', () => {
+  it('Pluck-primary preset electric-guitar builds a PluckSynth on play()', () => {
+    const v = new Voice(ELECTRIC_GUITAR_PRESET);
+    v.play('A3', '4n', 0);
+    expect(hoisted.calls.pluckCtor).toBeGreaterThanOrEqual(1);
+    v.dispose();
+  });
+
+  it('Sampler-primary preset acoustic-guitar builds a Sampler on play()', () => {
+    const v = new Voice(ACOUSTIC_GUITAR_PRESET);
+    v.play('A3', '4n', 0);
+    expect(hoisted.calls.samplerCtor).toBeGreaterThanOrEqual(1);
+    v.dispose();
+  });
+
+  it('routes through distortion + EQ for the electric guitar preset', () => {
     const v = new Voice(ELECTRIC_GUITAR_PRESET);
     v.play('A3', '4n', 0);
     expect(hoisted.calls.distortionCtor).toBe(1);
-    expect(hoisted.calls.chorusCtor).toBe(1);
-    expect(hoisted.calls.delayCtor).toBe(1);
     expect(hoisted.calls.eqCtor).toBe(1);
-    // Chorus must be started or its LFO is silent.
-    expect(hoisted.calls.chorusStart).toBe(1);
     v.dispose();
   });
 });
 
 describe('Voice — sub-body layer', () => {
   it('builds the layer synth alongside the primary when present', () => {
-    const v = new Voice(ACOUSTIC_GUITAR_PRESET);
-    v.play('A3', '4n', 0);
-    // Both primary + layer use FMSynth in the default presets.
+    // Acoustic bass has an FM primary + FM layer.
+    const v = new Voice(ACOUSTIC_BASS_PRESET);
+    v.play('A2', '4n', 0);
     expect(hoisted.calls.fmCtor).toBe(2);
     v.dispose();
   });
 
   it('does not build a layer when none is present', () => {
-    const noLayer: typeof ACOUSTIC_GUITAR_PRESET = { ...ACOUSTIC_GUITAR_PRESET, layer: undefined };
-    const v = new Voice(noLayer);
+    // Electric guitar is PluckSynth primary with no layer.
+    const v = new Voice(ELECTRIC_GUITAR_PRESET);
     v.play('A3', '4n', 0);
-    expect(hoisted.calls.fmCtor).toBe(1);
+    expect(hoisted.calls.pluckCtor).toBe(1);
+    expect(hoisted.calls.fmCtor).toBe(0);
     v.dispose();
   });
 });
@@ -353,8 +374,10 @@ describe('Voice — updateEffects', () => {
   });
 
   it('rebuilds the chain when an effect is added', () => {
-    const v = new Voice({ ...ACOUSTIC_GUITAR_PRESET });
-    v.play('A3', '4n', 0);
+    // Acoustic bass ships with no effects, so adding distortion exercises the
+    // "build new effect node" path cleanly.
+    const v = new Voice({ ...ACOUSTIC_BASS_PRESET });
+    v.play('A2', '4n', 0);
     expect(hoisted.calls.distortionCtor).toBe(0);
     v.updateEffects({ distortion: { drive: 0.3, wet: 0.25, oversample: '4x' } });
     expect(hoisted.calls.distortionCtor).toBe(1);
@@ -380,9 +403,10 @@ describe('Voice — dispose', () => {
     expect(hoisted.calls.fmDispose).toBe(1);
   });
 
-  it('releases primary + layer when both are FM', () => {
-    const v = new Voice(ACOUSTIC_GUITAR_PRESET);
-    v.play('A3', '4n', 0);
+  it('releases primary + layer when both are present', () => {
+    // Acoustic bass: FM primary + FM layer.
+    const v = new Voice(ACOUSTIC_BASS_PRESET);
+    v.play('A2', '4n', 0);
     v.dispose();
     expect(hoisted.calls.fmDispose).toBe(2);
   });

@@ -361,8 +361,11 @@ export {
   resolveShapeAbsoluteCells,
   getCagedPositionMap,
   getCagedShapeSet,
+  SAMPLE_PACKS,
+  getSamplePack,
+  detectSamplePack,
 } from './playback';
-export type { AbsoluteCell, CagedShape, CagedShapeId, CagedLetter } from './playback';
+export type { AbsoluteCell, CagedShape, CagedShapeId, CagedLetter, SamplePack } from './playback';
 export type {
   PlaybackPattern,
   PlaybackOptions,
