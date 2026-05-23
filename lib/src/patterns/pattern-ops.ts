@@ -53,6 +53,9 @@ export function createEmptyPattern(
     forkedFromId: null,
     forkedFromCreatorName: null,
     collectionId: null,
+    tempoTrack: [],
+    timeSignatureTrack: [],
+    sourceIR: null,
     createdAt: now,
     updatedAt: now,
   };

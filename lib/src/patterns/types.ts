@@ -17,6 +17,14 @@ export type StepLength = 'quarter' | 'eighth' | 'sixteenth';
 /** Reserved — Phase 2 UI. */
 export type ArticulationId = 'bend' | 'slide' | 'hammer-on' | 'pull-off' | 'trill';
 
+/**
+ * Standard musical dynamic markings, ordered softest → loudest. Used on
+ * `PatternEvent.dynamic` for display purposes; the same authoring also
+ * populates `PatternEvent.velocity` (the numeric value the playback engine
+ * actually consumes).
+ */
+export type DynamicMark = 'ppp' | 'pp' | 'p' | 'mp' | 'mf' | 'f' | 'ff' | 'fff';
+
 export interface PatternEvent {
   id: string;
   stringIndex: number;
@@ -25,8 +33,103 @@ export interface PatternEvent {
   durationTicks: Tick;
   /** Reserved; no Phase 1 UI. */
   laneId?: string;
-  /** Reserved; no Phase 1 UI. */
+  /** Deprecated single-articulation field. New code reads/writes the
+   *  fine-grained boolean/object fields below; this stays for backward
+   *  compatibility with persisted data. */
   articulation?: ArticulationId;
+
+  // ─── Articulation fields (populated by music-import; future Phase 2 UI) ──
+  /**
+   * This note is the destination of a hammer-on from the previous note on
+   * the same string. The playback engine reduces its attack to approximate
+   * the legato sound.
+   */
+  hammerOn?: boolean;
+  /**
+   * This note is the destination of a pull-off from the previous note on
+   * the same string. Same playback treatment as `hammerOn`.
+   */
+  pullOff?: boolean;
+  /**
+   * Marks that this event ties into the immediately-following same-string
+   * same-fret event — playback collapses the pair into a single sustained
+   * note (the second event's attack is suppressed and its duration is
+   * folded into the first). The model still stores both events so the
+   * timeline can render them as two visually-distinct tied notes.
+   */
+  tieToNext?: boolean;
+  /**
+   * Normalized velocity in [0, 1]. The playback engine passes this as the
+   * 4th argument to `triggerAttackRelease`. When undefined, the engine's
+   * default (1.0) is used. Population paths:
+   *   - Import: mapper translates the file's dynamic marking (ppp..fff) to
+   *     a value on a fixed musical curve.
+   *   - Future authoring: a velocity stepper in NoteInspector will let
+   *     users dial per-event loudness directly.
+   *
+   * This field composes with hammer-on/pull-off treatment — the scheduler
+   * multiplies the velocity by a legato factor when those flags are set,
+   * so a forte hammer-on plays louder than a piano hammer-on but both
+   * still feel softer than their plain-pluck counterparts.
+   */
+  velocity?: number;
+  /**
+   * Original dynamic marking — for display only. The playback engine reads
+   * `velocity`, never this. Import populates both; future authoring UI may
+   * let users pick a marking (which back-fills `velocity` via the same
+   * curve the mapper uses).
+   */
+  dynamic?: DynamicMark;
+  /**
+   * Per-note vibrato. The playback engine modulates the voice's pitch via
+   * a Tone.Vibrato node during this note's duration. Two intensities:
+   *   - `slight`: depth ≈ 0.04, frequency ≈ 5.5 Hz — finger vibrato.
+   *   - `wide`: depth ≈ 0.12, frequency ≈ 4 Hz — whammy-bar / wide hand vib.
+   */
+  vibrato?: 'slight' | 'wide';
+  /**
+   * Pitch slide. Six musical types:
+   *   - `legato` / `shift` — slide TO the next same-string note (the
+   *     `toFret` field is filled by the mapper from the next event).
+   *   - `slide-in-below` / `slide-in-above` — start ~2 semitones below/above
+   *     and ramp into this note's pitch in the first ~15% of the duration.
+   *   - `slide-out-down` / `slide-out-up` — stay at pitch then ramp ±3
+   *     semitones in the last ~15% of the duration.
+   *
+   * Playback uses Tone.PitchShift on the voice's signal chain to apply the
+   * ramp. Monophonic only — overlapping notes with active slides will share
+   * the pitch shift, but the patterns we currently import are monophonic.
+   */
+  slide?: {
+    type:
+      | 'legato'
+      | 'shift'
+      | 'slide-in-below'
+      | 'slide-in-above'
+      | 'slide-out-down'
+      | 'slide-out-up';
+    /** Destination fret for `legato` / `shift` only. */
+    toFret?: number;
+  };
+  /**
+   * Pitch bend. The curve is described by an optional list of
+   * `{at, semitones}` points along the note's duration (`at` is the
+   * normalized 0..1 position within the note). When `points` is absent,
+   * the playback engine synthesizes a curve from `type` + `semitones`:
+   *   - `bend`         — 0 → semitones across the note
+   *   - `release`      — semitones → 0 across the note
+   *   - `pre-bend`     — constant semitones throughout
+   *   - `bend-release` — 0 → semitones → 0 (peak at midpoint)
+   *
+   * `semitones` is the peak/sustained bend depth. Bends compose with the
+   * same `Tone.PitchShift` node slides use, so a note can't carry both
+   * simultaneously — bend takes priority when both are present.
+   */
+  bend?: {
+    type: 'bend' | 'release' | 'pre-bend' | 'bend-release';
+    semitones: number;
+    points?: Array<{ at: number; semitones: number }>;
+  };
 }
 
 export interface Lane {
@@ -36,6 +139,38 @@ export interface Lane {
 }
 
 export interface PatternTimeSignature {
+  numerator: number;
+  denominator: number;
+}
+
+/**
+ * An automated tempo event on the pattern or composition timeline.
+ *
+ *   - `step` interpolation: BPM jumps instantly to `bpm` at `atTick`.
+ *   - `linear` interpolation: BPM ramps from the previous event's value to this
+ *     one across the intervening ticks. The first event in the track must use
+ *     `step` (there's nothing to ramp from).
+ *
+ * A `tempoTrack` is interpreted as a sorted-by-`atTick` series. An empty
+ * `tempoTrack` means "no automation" — playback uses whatever BPM the
+ * Composition or metronome currently holds, and the legacy `suggestedBpm`
+ * field is still consulted.
+ */
+export interface TempoEvent {
+  atTick: Tick;
+  bpm: number;
+  interpolation: 'step' | 'linear';
+}
+
+/**
+ * An automated time-signature change on the pattern or composition timeline.
+ * The first event in a non-empty track should be at `atTick: 0`.
+ *
+ * An empty `timeSignatureTrack` means "no automation" — playback consults the
+ * static `timeSignature` field.
+ */
+export interface TimeSignatureEvent {
+  atTick: Tick;
   numerator: number;
   denominator: number;
 }
@@ -115,6 +250,30 @@ export interface Pattern {
   /** Containing folder id, or null for library root. See `Collection`. */
   collectionId: string | null;
 
+  /**
+   * Optional tempo-automation track. Empty array (the default) means no
+   * automation: playback consults `suggestedBpm` and the metronome's current
+   * BPM. Populated by imports that carry mid-song tempo changes; future
+   * authoring UI will let users edit it directly.
+   */
+  tempoTrack: TempoEvent[];
+
+  /**
+   * Optional time-signature-automation track. Empty array (the default) means
+   * no automation: playback consults the static `timeSignature` field.
+   */
+  timeSignatureTrack: TimeSignatureEvent[];
+
+  /**
+   * Original import payload. Non-null only for rows produced by the import
+   * pipeline. Carries every track from the source file (including the ones
+   * not chosen for the active import target), enabling future re-extraction
+   * and multi-instrument playback without re-importing. The type is loose
+   * (`unknown`) here to avoid a circular type dependency on the import IR;
+   * code that reads this field should narrow via `as ImportIR`.
+   */
+  sourceIR: unknown | null;
+
   createdAt: number;
   updatedAt: number;
 }
@@ -179,6 +338,21 @@ export interface Composition {
 
   /** Containing folder id, or null for library root. See `Collection`. */
   collectionId: string | null;
+
+  /**
+   * Optional tempo-automation track. Empty array (the default) means no
+   * automation: playback consults `bpm` plus the per-placement inherit logic.
+   */
+  tempoTrack: TempoEvent[];
+
+  /**
+   * Optional time-signature-automation track. Empty array (the default) means
+   * no automation: playback consults the static `timeSignature` field.
+   */
+  timeSignatureTrack: TimeSignatureEvent[];
+
+  /** See `Pattern.sourceIR`. */
+  sourceIR: unknown | null;
 
   createdAt: number;
   updatedAt: number;

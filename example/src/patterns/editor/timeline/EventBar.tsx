@@ -167,11 +167,27 @@ export function EventBar({
     }
   }
 
-  const fill = playing
-    ? 'rgba(250, 204, 21, 0.85)'
-    : selected
-      ? 'rgba(251, 191, 36, 0.85)'
-      : 'rgba(251, 191, 36, 0.55)';
+  // Velocity → bar opacity. Subtle (range 0.70..1.0) — meant to nudge the
+  // reading, not be the primary indicator. The explicit dynamic letter
+  // (below) does the heavy lifting.
+  const velocityFactor =
+    event.velocity != null ? 0.70 + Math.max(0, Math.min(1, event.velocity)) * 0.30 : 1;
+  const baseAlpha = playing ? 0.85 : selected ? 0.85 : 0.55;
+  const fillAlpha = (baseAlpha * velocityFactor).toFixed(3);
+  const fillColor = playing ? '250, 204, 21' : '251, 191, 36';
+  const fill = `rgba(${fillColor}, ${fillAlpha})`;
+
+  // Articulation badge — 'H' for hammer-on, 'P' for pull-off, mounted at
+  // the top-left of the bar. Visible whenever the bar is wide enough to
+  // accommodate both the badge and the fret number; for very narrow bars
+  // the badge takes priority over the fret label (fret value is visible
+  // in the NoteInspector anyway).
+  const articulationLabel = event.hammerOn ? 'H' : event.pullOff ? 'P' : null;
+
+  // Dynamic marking ('p' / 'mf' / 'ff' / etc.) printed in the bottom-right
+  // corner of the bar. Wide enough bars only; narrow bars rely on the
+  // opacity hint instead.
+  const dynamicLabel = event.dynamic ?? null;
 
   return (
     <g
@@ -194,6 +210,19 @@ export function EventBar({
         style={{ cursor: 'grab' }}
         onPointerDown={onBodyPointerDown}
       />
+      {articulationLabel && (
+        <text
+          x={x + 3}
+          y={y + 9}
+          fontSize={8}
+          fontFamily="ui-monospace, monospace"
+          fontWeight={700}
+          fill="rgba(0, 0, 0, 0.85)"
+          pointerEvents="none"
+        >
+          {articulationLabel}
+        </text>
+      )}
       {width >= 18 && (
         <text
           x={x + width / 2}
@@ -207,6 +236,107 @@ export function EventBar({
         >
           {event.fret}
         </text>
+      )}
+      {dynamicLabel && width >= 22 && (
+        <text
+          x={x + width - 3}
+          y={y + height - 2}
+          fontSize={8}
+          fontFamily="Georgia, 'Times New Roman', serif"
+          fontStyle="italic"
+          fontWeight={700}
+          fill="rgba(0, 0, 0, 0.7)"
+          textAnchor="end"
+          pointerEvents="none"
+        >
+          {dynamicLabel}
+        </text>
+      )}
+      {event.slide && width >= 14 && (
+        // Slide indicator — short angled stroke at the right edge of the
+        // bar. Direction encodes the slide direction: up/right for upward
+        // pitch motion, down/right for downward.
+        <line
+          x1={x + width - 8}
+          x2={x + width - 1}
+          y1={(() => {
+            const s = event.slide;
+            // `legato`/`shift` direction depends on toFret vs current; in/out
+            // types have intrinsic direction.
+            const isDown =
+              s.type === 'slide-out-down' ||
+              s.type === 'slide-in-above' ||
+              (s.toFret != null && s.toFret < event.fret);
+            return isDown ? y + 2 : y + height - 2;
+          })()}
+          y2={(() => {
+            const s = event.slide;
+            const isDown =
+              s.type === 'slide-out-down' ||
+              s.type === 'slide-in-above' ||
+              (s.toFret != null && s.toFret < event.fret);
+            return isDown ? y + height - 2 : y + 2;
+          })()}
+          stroke="rgba(168, 85, 247, 0.95)"
+          strokeWidth={1.4}
+          strokeLinecap="round"
+          pointerEvents="none"
+        />
+      )}
+      {event.bend && width >= 16 && (() => {
+        // Bend curve — draw a thin polyline above the bar tracing the
+        // semitone curve. Y axis maps semitones 0..3 onto a 10-px wedge
+        // above the bar; values below 0 go above the wedge.
+        const b = event.bend;
+        const curve =
+          b.points && b.points.length >= 2
+            ? b.points
+            : b.type === 'release'
+              ? [{ at: 0, semitones: b.semitones }, { at: 1, semitones: 0 }]
+              : b.type === 'pre-bend'
+                ? [{ at: 0, semitones: b.semitones }, { at: 1, semitones: b.semitones }]
+                : b.type === 'bend-release'
+                  ? [
+                      { at: 0, semitones: 0 },
+                      { at: 0.5, semitones: b.semitones },
+                      { at: 1, semitones: 0 },
+                    ]
+                  : [{ at: 0, semitones: 0 }, { at: 1, semitones: b.semitones }];
+        const maxSemi = Math.max(1, b.semitones);
+        const wedgeTop = y - 10;
+        const wedgeBottom = y - 1;
+        const drawX = (at: number) => x + 1 + at * (width - 2);
+        const drawY = (semi: number) =>
+          wedgeBottom - (Math.max(0, Math.min(maxSemi, semi)) / maxSemi) * (wedgeBottom - wedgeTop);
+        const d = curve
+          .map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${drawX(p.at).toFixed(1)} ${drawY(p.semitones).toFixed(1)}`)
+          .join(' ');
+        return (
+          <path
+            d={d}
+            fill="none"
+            stroke="rgba(244, 114, 182, 0.95)"
+            strokeWidth={1.4}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            pointerEvents="none"
+          />
+        );
+      })()}
+      {event.vibrato && width >= 14 && (
+        // Tilde wave above the bar — wider depth shows a taller wave.
+        <path
+          d={
+            event.vibrato === 'wide'
+              ? `M ${x + 2} ${y - 1} q 2 -3 4 0 t 4 0 t 4 0`
+              : `M ${x + 2} ${y - 1} q 2 -2 4 0 t 4 0 t 4 0`
+          }
+          fill="none"
+          stroke="rgba(56, 189, 248, 0.9)"
+          strokeWidth={1.1}
+          strokeLinecap="round"
+          pointerEvents="none"
+        />
       )}
       {/* Right-edge resize handle */}
       <rect

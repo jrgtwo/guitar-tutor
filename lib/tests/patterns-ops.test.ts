@@ -27,6 +27,13 @@ describe('pattern-ops', () => {
       expect(p.name).toBe('riff');
       expect(p.durationTicks).toBe(4 * 4 * PPQ); // 4 bars * 4/4
     });
+
+    it('seeds empty automation tracks and null sourceIR by default', () => {
+      const p = createEmptyPattern('riff');
+      expect(p.tempoTrack).toEqual([]);
+      expect(p.timeSignatureTrack).toEqual([]);
+      expect(p.sourceIR).toBeNull();
+    });
   });
 
   describe('clonePattern', () => {

@@ -202,6 +202,10 @@ function hydratePatternRow(row: Record<string, unknown>): Pattern {
     suggestedBpm: data.suggestedBpm ?? null,
     groove: data.groove ?? null,
     subdivision: data.subdivision ?? null,
+    // Music-import expansion: legacy rows have no automation tracks or sourceIR.
+    tempoTrack: data.tempoTrack ?? [],
+    timeSignatureTrack: data.timeSignatureTrack ?? [],
+    sourceIR: data.sourceIR ?? null,
   };
 }
 
@@ -231,6 +235,10 @@ function hydrateCompositionRow(row: Record<string, unknown>): Composition {
       transposeSemitones: pl.transposeSemitones ?? 0,
       lengthTicks: pl.lengthTicks ?? null,
     })),
+    // Music-import expansion: legacy rows have no automation tracks or sourceIR.
+    tempoTrack: data.tempoTrack ?? [],
+    timeSignatureTrack: data.timeSignatureTrack ?? [],
+    sourceIR: data.sourceIR ?? null,
   };
 }
 

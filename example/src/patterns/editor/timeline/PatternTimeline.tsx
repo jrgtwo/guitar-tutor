@@ -396,6 +396,44 @@ export function PatternTimeline() {
           );
         })}
 
+        {/* Tie arcs — drawn after EventBars so the arc renders on top of the
+            bars it connects. For each event with `tieToNext`, draw a small
+            quadratic curve from its right edge to the next adjacent
+            same-string event's left edge. */}
+        {pattern.events.map((e) => {
+          if (!e.tieToNext) return null;
+          // Find the next event on the same string that abuts this one.
+          // We compare via the pattern.events array (the data, not the
+          // sorted scheduler output) so the visual reflects exactly what
+          // the user authored — even if mergeTies would reject the pair
+          // for some adjacency reason at playback time.
+          const next = pattern.events.find(
+            (n) =>
+              n.stringIndex === e.stringIndex &&
+              n.fret === e.fret &&
+              n.startTick === e.startTick + e.durationTicks,
+          );
+          if (!next) return null;
+          const rowIdx = stringCount - 1 - e.stringIndex;
+          if (rowIdx < 0 || rowIdx >= stringCount) return null;
+          const x1 = STRING_LABEL_WIDTH + ticksToPx(e.startTick + e.durationTicks);
+          const x2 = STRING_LABEL_WIDTH + ticksToPx(next.startTick);
+          const yBaseline = RULER_HEIGHT + rowIdx * ROW_HEIGHT;
+          const midX = (x1 + x2) / 2;
+          // Arc rises 5px above the row baseline.
+          return (
+            <path
+              key={`tie-${e.id}`}
+              d={`M ${x1} ${yBaseline + 3} Q ${midX} ${yBaseline - 4} ${x2} ${yBaseline + 3}`}
+              fill="none"
+              stroke="rgba(251, 191, 36, 0.95)"
+              strokeWidth={1.4}
+              strokeLinecap="round"
+              pointerEvents="none"
+            />
+          );
+        })}
+
         {/* Marquee selection rect */}
         {marqueeRect && (
           <rect

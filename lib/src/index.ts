@@ -18,6 +18,9 @@
  * includes node_modules/@fretwork/lib/src so the classes are picked up.
  */
 
+// Music notation / tab import (foundation: types, registry, validator, file guards)
+export * from './import';
+
 // Cloud sync (Supabase): patterns + compositions
 export { useCloudSync } from './cloud';
 

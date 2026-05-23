@@ -89,9 +89,44 @@ export interface PlaybackPattern {
  *   - RemoteRenderedInstrument    — sends notes to a backend (e.g. Spotify pedalboard);
  *                                   returns rendered audio for browser playback
  */
+export interface PlayOptions {
+  /**
+   * Normalized velocity in [0, 1]. Implementations should pass it to
+   * Tone.js's `triggerAttackRelease(note, duration, time, velocity)`.
+   * When omitted, the implementation's default is used (typically 1.0).
+   *
+   * Use cases:
+   *   - hammer-on / pull-off destinations: ~0.4 (suppress the pluck transient
+   *     so the note sounds like a finger-tap on the same string).
+   *   - imported dynamics: PPP..FFF mapped to a 0.15..1.0 curve.
+   *   - ghost notes: 0.2 or lower.
+   */
+  velocity?: number;
+  /**
+   * Per-note vibrato. Implementations modulate pitch via a vibrato LFO for
+   * the duration of the note. Two intensities map to fixed (frequency,
+   * depth) pairs the playback engine picks. `undefined` means no vibrato.
+   */
+  vibrato?: 'slight' | 'wide';
+  /** Duration in seconds — used when the implementation needs to schedule
+   *  effect ramps (vibrato attack/release) precisely with the note end. */
+  durationSec?: number;
+  /**
+   * Pitch curve — generic point sequence the instrument steps a PitchShift
+   * node through. Each point is `{at: 0..1, semitones}`. The scheduler
+   * generates this from musical specs (legato/shift slides → 2-point
+   * lines; bends → multi-point curves; slide-in / slide-out → 3-point
+   * shapes with hold regions).
+   *
+   * The implementation must reset the pitch shift to 0 at the end of the
+   * note so the next note isn't tainted.
+   */
+  pitchCurve?: Array<{ at: number; semitones: number }>;
+}
+
 export interface GuitarInstrument {
   /** Trigger a note at a specific audio context time. */
-  play(noteName: string, duration: string | number, audioTime: number): void;
+  play(noteName: string, duration: string | number, audioTime: number, options?: PlayOptions): void;
   /** Cancel any in-flight notes. Called on stop/dispose. */
   releaseAll(): void;
   /**

@@ -15,7 +15,8 @@ export function TopBar() {
   const isPatternsPage = currentPage === 'patterns';
   const isCompositionsPage = currentPage === 'compositions';
   const isCatalogPage = currentPage === 'catalog';
-  const isPracticePage = !isLab && !isPatternsPage && !isCompositionsPage && !isCatalogPage &&
+  const isImportPage = currentPage === 'import';
+  const isPracticePage = !isLab && !isPatternsPage && !isCompositionsPage && !isCatalogPage && !isImportPage &&
     !params.get('profile') && params.get('settings') !== '1' && !params.get('pattern');
 
   const navLinkClass = (active: boolean) =>
@@ -58,6 +59,13 @@ export function TopBar() {
           className={navLinkClass(isCatalogPage)}
         >
           Catalog
+        </Link>
+        <Link
+          to={{ kind: 'import' }}
+          aria-current={isImportPage ? 'page' : undefined}
+          className={navLinkClass(isImportPage)}
+        >
+          Import
         </Link>
       </nav>
       <div className="flex items-center gap-2 shrink-0">

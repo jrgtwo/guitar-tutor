@@ -76,6 +76,7 @@ import {
   type CollectionMetadataPatch,
 } from '../collection-ops';
 import { generateId, generateUuid } from '../ids';
+import type { MapperResult as ImportMapperResult } from '../../import/mapper';
 import { useFretworkStore } from '../../store/useFretworkStore';
 import { useAuthStore } from '../../auth/useAuthStore';
 import { canCreate, DEFAULT_SUBSCRIPTION } from '../../subscription';
@@ -143,6 +144,19 @@ export interface PatternsActions {
    */
   forkPattern(source: Pattern, sourceCreatorName?: string | null): string;
   createComposition(name?: string, collectionId?: string | null): string;
+  /**
+   * Commit a music-import `MapperResult` to the library. Adds every pattern
+   * the mapper produced, plus the composition (if any). Returns a descriptor
+   * pointing at the "primary" thing the user should be taken to — the
+   * composition when one was created, the single pattern otherwise.
+   *
+   * Tier-cap behaviour: the action runs `gateGate` against the combined
+   * additional-row count. If the user is over their cap, returns null and
+   * doesn't mutate the library — the caller surfaces the upgrade prompt.
+   */
+  commitImport(result: ImportMapperResult, collectionId?: string | null):
+    | { kind: 'pattern' | 'composition'; id: string }
+    | null;
   renameComposition(id: string, name: string): void;
   setCompositionInstrument(id: string, instrumentId: string): void;
   updateCompositionMetadata(id: string, patch: CompositionMetadataPatch): void;
@@ -244,7 +258,7 @@ export const DEFAULT_PATTERNS_STATE: PatternsState = {
 // users sync to Supabase (Group E) instead of relying on this layer.
 const persistOptions: PersistOptions<PatternsStoreState, Pick<PatternsStoreState, 'library' | 'fretboardCollapsed' | 'stepLength' | 'unpersistedDraftId'>> = {
   name: PERSIST_KEY,
-  version: 1,
+  version: 2,
   storage: createJSONStorage(() => (typeof sessionStorage !== 'undefined' ? sessionStorage : memoryStorage())),
   partialize: (state) => ({
     library: state.library,
@@ -265,6 +279,12 @@ const persistOptions: PersistOptions<PatternsStoreState, Pick<PatternsStoreState
         key: p.key ?? null,
         scaleType: p.scaleType ?? null,
         subdivision: p.subdivision ?? null,
+        // Music-import expansion (v2): legacy rows have no automation tracks
+        // or sourceIR. Empty tracks = "no automation"; existing playback paths
+        // continue consulting the static `suggestedBpm` and `timeSignature`.
+        tempoTrack: p.tempoTrack ?? [],
+        timeSignatureTrack: p.timeSignatureTrack ?? [],
+        sourceIR: p.sourceIR ?? null,
       }));
     }
     if (state.library?.compositions) {
@@ -277,6 +297,9 @@ const persistOptions: PersistOptions<PatternsStoreState, Pick<PatternsStoreState
           transposeSemitones: pl.transposeSemitones ?? 0,
           lengthTicks: pl.lengthTicks ?? null,
         })),
+        tempoTrack: c.tempoTrack ?? [],
+        timeSignatureTrack: c.timeSignatureTrack ?? [],
+        sourceIR: c.sourceIR ?? null,
       }));
     }
     return state;
@@ -483,6 +506,57 @@ export const usePatternsStore = create<PatternsStoreState>()(
           selectedEventIds: [],
         }));
         return fork.id;
+      },
+      commitImport(result, collectionId) {
+        const s = get();
+        const newPatterns = result.patterns.length;
+        const willCreateComposition = result.composition !== null;
+        // Gate against the tier cap. `gateCreate(kind, currentCount)` answers
+        // "can we go from `currentCount` to `currentCount + 1`?" — so to check
+        // an import that adds N patterns, we ask whether `currentCount + N - 1`
+        // is still under the cap. If the cap is hit anywhere, gateCreate opens
+        // the upgrade prompt (or signup modal) and we bail without mutating.
+        if (
+          newPatterns > 0 &&
+          !gateCreate('patterns', s.library.patterns.length + newPatterns - 1)
+        ) {
+          return null;
+        }
+        if (
+          willCreateComposition &&
+          !gateCreate('compositions', s.library.compositions.length)
+        ) {
+          return null;
+        }
+
+        const taggedPatterns = result.patterns.map((p) =>
+          collectionId !== undefined && collectionId !== null ? { ...p, collectionId } : p,
+        );
+        const taggedComposition =
+          result.composition && collectionId !== undefined && collectionId !== null
+            ? { ...result.composition, collectionId }
+            : result.composition;
+
+        set((cur) => ({
+          library: {
+            ...cur.library,
+            patterns: [...cur.library.patterns, ...taggedPatterns],
+            compositions: taggedComposition
+              ? [...cur.library.compositions, taggedComposition]
+              : cur.library.compositions,
+          },
+          // Open the imported result in its editor — composition wins when
+          // both were produced (single-pattern mode has no composition).
+          editingPatternId: taggedComposition ? null : taggedPatterns[0]?.id ?? null,
+          editingCompositionId: taggedComposition?.id ?? null,
+          editingPlacementId: null,
+          selectedPlacementId: null,
+          cursorTick: 0,
+          selectedEventIds: [],
+        }));
+        if (taggedComposition) return { kind: 'composition', id: taggedComposition.id };
+        if (taggedPatterns[0]) return { kind: 'pattern', id: taggedPatterns[0].id };
+        return null;
       },
       createComposition(name, collectionId) {
         if (!gateCreate('compositions', get().library.compositions.length)) return '';

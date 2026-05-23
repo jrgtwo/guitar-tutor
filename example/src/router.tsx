@@ -16,6 +16,7 @@ export type Route =
   | { kind: 'patterns' }
   | { kind: 'compositions' }
   | { kind: 'catalog' }
+  | { kind: 'import' }
   | { kind: 'lab' }
   | { kind: 'profile'; displayName: string }
   | { kind: 'settings' };
@@ -39,6 +40,9 @@ function routeToUrl(route: Route): URL {
       break;
     case 'catalog':
       url.searchParams.set('page', 'catalog');
+      break;
+    case 'import':
+      url.searchParams.set('page', 'import');
       break;
     case 'lab':
       url.searchParams.set('lab', '1');

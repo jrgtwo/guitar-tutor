@@ -7,13 +7,18 @@
  * can grow large.
  */
 import type { Pattern } from '../types';
+import { mergeTies } from '../tie-merge';
 import type { EventStream, ScheduledEvent } from './EventScheduler';
 
 export class PatternSource implements EventStream {
   private _sorted: ScheduledEvent[];
 
   constructor(private _pattern: Pattern) {
-    this._sorted = [..._pattern.events]
+    // Merge tied chains *before* mapping to ScheduledEvent — the scheduler
+    // shouldn't ever see the "second half" of a tie as a separate trigger.
+    const merged = mergeTies(_pattern.events);
+    this._sorted = merged
+      .slice()
       .sort((a, b) => {
         if (a.startTick !== b.startTick) return a.startTick - b.startTick;
         return a.stringIndex - b.stringIndex;
@@ -24,6 +29,12 @@ export class PatternSource implements EventStream {
         durationTicks: e.durationTicks,
         stringIndex: e.stringIndex,
         fret: e.fret,
+        hammerOn: e.hammerOn,
+        pullOff: e.pullOff,
+        velocity: e.velocity,
+        vibrato: e.vibrato,
+        slide: e.slide,
+        bend: e.bend,
         sourceMeta: {
           patternId: _pattern.id,
           eventId: e.id,

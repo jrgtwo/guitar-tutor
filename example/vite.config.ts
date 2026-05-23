@@ -9,6 +9,13 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  // Workers must be ES modules so the parser worker (which lazy-imports
+  // `@coderline/alphatab` via dynamic `import()`) can be code-split by
+  // Rollup. The default 'iife' format would force the entire worker chunk
+  // — including alphatab — into a single bundle, and the build errors out.
+  worker: {
+    format: 'es',
+  },
   test: {
     environment: 'jsdom',
     globals: true,

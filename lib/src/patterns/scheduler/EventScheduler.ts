@@ -32,6 +32,35 @@ export interface ScheduledEvent {
   durationTicks: number;
   stringIndex: number;
   fret: number;
+  /** Mirrors PatternEvent.hammerOn — the playback engine reduces attack
+   *  velocity on these so they sound less like fresh plucks. */
+  hammerOn?: boolean;
+  /** Mirrors PatternEvent.pullOff — same playback treatment as hammerOn. */
+  pullOff?: boolean;
+  /** Mirrors PatternEvent.velocity — passed to triggerAttackRelease's 4th
+   *  argument when set. Composes multiplicatively with the legato discount
+   *  for hammer-on / pull-off destinations. */
+  velocity?: number;
+  /** Mirrors PatternEvent.vibrato — the scheduler hands it to
+   *  `instrument.play()` which modulates a per-voice Vibrato node. */
+  vibrato?: 'slight' | 'wide';
+  /** Mirrors PatternEvent.slide. */
+  slide?: {
+    type:
+      | 'legato'
+      | 'shift'
+      | 'slide-in-below'
+      | 'slide-in-above'
+      | 'slide-out-down'
+      | 'slide-out-up';
+    toFret?: number;
+  };
+  /** Mirrors PatternEvent.bend. */
+  bend?: {
+    type: 'bend' | 'release' | 'pre-bend' | 'bend-release';
+    semitones: number;
+    points?: Array<{ at: number; semitones: number }>;
+  };
   sourceMeta?: {
     patternId?: string;
     eventId?: string;
@@ -353,8 +382,43 @@ export class EventScheduler {
       const swungEnd = applySwingToTick(e.startTick + e.durationTicks, subdivision, swing, PPQ);
       const playAudioTime = audioTime + (swungStart - fromTick) * sec;
       const durationSec = Math.max(0, swungEnd - swungStart) * sec;
+      // Velocity composition:
+      //   - `event.velocity` is the authored / imported loudness in [0, 1].
+      //     When absent we use 1.0 (default Tone behavior — full pluck).
+      //   - Hammer-on / pull-off destinations multiply by 0.4 so they sound
+      //     softer than their preceding plain plucks regardless of the base
+      //     dynamic. A forte hammer-on still hits harder than a piano one,
+      //     but both ride below a forte plain pluck.
+      const isLegato = e.hammerOn || e.pullOff;
+      const baseVelocity = e.velocity ?? 1.0;
+      const finalVelocity = isLegato ? baseVelocity * 0.4 : baseVelocity;
+      const velocity = finalVelocity < 1.0 ? finalVelocity : undefined;
+      // Temporary debug log (gated on a global flag so it's silent by
+      // default). Enable with `window.__FRETWORK_DEBUG_PLAYBACK = true` in
+      // the console to verify articulation flags reach the engine.
+      if (
+        (isLegato || e.velocity != null) &&
+        typeof globalThis !== 'undefined' &&
+        (globalThis as unknown as { __FRETWORK_DEBUG_PLAYBACK?: boolean }).__FRETWORK_DEBUG_PLAYBACK
+      ) {
+        const tags: string[] = [];
+        if (e.hammerOn) tags.push('hammerOn');
+        if (e.pullOff) tags.push('pullOff');
+        if (e.velocity != null) tags.push(`base=${e.velocity.toFixed(2)}`);
+        // eslint-disable-next-line no-console
+        console.log(
+          `[playback] ${note} dur=${durationSec.toFixed(3)}s vel=${finalVelocity.toFixed(2)} ` +
+            `(${tags.join(', ')})`,
+        );
+      }
+      const pitchCurve = resolvePitchCurve(e);
       try {
-        this._instrument.play(note, durationSec, playAudioTime);
+        this._instrument.play(note, durationSec, playAudioTime, {
+          velocity,
+          vibrato: e.vibrato,
+          durationSec,
+          pitchCurve,
+        });
       } catch {
         // One bad note shouldn't kill the loop. Silently swallow.
       }
@@ -468,5 +532,75 @@ export class EventScheduler {
         // No-op.
       }
     }
+  }
+}
+
+/**
+ * Translate `ScheduledEvent.slide` or `.bend` into a unified pitch curve
+ * (array of `{at, semitones}` points the instrument steps a PitchShift
+ * node through). Bend takes priority when both are present — composing
+ * the two on a single PitchShift node would distort the bend's intent.
+ *
+ * Slide shapes (3-point):
+ *   - 'legato' / 'shift'        — [{0,0}, {1, toFret-fret}]
+ *   - 'slide-in-below' / 'above' — [{0, ∓2}, {0.15, 0}, {1, 0}]
+ *   - 'slide-out-down' / 'up'    — [{0, 0}, {0.85, 0}, {1, ∓3}]
+ *
+ * Bend shapes use IR-provided points when available, else synthesize from
+ * type + semitones:
+ *   - 'bend'         — [{0, 0}, {1, semitones}]
+ *   - 'release'      — [{0, semitones}, {1, 0}]
+ *   - 'pre-bend'     — [{0, semitones}, {1, semitones}]
+ *   - 'bend-release' — [{0, 0}, {0.5, semitones}, {1, 0}]
+ */
+function resolvePitchCurve(
+  e: ScheduledEvent,
+): Array<{ at: number; semitones: number }> | undefined {
+  if (e.bend) return curveFromBend(e.bend);
+  if (e.slide) return curveFromSlide(e.slide, e.fret);
+  return undefined;
+}
+
+function curveFromBend(
+  bend: NonNullable<ScheduledEvent['bend']>,
+): Array<{ at: number; semitones: number }> {
+  if (bend.points && bend.points.length >= 2) return bend.points.slice();
+  switch (bend.type) {
+    case 'bend':
+      return [{ at: 0, semitones: 0 }, { at: 1, semitones: bend.semitones }];
+    case 'release':
+      return [{ at: 0, semitones: bend.semitones }, { at: 1, semitones: 0 }];
+    case 'pre-bend':
+      return [{ at: 0, semitones: bend.semitones }, { at: 1, semitones: bend.semitones }];
+    case 'bend-release':
+      return [
+        { at: 0, semitones: 0 },
+        { at: 0.5, semitones: bend.semitones },
+        { at: 1, semitones: 0 },
+      ];
+    default:
+      return [{ at: 0, semitones: 0 }, { at: 1, semitones: 0 }];
+  }
+}
+
+function curveFromSlide(
+  slide: NonNullable<ScheduledEvent['slide']>,
+  fret: number,
+): Array<{ at: number; semitones: number }> | undefined {
+  switch (slide.type) {
+    case 'legato':
+    case 'shift':
+      if (slide.toFret == null) return undefined;
+      return [{ at: 0, semitones: 0 }, { at: 1, semitones: slide.toFret - fret }];
+    case 'slide-in-below':
+      return [{ at: 0, semitones: -2 }, { at: 0.15, semitones: 0 }, { at: 1, semitones: 0 }];
+    case 'slide-in-above':
+      return [{ at: 0, semitones: 2 }, { at: 0.15, semitones: 0 }, { at: 1, semitones: 0 }];
+    case 'slide-out-down':
+      return [{ at: 0, semitones: 0 }, { at: 0.85, semitones: 0 }, { at: 1, semitones: -3 }];
+    case 'slide-out-up':
+      return [{ at: 0, semitones: 0 }, { at: 0.85, semitones: 0 }, { at: 1, semitones: 3 }];
+    default:
+      return undefined;
   }
 }

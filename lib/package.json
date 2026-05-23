@@ -8,6 +8,7 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./import": "./src/import/index.ts",
     "./styles/tokens.css": "./src/styles/tokens.css"
   },
   "files": [

@@ -71,6 +71,13 @@ export class Voice implements GuitarInstrument {
   private _layerGain: Tone.Gain | null = null;
   /** Always-present mixer node so layer + primary feed the same chain entry. */
   private _mixer: Tone.Gain | null = null;
+  /** Always-present vibrato node. Depth=0 when idle; `play()` schedules
+   *  depth ramps for per-note vibrato. */
+  private _vibrato: Tone.Vibrato | null = null;
+  /** Always-present pitch-shifter node. Pitch=0 when idle; `play()`
+   *  schedules pitch ramps for per-note slides. Monophonic only: notes
+   *  overlapping with an active slide will share the pitch shift. */
+  private _pitchShift: Tone.PitchShift | null = null;
   private _chain: ChainNodes = {};
   private _exit: Tone.ToneAudioNode | null = null;
   private _connectedToMaster = false;
@@ -97,8 +104,17 @@ export class Voice implements GuitarInstrument {
     if (this._preset.layer) {
       this._buildLayer(this._preset.layer);
     }
+    // Per-note vibrato + pitch-shift nodes — always present, idle when no
+    // event carries the flag. Placed immediately after the mixer so they
+    // modulate the dry voice signal before any timbral effects (filter,
+    // distortion, chorus) shape it. PitchShift uses granular FFT; quality
+    // dialed back via `windowSize` for low CPU.
+    this._vibrato = new Tone.Vibrato({ frequency: 5.5, depth: 0 });
+    this._pitchShift = new Tone.PitchShift({ pitch: 0, windowSize: 0.05 });
+    this._mixer.connect(this._vibrato);
+    this._vibrato.connect(this._pitchShift);
     this._chain = buildChain(this._preset);
-    this._exit = wireChain(this._mixer, this._chain);
+    this._exit = wireChain(this._pitchShift, this._chain);
     MasterBus.connectVoice(this._exit);
     this._connectedToMaster = true;
   }
@@ -121,19 +137,66 @@ export class Voice implements GuitarInstrument {
 
   // ─── GuitarInstrument ────────────────────────────────────────────────────────
 
-  play(noteName: string, duration: string | number, audioTime: number): void {
+  play(
+    noteName: string,
+    duration: string | number,
+    audioTime: number,
+    options?: {
+      velocity?: number;
+      vibrato?: 'slight' | 'wide';
+      durationSec?: number;
+      pitchCurve?: Array<{ at: number; semitones: number }>;
+    },
+  ): void {
     this._ensureBuilt();
     const synth = this._synth!;
+    const velocity = options?.velocity;
     try {
-      synth.triggerAttackRelease(noteName, duration, audioTime);
+      synth.triggerAttackRelease(noteName, duration, audioTime, velocity);
       // Trigger the body-filter envelope on each note so the cutoff sweeps in
       // sync with the pluck. The envelope's release continues after the synth
       // is silent, which is fine — it only modulates the filter, not the audio.
-      this._chain.bodyFilterEnvelope?.triggerAttackRelease(duration, audioTime);
+      this._chain.bodyFilterEnvelope?.triggerAttackRelease(duration, audioTime, velocity);
       // Trigger the layer too, transposed by its octave offset.
       if (this._layerSynth && this._preset.layer) {
         const layerNote = transposeNote(noteName, this._preset.layer.octaveOffset * 12);
-        this._layerSynth.triggerAttackRelease(layerNote, duration, audioTime);
+        this._layerSynth.triggerAttackRelease(layerNote, duration, audioTime, velocity);
+      }
+      // Per-note pitch curve (slides + bends share the same mechanism).
+      // Tone.PitchShift's `pitch` is a plain JS number property (no Signal
+      // API), so we step it manually via setTimeout using audio-clock-
+      // relative delays. ~32 Hz step rate is smooth enough for typical
+      // durations (200-1500 ms) without burning CPU. Not sample-accurate
+      // but well under the audible-jitter threshold for pitch glides.
+      if (options?.pitchCurve && options.durationSec != null && this._pitchShift) {
+        schedulePitchCurve(
+          this._pitchShift,
+          audioTime,
+          options.durationSec,
+          options.pitchCurve,
+        );
+      }
+      // Per-note vibrato. Schedule depth/frequency at the note's start,
+      // hold for most of the duration, ramp back to 0 just before release
+      // so the next note starts unmodulated. Tone.Vibrato applies pitch
+      // wobble via a fractional delay line — works for any source.
+      if (options?.vibrato && options.durationSec != null && this._vibrato) {
+        const intensity = options.vibrato === 'wide'
+          ? { frequency: 4, depth: 0.12 }
+          : { frequency: 5.5, depth: 0.04 };
+        const start = audioTime;
+        const end = audioTime + Math.max(0.05, options.durationSec);
+        const attack = Math.min(0.04, options.durationSec * 0.2);
+        const release = Math.min(0.05, options.durationSec * 0.2);
+        // Cancel any in-flight automations so the next note doesn't inherit
+        // depth from a previously-scheduled ramp.
+        this._vibrato.depth.cancelScheduledValues(start);
+        this._vibrato.frequency.cancelScheduledValues(start);
+        this._vibrato.frequency.setValueAtTime(intensity.frequency, start);
+        this._vibrato.depth.setValueAtTime(0, start);
+        this._vibrato.depth.linearRampToValueAtTime(intensity.depth, start + attack);
+        this._vibrato.depth.setValueAtTime(intensity.depth, end - release);
+        this._vibrato.depth.linearRampToValueAtTime(0, end);
       }
     } catch {
       // Tone occasionally throws when scheduled too close to the previous trigger.
@@ -153,9 +216,13 @@ export class Voice implements GuitarInstrument {
     this._synth?.dispose();
     this._disposeLayer();
     this._mixer?.dispose();
+    this._vibrato?.dispose();
+    this._pitchShift?.dispose();
     disposeChain(this._chain);
     this._synth = null;
     this._mixer = null;
+    this._vibrato = null;
+    this._pitchShift = null;
     this._chain = {};
     this._exit = null;
   }
@@ -276,15 +343,19 @@ export class Voice implements GuitarInstrument {
   // ─── Internal ────────────────────────────────────────────────────────────────
 
   private _rebuildChain(): void {
-    if (!this._synth || !this._mixer || !this._exit) return;
+    if (!this._synth || !this._mixer || !this._exit || !this._vibrato || !this._pitchShift) return;
     if (this._connectedToMaster) {
       MasterBus.disconnectVoice(this._exit);
       this._connectedToMaster = false;
     }
     this._mixer.disconnect();
+    this._vibrato.disconnect();
+    this._pitchShift.disconnect();
     disposeChain(this._chain);
+    this._mixer.connect(this._vibrato);
+    this._vibrato.connect(this._pitchShift);
     this._chain = buildChain(this._preset);
-    this._exit = wireChain(this._mixer, this._chain);
+    this._exit = wireChain(this._pitchShift, this._chain);
     MasterBus.connectVoice(this._exit);
     this._connectedToMaster = true;
   }
@@ -296,6 +367,69 @@ export class Voice implements GuitarInstrument {
 function transposeNote(note: string, semitones: number): string {
   if (semitones === 0) return note;
   return Tone.Frequency(note).transpose(semitones).toNote();
+}
+
+/**
+ * Step a Tone.PitchShift node's pitch through an arbitrary `(at, semitones)`
+ * curve over `durationSec`. Used by both slides (2- or 3-point curves) and
+ * bends (typically 3-4 point curves with intermediate hold regions).
+ *
+ * The curve points are first sorted by `at`. Between two adjacent points,
+ * the pitch interpolates linearly. The resampler hits 32 evenly-spaced
+ * positions across the note duration — fine enough for a smooth glide,
+ * cheap enough to not strain setTimeout.
+ *
+ * Pitch resets to 0 right after the note ends so subsequent notes start
+ * unshifted (matters especially for bend-release and slide-out which
+ * leave the pitch off-zero at the end of the curve).
+ */
+function schedulePitchCurve(
+  pitchShift: Tone.PitchShift,
+  audioTime: number,
+  durationSec: number,
+  rawCurve: Array<{ at: number; semitones: number }>,
+): void {
+  if (rawCurve.length === 0) return;
+  const curve = [...rawCurve].sort((a, b) => a.at - b.at);
+  const dur = Math.max(0.05, durationSec);
+  const stepCount = 32;
+  const nowAudioTime = Tone.getContext().currentTime;
+  const baseDelayMs = Math.max(0, (audioTime - nowAudioTime) * 1000);
+
+  for (let i = 0; i <= stepCount; i++) {
+    const t = i / stepCount;
+    const semitones = sampleCurveAt(curve, t);
+    const delayMs = baseDelayMs + dur * t * 1000;
+    setTimeout(() => {
+      if (!pitchShift.disposed) pitchShift.pitch = semitones;
+    }, delayMs);
+  }
+  setTimeout(() => {
+    if (!pitchShift.disposed) pitchShift.pitch = 0;
+  }, baseDelayMs + dur * 1000);
+}
+
+/**
+ * Linear interpolation across a sorted `(at, semitones)` curve. Times before
+ * the first point clamp to its value; times after the last clamp to its.
+ */
+function sampleCurveAt(
+  curve: Array<{ at: number; semitones: number }>,
+  t: number,
+): number {
+  if (t <= curve[0].at) return curve[0].semitones;
+  if (t >= curve[curve.length - 1].at) return curve[curve.length - 1].semitones;
+  for (let i = 1; i < curve.length; i++) {
+    const a = curve[i - 1];
+    const b = curve[i];
+    if (t <= b.at) {
+      const span = b.at - a.at;
+      if (span <= 0) return b.semitones;
+      const localT = (t - a.at) / span;
+      return a.semitones + (b.semitones - a.semitones) * localT;
+    }
+  }
+  return curve[curve.length - 1].semitones;
 }
 
 function dbToGain(db: number): number {

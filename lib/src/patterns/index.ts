@@ -9,12 +9,16 @@ export type {
   Lane,
   PatternTimeSignature,
   GrooveSpec,
+  TempoEvent,
+  TimeSignatureEvent,
   Pattern,
   Placement,
   Composition,
   Collection,
   Library,
 } from './types';
+
+export { effectiveBpm, effectiveTimeSignature, isAutomated } from './automation';
 
 export { generateId, generateUuid } from './ids';
 

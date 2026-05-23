@@ -41,10 +41,15 @@ export class PluckSynthInstrument implements GuitarInstrument {
     return this._synth;
   }
 
-  play(noteName: string, duration: string | number, audioTime: number): void {
+  play(
+    noteName: string,
+    duration: string | number,
+    audioTime: number,
+    options?: { velocity?: number },
+  ): void {
     const synth = this._ensureSynth();
     try {
-      synth.triggerAttackRelease(noteName, duration, audioTime);
+      synth.triggerAttackRelease(noteName, duration, audioTime, options?.velocity);
     } catch {
       // PluckSynth occasionally throws if scheduled too close to the previous trigger.
       // Swallow — the visual playhead still advances; missing one click is not fatal.

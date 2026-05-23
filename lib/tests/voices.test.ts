@@ -243,6 +243,30 @@ vi.mock('tone', () => {
     override dispose = () => { hoisted.calls.samplerDispose++; };
   }
 
+  class MockVibrato extends MockNode {
+    frequency = {
+      cancelScheduledValues: noop,
+      setValueAtTime: noop,
+      linearRampToValueAtTime: noop,
+      value: 5.5,
+    };
+    depth = {
+      cancelScheduledValues: noop,
+      setValueAtTime: noop,
+      linearRampToValueAtTime: noop,
+      value: 0,
+    };
+    constructor(_opts: any) {
+      super();
+    }
+  }
+  class MockPitchShift extends MockNode {
+    pitch = 0;
+    constructor(_opts: any) {
+      super();
+    }
+  }
+
   return {
     PluckSynth: MockPluckSynth,
     FMSynth: MockFMSynth,
@@ -259,7 +283,10 @@ vi.mock('tone', () => {
     Panner: MockPanner,
     FrequencyEnvelope: MockFrequencyEnvelope,
     AutoWah: MockAutoWah,
+    Vibrato: MockVibrato,
+    PitchShift: MockPitchShift,
     Frequency: frequencyShim,
+    getContext: () => ({ currentTime: 0 }),
     start: async () => undefined,
     now: () => 0,
   };

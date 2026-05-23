@@ -50,6 +50,9 @@ export function createEmptyComposition(
     forkedFromId: null,
     forkedFromCreatorName: null,
     collectionId: null,
+    tempoTrack: [],
+    timeSignatureTrack: [],
+    sourceIR: null,
     createdAt: now,
     updatedAt: now,
   };
@@ -229,6 +232,35 @@ export interface FlattenedEvent {
   durationTicks: Tick;
   stringIndex: number;
   fret: number;
+  /** Mirrors PatternEvent.hammerOn — propagated through the flatten so the
+   *  scheduler can pass it to the playback engine. */
+  hammerOn?: boolean;
+  /** Mirrors PatternEvent.pullOff. */
+  pullOff?: boolean;
+  /** Mirrors PatternEvent.tieToNext. The scheduler's mergeTies step folds
+   *  the tied chain into a single sustained note before triggering. */
+  tieToNext?: boolean;
+  /** Mirrors PatternEvent.velocity — normalized [0, 1] loudness. */
+  velocity?: number;
+  /** Mirrors PatternEvent.vibrato. */
+  vibrato?: 'slight' | 'wide';
+  /** Mirrors PatternEvent.slide. */
+  slide?: {
+    type:
+      | 'legato'
+      | 'shift'
+      | 'slide-in-below'
+      | 'slide-in-above'
+      | 'slide-out-down'
+      | 'slide-out-up';
+    toFret?: number;
+  };
+  /** Mirrors PatternEvent.bend. */
+  bend?: {
+    type: 'bend' | 'release' | 'pre-bend' | 'bend-release';
+    semitones: number;
+    points?: Array<{ at: number; semitones: number }>;
+  };
   sourceMeta: {
     placementId: string;
     patternId: string;
@@ -264,6 +296,13 @@ export function flattenComposition(comp: Composition): FlattenedEvent[] {
           durationTicks: clippedDuration,
           stringIndex: e.stringIndex,
           fret: newFret,
+          hammerOn: e.hammerOn,
+          pullOff: e.pullOff,
+          tieToNext: e.tieToNext,
+          velocity: e.velocity,
+          vibrato: e.vibrato,
+          slide: e.slide,
+          bend: e.bend,
           sourceMeta: {
             placementId: p.id,
             patternId: p.patternSnapshot.id,

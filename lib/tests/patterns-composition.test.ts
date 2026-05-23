@@ -22,6 +22,15 @@ import {
 } from '../src/patterns';
 
 describe('composition-ops', () => {
+  describe('createEmptyComposition', () => {
+    it('seeds empty automation tracks and null sourceIR by default', () => {
+      const c = createEmptyComposition();
+      expect(c.tempoTrack).toEqual([]);
+      expect(c.timeSignatureTrack).toEqual([]);
+      expect(c.sourceIR).toBeNull();
+    });
+  });
+
   describe('addPlacement', () => {
     it('deep-copies the pattern so library edits do not propagate', () => {
       let pat = createEmptyPattern('source');

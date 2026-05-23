@@ -8,6 +8,7 @@
  */
 import type { Composition } from '../types';
 import { flattenComposition, placementEffectiveLength } from '../composition-ops';
+import { mergeTies } from '../tie-merge';
 import type { EventStream, ScheduledEvent } from './EventScheduler';
 
 export class CompositionSource implements EventStream {
@@ -23,12 +24,22 @@ export class CompositionSource implements EventStream {
 
   constructor(composition: Composition) {
     const flat = flattenComposition(composition);
-    this._sorted = flat.map((e) => ({
+    // Merge tied chains across placements at the flattened level — a tie
+    // that spans a placement boundary is rare in practice but still gets
+    // handled correctly by the absolute-tick adjacency check.
+    const merged = mergeTies(flat);
+    this._sorted = merged.map((e) => ({
       id: e.id,
       startTick: e.startTick,
       durationTicks: e.durationTicks,
       stringIndex: e.stringIndex,
       fret: e.fret,
+      hammerOn: e.hammerOn,
+      pullOff: e.pullOff,
+      velocity: e.velocity,
+      vibrato: e.vibrato,
+      slide: e.slide,
+      bend: e.bend,
       sourceMeta: {
         patternId: e.sourceMeta.patternId,
         eventId: e.sourceMeta.eventId,

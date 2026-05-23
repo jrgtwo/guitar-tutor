@@ -5,6 +5,7 @@ import { SoundLab } from './sound-lab/SoundLab';
 import { PatternEditorPage } from './patterns/PatternEditorPage';
 import { CompositionArrangerPage } from './patterns/CompositionArrangerPage';
 import { CatalogPage } from './catalog/CatalogPage';
+import { ImportPage } from './import/ImportPage';
 import { AuthCallbackHandler } from './auth/AuthCallbackHandler';
 import { ProfilePage } from './profile/ProfilePage';
 import { ProfileSettings } from './profile/ProfileSettings';
@@ -40,6 +41,7 @@ function Root() {
   const isPatterns = page === 'patterns';
   const isCompositions = page === 'compositions';
   const isCatalog = page === 'catalog';
+  const isImport = page === 'import';
   const profileName = params.get('profile');
   const isSettings = params.get('settings') === '1';
   const sharedPatternId = params.get('pattern');
@@ -59,6 +61,7 @@ function Root() {
   else if (isPatterns) body = <PatternEditorPage />;
   else if (isCompositions) body = <CompositionArrangerPage />;
   else if (isCatalog) body = <CatalogPage />;
+  else if (isImport) body = <ImportPage />;
   else if (profileName) body = <ProfilePage displayName={profileName} />;
   else if (isSettings) body = <ProfileSettings />;
   else body = <App />;
