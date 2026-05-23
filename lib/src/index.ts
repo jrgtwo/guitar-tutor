@@ -223,6 +223,7 @@ export type {
   Tick,
   StepLength,
   ArticulationId,
+  DynamicMark,
   PatternEvent,
   Lane,
   PatternTimeSignature,
@@ -240,6 +241,9 @@ export type {
   GroovePresetId,
   GroovePreset,
   EffectivePlayback,
+  PatternEventArticulationPatch,
+  PatternEventSlideType,
+  PatternEventBendType,
 } from './patterns';
 export {
   usePatternsStore,

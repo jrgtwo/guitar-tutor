@@ -40,6 +40,11 @@ export class CompositionSource implements EventStream {
       vibrato: e.vibrato,
       slide: e.slide,
       bend: e.bend,
+      palmMute: e.palmMute,
+      ghost: e.ghost,
+      dead: e.dead,
+      tap: e.tap,
+      harmonic: e.harmonic,
       sourceMeta: {
         patternId: e.sourceMeta.patternId,
         eventId: e.sourceMeta.eventId,

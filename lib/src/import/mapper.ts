@@ -354,14 +354,13 @@ function inventoryArticulations(track: IRTrack, warnings: string[]): void {
     [vibrato, 'vibrato notes (pitch modulated by LFO during the note)'],
     [slides, 'slides (pitch ramped via PitchShift across the note duration)'],
     [bends, 'bends (pitch curve stepped through the IR bend points)'],
+    [palmMutes, 'palm-muted beats (shortened duration for the chug-chug feel)'],
+    [ghost, 'ghost notes (played softer than surrounding notes)'],
+    [dead, 'dead/muted notes (percussive tick, no defined pitch)'],
+    [taps, 'tapped notes (same playback as hammer-ons)'],
+    [harmonics, 'harmonics (transposed up one octave — approximation)'],
   ];
-  const preserved: Array<[number, string]> = [
-    [harmonics, 'harmonics'],
-    [palmMutes, 'palm-muted beats'],
-    [ghost, 'ghost notes'],
-    [dead, 'dead/muted notes'],
-    [taps, 'tapped notes'],
-  ];
+  const preserved: Array<[number, string]> = [];
   for (const [count, label] of supported) {
     if (count > 0) warnings.push(`${count} ${label} — applied during playback`);
   }
@@ -411,6 +410,15 @@ function irNoteToPatternEvent(
       points: note.bend.points?.map((p) => ({ at: p.at, semitones: p.semitones })),
     };
   }
+  if (note.ghost) pe.ghost = true;
+  if (note.dead) pe.dead = true;
+  if (note.tap) pe.tap = true;
+  if (note.harmonic) {
+    pe.harmonic = { type: note.harmonic.type, fret: note.harmonic.fret };
+  }
+  // Palm-mute lives on the beat (IREvent.effects), so it applies to every
+  // note in the beat. We replicate it onto each per-note PatternEvent.
+  if (irEvent.effects?.palmMute) pe.palmMute = true;
   const velocity = dynamicToVelocity(irEvent.dynamic);
   if (velocity != null) pe.velocity = velocity;
   if (irEvent.dynamic) pe.dynamic = irEvent.dynamic;

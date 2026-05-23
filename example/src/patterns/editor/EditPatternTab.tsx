@@ -2,6 +2,7 @@ import { usePatternsStore, selectEditingPattern } from '@fretwork/lib';
 import { EditorToolbar } from './EditorToolbar';
 import { FretboardInput } from './FretboardInput';
 import { PatternTimeline } from './timeline/PatternTimeline';
+import { NoteInspectorBar } from './timeline/NoteInspectorBar';
 import { useEditorKeybinds } from '../hooks/useEditorKeybinds';
 import { PlaybackRibbon } from '../../components/playback/PlaybackRibbon';
 import { usePatternsEditRibbonSections } from '../playback/patternsEditRibbonSections';
@@ -27,6 +28,7 @@ export function EditPatternTab() {
           </section>
         )}
         <EditorToolbar />
+        <NoteInspectorBar />
         <section aria-label="Pattern timeline">
           <PatternTimeline />
         </section>

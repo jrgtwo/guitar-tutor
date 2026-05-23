@@ -13,7 +13,7 @@ import {
   setPatternSuggestedBpm,
   setPatternGroove,
 } from '../src/patterns';
-import { transposeEventsDiatonic } from '../src/patterns/pattern-ops';
+import { transposeEventsDiatonic, updateEventArticulations } from '../src/patterns/pattern-ops';
 import { getScale } from '../src/lib/scales';
 import { getTuning } from '../src/lib/tunings';
 import type { Pattern } from '../src/patterns/types';
@@ -346,5 +346,68 @@ describe('transposeEventsDiatonic', () => {
     // Down one step from A on A string would go to fret -1 → unchanged.
     const next = transposeEventsDiatonic(p, p.events.map((e) => e.id), -1, 'A', majorIntervals, tuning, 22);
     expect(next).toBe(p);
+  });
+});
+
+describe('updateEventArticulations', () => {
+  function stamp(): { pattern: Pattern; eventId: string } {
+    let p = createEmptyPattern('t');
+    const result = stampEvent({
+      pattern: p,
+      stringIndex: 0,
+      fret: 5,
+      startTick: 0,
+      durationTicks: PPQ,
+    });
+    p = result.pattern;
+    return { pattern: p, eventId: result.event.id };
+  }
+
+  it('sets a boolean field', () => {
+    const { pattern, eventId } = stamp();
+    const next = updateEventArticulations(pattern, eventId, { hammerOn: true });
+    expect(next.events[0].hammerOn).toBe(true);
+  });
+
+  it('clears a field when patched with undefined', () => {
+    const { pattern, eventId } = stamp();
+    const withFlag = updateEventArticulations(pattern, eventId, { hammerOn: true });
+    const cleared = updateEventArticulations(withFlag, eventId, { hammerOn: undefined });
+    expect(cleared.events[0].hammerOn).toBeUndefined();
+  });
+
+  it('keeps hammerOn and pullOff mutually exclusive', () => {
+    const { pattern, eventId } = stamp();
+    const hammered = updateEventArticulations(pattern, eventId, { hammerOn: true });
+    const pulled = updateEventArticulations(hammered, eventId, { pullOff: true });
+    expect(pulled.events[0].pullOff).toBe(true);
+    expect(pulled.events[0].hammerOn).toBeUndefined();
+  });
+
+  it('writes a bend object including points array', () => {
+    const { pattern, eventId } = stamp();
+    const next = updateEventArticulations(pattern, eventId, {
+      bend: {
+        type: 'bend-release',
+        semitones: 2,
+        points: [{ at: 0, semitones: 0 }, { at: 0.5, semitones: 2 }, { at: 1, semitones: 0 }],
+      },
+    });
+    expect(next.events[0].bend?.type).toBe('bend-release');
+    expect(next.events[0].bend?.points).toHaveLength(3);
+  });
+
+  it('returns the same pattern reference when nothing changes', () => {
+    const { pattern, eventId } = stamp();
+    const next = updateEventArticulations(pattern, eventId, {});
+    expect(next).toBe(pattern);
+  });
+
+  it('updates timestamp when something changes', () => {
+    const { pattern, eventId } = stamp();
+    const before = pattern.updatedAt;
+    // Sleep-like trick: a small wait
+    const next = updateEventArticulations(pattern, eventId, { tieToNext: true });
+    expect(next.updatedAt).toBeGreaterThanOrEqual(before);
   });
 });

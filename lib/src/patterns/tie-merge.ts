@@ -39,6 +39,11 @@ export interface MergeableEvent {
     semitones: number;
     points?: Array<{ at: number; semitones: number }>;
   };
+  palmMute?: boolean;
+  ghost?: boolean;
+  dead?: boolean;
+  tap?: boolean;
+  harmonic?: { type: string; fret?: number };
 }
 
 export function mergeTies<E extends MergeableEvent>(events: readonly E[]): E[] {

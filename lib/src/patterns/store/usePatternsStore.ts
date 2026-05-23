@@ -33,6 +33,8 @@ import {
   resizeEvent as opsResizeEvent,
   resizeEventsBy as opsResizeEventsBy,
   setEventFret as opsSetEventFret,
+  updateEventArticulations as opsUpdateEventArticulations,
+  type PatternEventArticulationPatch,
   setPatternDuration as opsSetPatternDuration,
   setPatternGroove,
   setPatternInstrument,
@@ -205,6 +207,12 @@ export interface PatternsActions {
   resizeEvent(eventId: string, newDurationTicks: Tick): void;
   resizeEventsBy(snapshots: readonly EventResizeSnapshot[], deltaTicks: Tick): void;
   setEventFret(eventId: string, fret: number): void;
+  /**
+   * Patch articulation fields on the given event. Pass `undefined` for a
+   * field to clear it. Hammer-on and pull-off are kept mutually exclusive
+   * automatically by the underlying op.
+   */
+  updateEventArticulations(eventId: string, patch: PatternEventArticulationPatch): void;
   nudgeSelectedFret(delta: number): void;
   transposeSelectedDiatonic(direction: 1 | -1, tuning: TuningDef, fretCount: number): void;
   deleteEvents(ids: readonly string[]): void;
@@ -1008,6 +1016,14 @@ export const usePatternsStore = create<PatternsStoreState>()(
         const target = currentEditTarget(s);
         if (!target) return;
         const next = opsSetEventFret(target.pattern, eventId, fret);
+        if (next === target.pattern) return;
+        set(updateTarget(s, next));
+      },
+      updateEventArticulations(eventId, patch) {
+        const s = get();
+        const target = currentEditTarget(s);
+        if (!target) return;
+        const next = opsUpdateEventArticulations(target.pattern, eventId, patch);
         if (next === target.pattern) return;
         set(updateTarget(s, next));
       },

@@ -5,6 +5,7 @@ export type {
   Tick,
   StepLength,
   ArticulationId,
+  DynamicMark,
   PatternEvent,
   Lane,
   PatternTimeSignature,
@@ -55,8 +56,16 @@ export {
   setPatternSuggestedBpm,
   setPatternGroove,
   applyPatternMetadata,
+  updateEventArticulations,
 } from './pattern-ops';
-export type { PatternMetadataPatch, EventDragSnapshot, EventResizeSnapshot } from './pattern-ops';
+export type {
+  PatternMetadataPatch,
+  EventDragSnapshot,
+  EventResizeSnapshot,
+  PatternEventArticulationPatch,
+  PatternEventSlideType,
+  PatternEventBendType,
+} from './pattern-ops';
 
 export {
   createEmptyComposition,

@@ -401,6 +401,100 @@ export function setEventFret(pattern: Pattern, eventId: string, newFret: number)
 }
 
 /**
+ * Patchable articulation fields on `PatternEvent`. Each is optional; passing
+ * `undefined` clears the field (using `undefined` rather than `null` keeps
+ * JSON serialization tidy — JSON.stringify omits undefined properties).
+ */
+export interface PatternEventArticulationPatch {
+  hammerOn?: boolean;
+  pullOff?: boolean;
+  tieToNext?: boolean;
+  velocity?: number;
+  dynamic?: import('./types').DynamicMark;
+  vibrato?: 'slight' | 'wide';
+  slide?: { type: PatternEventSlideType; toFret?: number };
+  bend?: {
+    type: PatternEventBendType;
+    semitones: number;
+    points?: Array<{ at: number; semitones: number }>;
+  };
+  palmMute?: boolean;
+  ghost?: boolean;
+  dead?: boolean;
+  tap?: boolean;
+  harmonic?: { type: 'natural' | 'artificial' | 'pinch' | 'tap' | 'semi'; fret?: number };
+}
+
+export type PatternEventSlideType =
+  | 'legato'
+  | 'shift'
+  | 'slide-in-below'
+  | 'slide-in-above'
+  | 'slide-out-down'
+  | 'slide-out-up';
+
+export type PatternEventBendType = 'bend' | 'release' | 'pre-bend' | 'bend-release';
+
+const ARTICULATION_KEYS: ReadonlyArray<keyof PatternEventArticulationPatch> = [
+  'hammerOn',
+  'pullOff',
+  'tieToNext',
+  'velocity',
+  'dynamic',
+  'vibrato',
+  'slide',
+  'bend',
+  'palmMute',
+  'ghost',
+  'dead',
+  'tap',
+  'harmonic',
+];
+
+/**
+ * Apply an articulation patch to a single event. A key whose value is
+ * `undefined` is *removed* from the event entirely (since the model uses
+ * presence-or-absent rather than nullable booleans). Hammer-on and pull-off
+ * are kept mutually exclusive — setting one clears the other.
+ */
+export function updateEventArticulations(
+  pattern: Pattern,
+  eventId: string,
+  patch: PatternEventArticulationPatch,
+): Pattern {
+  const existing = pattern.events.find((e) => e.id === eventId);
+  if (!existing) return pattern;
+  const next: PatternEvent = { ...existing };
+  for (const key of ARTICULATION_KEYS) {
+    if (!(key in patch)) continue;
+    const value = patch[key];
+    if (value === undefined) {
+      delete (next as unknown as Record<string, unknown>)[key];
+    } else {
+      (next as unknown as Record<string, unknown>)[key] = value;
+    }
+  }
+  // Maintain hammerOn / pullOff mutual exclusion.
+  if (patch.hammerOn === true && existing.pullOff) delete (next as unknown as Record<string, unknown>).pullOff;
+  if (patch.pullOff === true && existing.hammerOn) delete (next as unknown as Record<string, unknown>).hammerOn;
+  // Bail if nothing actually changed (avoids spurious updates + re-renders).
+  if (shallowEqualEvents(existing, next)) return pattern;
+  return {
+    ...pattern,
+    events: pattern.events.map((e) => (e.id === eventId ? next : e)),
+    updatedAt: Date.now(),
+  };
+}
+
+function shallowEqualEvents(a: PatternEvent, b: PatternEvent): boolean {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]) as Set<keyof PatternEvent>;
+  for (const k of keys) {
+    if (JSON.stringify(a[k]) !== JSON.stringify(b[k])) return false;
+  }
+  return true;
+}
+
+/**
  * Move selected events by one scale step in the given direction (1 = up, -1 = down).
  * Each event is transposed individually, preserving its chromatic offset from the
  * nearest scale tone at or below it ("relative pitch compared to the key" is preserved).

@@ -130,6 +130,43 @@ export interface PatternEvent {
     semitones: number;
     points?: Array<{ at: number; semitones: number }>;
   };
+  /**
+   * Palm-mute. Playback shortens the effective note duration so the sample
+   * doesn't ring — approximates the dampened "chug" of a palm-muted string
+   * without needing a per-note low-pass filter (would require chain
+   * rewiring that's out of scope for phase 1).
+   */
+  palmMute?: boolean;
+  /**
+   * Ghost note. Played quieter than a normal pluck (~50% velocity); meant
+   * to read as rhythmic articulation rather than a melodic note.
+   */
+  ghost?: boolean;
+  /**
+   * Dead / muted note. Very low velocity (~25%) and shortened duration
+   * give the percussive "tick" sound of a damped string. Visually
+   * rendered as 'X' instead of a fret number.
+   */
+  dead?: boolean;
+  /**
+   * Left-hand tap. Same playback treatment as hammer-on (reduced attack);
+   * a different name in notation, but the same audible result on a
+   * sample-based voice.
+   */
+  tap?: boolean;
+  /**
+   * Harmonic — natural / artificial / pinch / tap / semi. Playback
+   * approximates by transposing the note up by 12 semitones (one octave),
+   * which matches the sounding pitch of a 12th-fret natural harmonic and
+   * roughly works for the other harmonic types too. Visually rendered
+   * with a small diamond glyph beside the fret.
+   */
+  harmonic?: {
+    type: 'natural' | 'artificial' | 'pinch' | 'tap' | 'semi';
+    /** Optional sounding fret. Currently informational — playback uses a
+     *  fixed +12 transposition regardless. */
+    fret?: number;
+  };
 }
 
 export interface Lane {

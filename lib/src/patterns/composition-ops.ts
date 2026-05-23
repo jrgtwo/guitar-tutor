@@ -261,6 +261,11 @@ export interface FlattenedEvent {
     semitones: number;
     points?: Array<{ at: number; semitones: number }>;
   };
+  palmMute?: boolean;
+  ghost?: boolean;
+  dead?: boolean;
+  tap?: boolean;
+  harmonic?: { type: 'natural' | 'artificial' | 'pinch' | 'tap' | 'semi'; fret?: number };
   sourceMeta: {
     placementId: string;
     patternId: string;
@@ -303,6 +308,11 @@ export function flattenComposition(comp: Composition): FlattenedEvent[] {
           vibrato: e.vibrato,
           slide: e.slide,
           bend: e.bend,
+          palmMute: e.palmMute,
+          ghost: e.ghost,
+          dead: e.dead,
+          tap: e.tap,
+          harmonic: e.harmonic,
           sourceMeta: {
             placementId: p.id,
             patternId: p.patternSnapshot.id,

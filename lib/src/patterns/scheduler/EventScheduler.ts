@@ -61,6 +61,11 @@ export interface ScheduledEvent {
     semitones: number;
     points?: Array<{ at: number; semitones: number }>;
   };
+  palmMute?: boolean;
+  ghost?: boolean;
+  dead?: boolean;
+  tap?: boolean;
+  harmonic?: { type: 'natural' | 'artificial' | 'pinch' | 'tap' | 'semi'; fret?: number };
   sourceMeta?: {
     patternId?: string;
     eventId?: string;
@@ -377,21 +382,40 @@ export class EventScheduler {
     for (const e of events) {
       const openString = openStrings[e.stringIndex];
       if (!openString) continue;
-      const note = noteAt(openString, e.fret);
+      // Natural / artificial harmonics sound one octave above the played
+      // fret in our approximation. Apply at note-resolution time so the
+      // sampler / synth gets the right pitch directly — no need for a
+      // PitchShift envelope.
+      const harmonicSemitones = e.harmonic ? 12 : 0;
+      const note = noteAt(openString, e.fret + harmonicSemitones);
       const swungStart = applySwingToTick(e.startTick, subdivision, swing, PPQ);
       const swungEnd = applySwingToTick(e.startTick + e.durationTicks, subdivision, swing, PPQ);
       const playAudioTime = audioTime + (swungStart - fromTick) * sec;
-      const durationSec = Math.max(0, swungEnd - swungStart) * sec;
+      const rawDurationSec = Math.max(0, swungEnd - swungStart) * sec;
+      // Duration shortening for muted/percussive articulations:
+      //   - palm-mute: ~30% of the authored duration (chunky chug)
+      //   - dead/muted (X): ~12% (percussive tick, very short)
+      // Otherwise full duration. The Sampler's natural envelope handles
+      // the remaining release tail.
+      const durationSec = e.dead
+        ? Math.max(0.04, rawDurationSec * 0.12)
+        : e.palmMute
+          ? Math.max(0.05, rawDurationSec * 0.3)
+          : rawDurationSec;
       // Velocity composition:
       //   - `event.velocity` is the authored / imported loudness in [0, 1].
-      //     When absent we use 1.0 (default Tone behavior — full pluck).
-      //   - Hammer-on / pull-off destinations multiply by 0.4 so they sound
-      //     softer than their preceding plain plucks regardless of the base
-      //     dynamic. A forte hammer-on still hits harder than a piano one,
-      //     but both ride below a forte plain pluck.
-      const isLegato = e.hammerOn || e.pullOff;
+      //   - hammer-on / pull-off / tap destinations × 0.4 (suppressed attack).
+      //   - ghost notes × 0.5 (rhythmic articulation, not melodic).
+      //   - dead notes × 0.3 (percussive tick).
+      //   Multipliers compose multiplicatively — a forte ghost hammer-on
+      //   ends up around 0.16, recognizably present but distinctly soft.
+      const isLegato = e.hammerOn || e.pullOff || e.tap;
+      let velocityMultiplier = 1.0;
+      if (isLegato) velocityMultiplier *= 0.4;
+      if (e.ghost) velocityMultiplier *= 0.5;
+      if (e.dead) velocityMultiplier *= 0.3;
       const baseVelocity = e.velocity ?? 1.0;
-      const finalVelocity = isLegato ? baseVelocity * 0.4 : baseVelocity;
+      const finalVelocity = baseVelocity * velocityMultiplier;
       const velocity = finalVelocity < 1.0 ? finalVelocity : undefined;
       // Temporary debug log (gated on a global flag so it's silent by
       // default). Enable with `window.__FRETWORK_DEBUG_PLAYBACK = true` in
@@ -418,6 +442,7 @@ export class EventScheduler {
           vibrato: e.vibrato,
           durationSec,
           pitchCurve,
+          palmMute: e.palmMute,
         });
       } catch {
         // One bad note shouldn't kill the loop. Silently swallow.

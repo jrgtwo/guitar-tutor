@@ -35,6 +35,11 @@ export class PatternSource implements EventStream {
         vibrato: e.vibrato,
         slide: e.slide,
         bend: e.bend,
+        palmMute: e.palmMute,
+        ghost: e.ghost,
+        dead: e.dead,
+        tap: e.tap,
+        harmonic: e.harmonic,
         sourceMeta: {
           patternId: _pattern.id,
           eventId: e.id,

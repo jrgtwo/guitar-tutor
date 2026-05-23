@@ -163,7 +163,13 @@ vi.mock('tone', () => {
   }
 
   class MockFilter extends MockNode {
-    frequency = { rampTo: noop, value: 0 };
+    frequency = {
+      rampTo: noop,
+      cancelScheduledValues: noop,
+      setValueAtTime: noop,
+      linearRampToValueAtTime: noop,
+      value: 0,
+    };
     Q = { rampTo: noop, value: 0 };
     constructor(_opts: any) {
       super();

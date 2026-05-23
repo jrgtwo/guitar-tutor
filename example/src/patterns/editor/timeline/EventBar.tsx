@@ -177,17 +177,33 @@ export function EventBar({
   const fillColor = playing ? '250, 204, 21' : '251, 191, 36';
   const fill = `rgba(${fillColor}, ${fillAlpha})`;
 
-  // Articulation badge — 'H' for hammer-on, 'P' for pull-off, mounted at
-  // the top-left of the bar. Visible whenever the bar is wide enough to
-  // accommodate both the badge and the fret number; for very narrow bars
-  // the badge takes priority over the fret label (fret value is visible
-  // in the NoteInspector anyway).
-  const articulationLabel = event.hammerOn ? 'H' : event.pullOff ? 'P' : null;
+  // Articulation badge in the top-left: 'T' for tap > 'H' for hammer-on >
+  // 'P' for pull-off (tap is rarest, takes priority when multiple set).
+  const articulationLabel = event.tap
+    ? 'T'
+    : event.hammerOn
+      ? 'H'
+      : event.pullOff
+        ? 'P'
+        : null;
 
   // Dynamic marking ('p' / 'mf' / 'ff' / etc.) printed in the bottom-right
   // corner of the bar. Wide enough bars only; narrow bars rely on the
   // opacity hint instead.
   const dynamicLabel = event.dynamic ?? null;
+
+  // Fret-area rendering: dead notes show 'X' instead of a number; harmonics
+  // get a leading diamond glyph; ghost notes wrap the fret in parentheses.
+  let fretDisplay: string;
+  if (event.dead) {
+    fretDisplay = 'X';
+  } else if (event.harmonic) {
+    fretDisplay = `◇${event.fret}`;
+  } else if (event.ghost) {
+    fretDisplay = `(${event.fret})`;
+  } else {
+    fretDisplay = String(event.fret);
+  }
 
   return (
     <g
@@ -234,7 +250,22 @@ export function EventBar({
           textAnchor="middle"
           pointerEvents="none"
         >
-          {event.fret}
+          {fretDisplay}
+        </text>
+      )}
+      {event.palmMute && width >= 18 && (
+        // 'PM' badge in the top-right corner — standard palm-mute notation.
+        <text
+          x={x + width - 3}
+          y={y + 9}
+          fontSize={7}
+          fontFamily="ui-monospace, monospace"
+          fontWeight={700}
+          fill="rgba(0, 0, 0, 0.75)"
+          textAnchor="end"
+          pointerEvents="none"
+        >
+          PM
         </text>
       )}
       {dynamicLabel && width >= 22 && (

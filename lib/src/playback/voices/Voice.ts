@@ -78,6 +78,10 @@ export class Voice implements GuitarInstrument {
    *  schedules pitch ramps for per-note slides. Monophonic only: notes
    *  overlapping with an active slide will share the pitch shift. */
   private _pitchShift: Tone.PitchShift | null = null;
+  /** Always-present low-pass filter for palm-mute timbre. Cutoff sits at
+   *  ~20 kHz (inaudible attenuation) when idle; ramps down to ~600 Hz for
+   *  the duration of palm-muted notes to deliver the chunky dampened tone. */
+  private _palmMuteFilter: Tone.Filter | null = null;
   private _chain: ChainNodes = {};
   private _exit: Tone.ToneAudioNode | null = null;
   private _connectedToMaster = false;
@@ -111,10 +115,12 @@ export class Voice implements GuitarInstrument {
     // dialed back via `windowSize` for low CPU.
     this._vibrato = new Tone.Vibrato({ frequency: 5.5, depth: 0 });
     this._pitchShift = new Tone.PitchShift({ pitch: 0, windowSize: 0.05 });
+    this._palmMuteFilter = new Tone.Filter({ type: 'lowpass', frequency: 20000, Q: 0.7 });
     this._mixer.connect(this._vibrato);
     this._vibrato.connect(this._pitchShift);
+    this._pitchShift.connect(this._palmMuteFilter);
     this._chain = buildChain(this._preset);
-    this._exit = wireChain(this._pitchShift, this._chain);
+    this._exit = wireChain(this._palmMuteFilter, this._chain);
     MasterBus.connectVoice(this._exit);
     this._connectedToMaster = true;
   }
@@ -146,6 +152,7 @@ export class Voice implements GuitarInstrument {
       vibrato?: 'slight' | 'wide';
       durationSec?: number;
       pitchCurve?: Array<{ at: number; semitones: number }>;
+      palmMute?: boolean;
     },
   ): void {
     this._ensureBuilt();
@@ -161,6 +168,26 @@ export class Voice implements GuitarInstrument {
       if (this._layerSynth && this._preset.layer) {
         const layerNote = transposeNote(noteName, this._preset.layer.octaveOffset * 12);
         this._layerSynth.triggerAttackRelease(layerNote, duration, audioTime, velocity);
+      }
+      // Per-note palm-mute. Drop the low-pass filter cutoff to ~600 Hz at
+      // note start (instant — palm-mute kicks in immediately) and ramp it
+      // back to ~20 kHz (effectively bypassed) right after the note ends.
+      // The drop kills the bright pluck transient while the audible
+      // duration shortening (done at the scheduler level) gives the chug.
+      if (options?.palmMute && options.durationSec != null && this._palmMuteFilter) {
+        const dur = Math.max(0.05, options.durationSec);
+        const freq = this._palmMuteFilter.frequency;
+        freq.cancelScheduledValues(audioTime);
+        freq.setValueAtTime(600, audioTime);
+        freq.setValueAtTime(600, audioTime + dur);
+        // Quick ramp back up after the note so subsequent (non-muted)
+        // notes regain their full brightness.
+        freq.linearRampToValueAtTime(20000, audioTime + dur + 0.02);
+      } else if (this._palmMuteFilter) {
+        // Defensively keep the filter open — if a previous palm-mute's
+        // ramp hadn't completed when a non-muted note fires, force it.
+        this._palmMuteFilter.frequency.cancelScheduledValues(audioTime);
+        this._palmMuteFilter.frequency.setValueAtTime(20000, audioTime);
       }
       // Per-note pitch curve (slides + bends share the same mechanism).
       // Tone.PitchShift's `pitch` is a plain JS number property (no Signal
@@ -218,11 +245,13 @@ export class Voice implements GuitarInstrument {
     this._mixer?.dispose();
     this._vibrato?.dispose();
     this._pitchShift?.dispose();
+    this._palmMuteFilter?.dispose();
     disposeChain(this._chain);
     this._synth = null;
     this._mixer = null;
     this._vibrato = null;
     this._pitchShift = null;
+    this._palmMuteFilter = null;
     this._chain = {};
     this._exit = null;
   }
@@ -343,7 +372,15 @@ export class Voice implements GuitarInstrument {
   // ─── Internal ────────────────────────────────────────────────────────────────
 
   private _rebuildChain(): void {
-    if (!this._synth || !this._mixer || !this._exit || !this._vibrato || !this._pitchShift) return;
+    if (
+      !this._synth ||
+      !this._mixer ||
+      !this._exit ||
+      !this._vibrato ||
+      !this._pitchShift ||
+      !this._palmMuteFilter
+    )
+      return;
     if (this._connectedToMaster) {
       MasterBus.disconnectVoice(this._exit);
       this._connectedToMaster = false;
@@ -351,11 +388,13 @@ export class Voice implements GuitarInstrument {
     this._mixer.disconnect();
     this._vibrato.disconnect();
     this._pitchShift.disconnect();
+    this._palmMuteFilter.disconnect();
     disposeChain(this._chain);
     this._mixer.connect(this._vibrato);
     this._vibrato.connect(this._pitchShift);
+    this._pitchShift.connect(this._palmMuteFilter);
     this._chain = buildChain(this._preset);
-    this._exit = wireChain(this._pitchShift, this._chain);
+    this._exit = wireChain(this._palmMuteFilter, this._chain);
     MasterBus.connectVoice(this._exit);
     this._connectedToMaster = true;
   }

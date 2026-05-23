@@ -10,7 +10,6 @@ import {
   DEFAULT_INSTRUMENT_ID,
 } from '@fretwork/lib';
 import { EventBar } from './EventBar';
-import { NoteInspector } from './NoteInspector';
 import { usePatternsPlayback } from '../../playback/usePatternsPlayback';
 
 const PX_PER_QUARTER = 60;
@@ -252,13 +251,6 @@ export function PatternTimeline() {
 
   if (!pattern) return null;
 
-  // The single-selected event drives the NoteInspector popover. Multi-select hides
-  // it (the bulk-edit affordance is the toolbar's keyboard shortcuts).
-  const singleSelectedEvent =
-    selectedEventIds.length === 1
-      ? pattern.events.find((e) => e.id === selectedEventIds[0]) ?? null
-      : null;
-
   return (
     <div ref={scrollRef} className="overflow-auto bg-charcoal-deep/40 border border-border/40 rounded-md relative select-none">
       <svg
@@ -485,23 +477,6 @@ export function PatternTimeline() {
           BARS
         </text>
       </svg>
-
-      {/* Selected-event popover. Anchored to the bar's screen position inside the
-          scroll container so it tracks horizontal scroll naturally. */}
-      {singleSelectedEvent && (() => {
-        const rowIdx = stringCount - 1 - singleSelectedEvent.stringIndex;
-        const x = STRING_LABEL_WIDTH + ticksToPx(singleSelectedEvent.startTick);
-        const y = RULER_HEIGHT + rowIdx * ROW_HEIGHT + 3;
-        const barW = Math.max(8, ticksToPx(singleSelectedEvent.durationTicks));
-        return (
-          <NoteInspector
-            event={singleSelectedEvent}
-            x={x}
-            y={y}
-            barWidth={barW}
-          />
-        );
-      })()}
 
       <div className="text-[10px] font-mono text-muted-foreground px-2 py-1 border-t border-border/30">
         {pattern.durationTicks / PPQ} beats · {barsTotal} bars · {pattern.events.length} note{pattern.events.length === 1 ? '' : 's'}

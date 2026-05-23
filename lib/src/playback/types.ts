@@ -122,6 +122,13 @@ export interface PlayOptions {
    * note so the next note isn't tainted.
    */
   pitchCurve?: Array<{ at: number; semitones: number }>;
+  /**
+   * Palm-muted note — implementations apply a low-pass filter for the
+   * duration of the note (typical cutoff ~600 Hz) to give the muted
+   * "chug" timbre. Filter resets to bypassed after the note ends so
+   * subsequent notes aren't tainted.
+   */
+  palmMute?: boolean;
 }
 
 export interface GuitarInstrument {
