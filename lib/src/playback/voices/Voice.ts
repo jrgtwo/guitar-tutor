@@ -85,9 +85,17 @@ export class Voice implements GuitarInstrument {
   private _chain: ChainNodes = {};
   private _exit: Tone.ToneAudioNode | null = null;
   private _connectedToMaster = false;
+  /** Voices default to auto-connecting their output to the master bus. The
+   *  multi-track playback path opts out so it can insert per-track gain
+   *  nodes between the voice and master. */
+  private _autoConnectToMaster = true;
+  /** Set by the multi-track wiring; `_ensureBuilt` connects the chain
+   *  exit to this node instead of MasterBus when present. */
+  private _customRoutingTarget: Tone.ToneAudioNode | null = null;
 
-  constructor(preset: VoicePreset) {
+  constructor(preset: VoicePreset, options?: { autoConnectToMaster?: boolean }) {
     this._preset = preset;
+    if (options?.autoConnectToMaster === false) this._autoConnectToMaster = false;
   }
 
   get preset(): VoicePreset {
@@ -121,8 +129,14 @@ export class Voice implements GuitarInstrument {
     this._pitchShift.connect(this._palmMuteFilter);
     this._chain = buildChain(this._preset);
     this._exit = wireChain(this._palmMuteFilter, this._chain);
-    MasterBus.connectVoice(this._exit);
-    this._connectedToMaster = true;
+    if (this._autoConnectToMaster) {
+      MasterBus.connectVoice(this._exit);
+      this._connectedToMaster = true;
+    } else if (this._customRoutingTarget) {
+      // Multi-track playback path: the manager wired up a per-track Gain
+      // before the first play() triggered this build. Connect to it now.
+      this._exit.connect(this._customRoutingTarget);
+    }
   }
 
   private _buildLayer(layer: VoiceLayer): void {
@@ -395,8 +409,27 @@ export class Voice implements GuitarInstrument {
     this._pitchShift.connect(this._palmMuteFilter);
     this._chain = buildChain(this._preset);
     this._exit = wireChain(this._palmMuteFilter, this._chain);
-    MasterBus.connectVoice(this._exit);
-    this._connectedToMaster = true;
+    if (this._autoConnectToMaster) {
+      MasterBus.connectVoice(this._exit);
+      this._connectedToMaster = true;
+    } else if (this._customRoutingTarget) {
+      this._exit.connect(this._customRoutingTarget);
+    }
+  }
+
+  /**
+   * Multi-track playback support: connect this voice's output to a custom
+   * downstream node (typically a per-track Gain) rather than going through
+   * MasterBus directly. Must be called after `_ensureBuilt` has run (via
+   * any prior `play()` call) — for the first play we cache the target so
+   * `_ensureBuilt` can wire it on construction.
+   */
+  setRoutingTarget(target: Tone.ToneAudioNode | null): void {
+    this._customRoutingTarget = target;
+    if (this._exit) {
+      this._exit.disconnect();
+      if (target) this._exit.connect(target);
+    }
   }
 }
 

@@ -126,6 +126,9 @@ export type { GroovePresetId, GroovePreset } from './groove';
 export { resolveEffectivePlayback } from './scheduler/resolvePlayback';
 export type { EffectivePlayback } from './scheduler/resolvePlayback';
 
+export { MultiTrackPlayback } from './scheduler/MultiTrackPlayback';
+export { CompositionTrackSource } from './scheduler/CompositionTrackSource';
+
 export { selectCompositionsUsingPattern } from './store/usePatternsStore';
 
 export { planCagedInsert, isCagedInsertApplicable } from './caged-insert';

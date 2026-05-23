@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   CompositionSource,
   EventScheduler,
+  MultiTrackPlayback,
   PatternSource,
   buildEffectiveVoice,
   getTuning,
@@ -26,8 +27,8 @@ import {
   selectEditingComposition,
   resolveEffectivePlayback,
 } from '@fretwork/lib';
-import type { FretInstrumentId, GuitarInstrument } from '@fretwork/lib';
-import { PluckSynthInstrument } from '@fretwork/lib';
+import type { FretInstrumentId, GuitarInstrument, Track } from '@fretwork/lib';
+import { PluckSynthInstrument, SilentInstrument } from '@fretwork/lib';
 
 const FRET_INSTRUMENT_IDS = ['guitar', 'bass', 'ukulele'] as const;
 function asFretInstrumentId(id: string): FretInstrumentId {
@@ -54,8 +55,11 @@ interface UsePatternsPlaybackReturn {
   previewCell(cell: { stringIndex: number; fret: number }): void;
 }
 
-// Singleton scheduler — one per app, lazily created on first use.
+// Singleton scheduler — one per app, lazily created on first use. Used for
+// pattern playback (single voice). Composition playback spins up a
+// short-lived MultiTrackPlayback that owns its own schedulers + voices.
 let sharedScheduler: EventScheduler | null = null;
+let currentMultiTrack: MultiTrackPlayback | null = null;
 
 function ensureScheduler(metronome: ReturnType<typeof useMetronome>['metronome']): EventScheduler | null {
   if (typeof window === 'undefined') return null;
@@ -192,6 +196,27 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
     return scheduler.onPlacementChange((id) => setCurrentPlacementId(id));
   }, [scheduler]);
 
+  // Live-update the multi-track manager when the composition's track
+  // state changes (volume slider drag, mute toggle, solo, master volume).
+  // Subscribes to the store; only fires while a multi-track instance is
+  // alive (i.e., composition playback is active or just-finished and not
+  // yet torn down).
+  useEffect(() => {
+    return usePatternsStore.subscribe((state) => {
+      if (!currentMultiTrack) return;
+      const comp = selectEditingComposition(state);
+      if (!comp) return;
+      const needsRebuild = currentMultiTrack.updateComposition(comp);
+      if (needsRebuild) {
+        // Structural change (track added/removed) — schedule a rebuild on
+        // the next play. For now we just dispose; the user will hit play
+        // again. A cleaner UX (rebuild in place) is a follow-up.
+        currentMultiTrack.dispose();
+        currentMultiTrack = null;
+      }
+    });
+  }, []);
+
   // On placement change in inherit mode, resolve effective bpm/groove and push
   // into the metronome. In global mode, this effect does nothing — the
   // composition's bpm/groove was already applied at playEditingComposition()
@@ -224,9 +249,21 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
     if (!pattern) return;
     // Always stop first so the transport position resets to 0 and any in-flight
     // audio from a previous stream (composition, different pattern) is cut.
-    // Without this, calling start() on an already-running transport is a no-op
-    // and stale audio bleeds into the new stream.
     if (metronome.isRunning) metronome.stop();
+    // If a multi-track composition was previously playing, dispose it now
+    // and restore the shared scheduler's real instrument so pattern audio
+    // routes back through the singleton voice.
+    if (currentMultiTrack) {
+      currentMultiTrack.dispose();
+      currentMultiTrack = null;
+      try {
+        const fretState = useFretworkStore.getState();
+        const { voice } = buildEffectiveVoice(asFretInstrumentId(fretState.instrumentId));
+        scheduler.setInstrument(voice);
+      } catch {
+        scheduler.setInstrument(new PluckSynthInstrument());
+      }
+    }
     if (pattern.suggestedBpm !== null) metronome.setBpm(pattern.suggestedBpm);
     metronome.setSwing(pattern.groove?.swing ?? 0.5);
     if (pattern.subdivision) metronome.setSubdivision(pattern.subdivision);
@@ -244,14 +281,54 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
     metronome.setBpm(composition.bpm);
     metronome.setSwing(composition.groove?.swing ?? 0.5);
     if (composition.subdivision) metronome.setSubdivision(composition.subdivision);
+
+    const fretState = useFretworkStore.getState();
+    const tuning = getTuning(fretState.tuning);
+
+    // Tear down any prior multi-track instance, then build a fresh one.
+    // Each track gets its own (Voice, gain, EventScheduler) wired through
+    // the manager's master gain into MasterBus.
+    currentMultiTrack?.dispose();
+    currentMultiTrack = null;
+    if (composition.tracks.length > 0 && tuning) {
+      currentMultiTrack = new MultiTrackPlayback({
+        composition,
+        metronome,
+        tuning,
+        capo: fretState.capo,
+        buildVoice: (track: Track) => {
+          const { voice } = buildEffectiveVoice(
+            asFretInstrumentId(track.instrumentId),
+            { autoConnectToMaster: false },
+          );
+          return voice;
+        },
+      });
+      currentMultiTrack.setLoop(composition.loop);
+    }
+
+    // Park the shared scheduler with a Silent instrument so its head /
+    // active / placement-change callbacks still fire (drives the timeline
+    // highlight + fretboard playhead) without producing audio. Real audio
+    // comes from the per-track schedulers inside MultiTrackPlayback.
+    scheduler.setInstrument(new SilentInstrument());
     scheduler.setStream(new CompositionSource(composition));
     scheduler.setLoop(composition.loop);
+
     void metronome.start();
   }, [scheduler, metronome]);
 
   const stop = useCallback(() => {
     if (!metronome) return;
     metronome.stop();
+    // Tear down the multi-track manager on explicit stop so the next play
+    // builds a fresh routing (possibly with different tracks if the user
+    // edited mid-stop). The shared scheduler's silent instrument stays
+    // until the next play call which restores it or builds a new one.
+    if (currentMultiTrack) {
+      currentMultiTrack.dispose();
+      currentMultiTrack = null;
+    }
   }, [metronome]);
 
   const previewCell = useCallback(

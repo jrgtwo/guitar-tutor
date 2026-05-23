@@ -11,7 +11,7 @@ export { usePlayback } from './usePlayback';
 export type { UsePlaybackReturn } from './usePlayback';
 export { usePlaybackStore, DEFAULT_PLAYBACK_STATE } from './usePlaybackStore';
 export type { PlaybackStoreState } from './usePlaybackStore';
-export { PluckSynthInstrument } from './instrument';
+export { PluckSynthInstrument, SilentInstrument } from './instrument';
 export { startAudio, audioNow } from './audio-context';
 export {
   Voice,
