@@ -52,6 +52,7 @@ import {
   addPlacement as opsAddPlacement,
   applyCompositionMetadata,
   createEmptyComposition,
+  migrateCompositionToTracks,
   removePlacement as opsRemovePlacement,
   reorderPlacement as opsReorderPlacement,
   setCompositionBpm,
@@ -296,19 +297,27 @@ const persistOptions: PersistOptions<PatternsStoreState, Pick<PatternsStoreState
       }));
     }
     if (state.library?.compositions) {
-      state.library.compositions = state.library.compositions.map((c) => ({
-        ...c,
-        loop: c.loop ?? false,
-        subdivision: c.subdivision ?? null,
-        placements: c.placements.map((pl) => ({
+      state.library.compositions = state.library.compositions.map((c) => {
+        const placements = (c.placements ?? []).map((pl) => ({
           ...pl,
           transposeSemitones: pl.transposeSemitones ?? 0,
           lengthTicks: pl.lengthTicks ?? null,
-        })),
-        tempoTrack: c.tempoTrack ?? [],
-        timeSignatureTrack: c.timeSignatureTrack ?? [],
-        sourceIR: c.sourceIR ?? null,
-      }));
+        }));
+        const partial = {
+          ...c,
+          loop: c.loop ?? false,
+          subdivision: c.subdivision ?? null,
+          placements,
+          tempoTrack: c.tempoTrack ?? [],
+          timeSignatureTrack: c.timeSignatureTrack ?? [],
+          sourceIR: c.sourceIR ?? null,
+          masterVolumeDb: c.masterVolumeDb ?? 0,
+        };
+        // Multi-track migration: legacy compositions had `placements` at the
+        // composition level. The new shape stores them under `tracks[0]`
+        // with an auto-generated track id.
+        return migrateCompositionToTracks(partial);
+      });
     }
     return state;
   },
@@ -723,20 +732,27 @@ export const usePatternsStore = create<PatternsStoreState>()(
       forkComposition(source, sourceCreatorName) {
         if (!gateCreate('compositions', get().library.compositions.length)) return '';
         const now = Date.now();
+        // Deep-clone helper for placements — used per-track in the fork.
+        const clonePlacement = (p: Placement): Placement => ({
+          id: generateId('place'),
+          startTick: p.startTick,
+          repeat: p.repeat,
+          transposeSemitones: p.transposeSemitones,
+          lengthTicks: p.lengthTicks,
+          patternSnapshot: clonePattern(p.patternSnapshot),
+        });
         const fork: Composition = {
           ...source,
           id: generateUuid(),
-          // Deep-clone every placement: fresh placement id, fresh patternSnapshot
-          // event ids (via clonePattern so the snapshot becomes a self-contained
-          // copy with no shared references back to the source).
-          placements: source.placements.map((p) => ({
-            id: generateId('place'),
-            startTick: p.startTick,
-            repeat: p.repeat,
-            transposeSemitones: p.transposeSemitones,
-            lengthTicks: p.lengthTicks,
-            patternSnapshot: clonePattern(p.patternSnapshot),
+          // Multi-track fork: each track gets a fresh id + its placements
+          // get deep-cloned. Track names / volumes / mute / solo settings
+          // are inherited as-is.
+          tracks: (source.tracks ?? []).map((t) => ({
+            ...t,
+            id: generateId('trk'),
+            placements: t.placements.map(clonePlacement),
           })),
+          placements: [],
           visibility: 'private',
           publishedAt: null,
           forkedFromId: source.id,
@@ -1190,7 +1206,12 @@ function currentEditTarget(s: PatternsState): {
 } | null {
   if (s.editingPlacementId && s.editingCompositionId) {
     const comp = s.library.compositions.find((c) => c.id === s.editingCompositionId);
-    const placement = comp?.placements.find((p) => p.id === s.editingPlacementId);
+    if (!comp) return null;
+    let placement: Placement | undefined;
+    for (const t of comp.tracks ?? []) {
+      placement = t.placements.find((p) => p.id === s.editingPlacementId);
+      if (placement) break;
+    }
     if (!placement) return null;
     return { pattern: placement.patternSnapshot, kind: 'placement' };
   }
@@ -1285,22 +1306,29 @@ export function selectEditingComposition(s: PatternsStoreState): Composition | n
   return s.library.compositions.find((c) => c.id === s.editingCompositionId) ?? null;
 }
 
-/** Compositions that reference the given pattern id via any placement.
- *  Deduped by composition id (filter on library.compositions). Order: library order. */
+/** Compositions that reference the given pattern id via any placement on
+ *  any track. Deduped by composition id (filter on library.compositions). */
 export function selectCompositionsUsingPattern(
   s: PatternsStoreState,
   patternId: string,
 ): Composition[] {
   return s.library.compositions.filter((c) =>
-    c.placements.some((pl) => pl.patternSnapshot.id === patternId),
+    (c.tracks ?? []).some((t) =>
+      t.placements.some((pl) => pl.patternSnapshot.id === patternId),
+    ),
   );
 }
 
-/** Find a placement by id across all compositions. */
-export function findPlacement(s: PatternsStoreState, placementId: string): { composition: Composition; placement: Placement } | null {
+/** Find a placement by id across all compositions and tracks. */
+export function findPlacement(
+  s: PatternsStoreState,
+  placementId: string,
+): { composition: Composition; placement: Placement } | null {
   for (const c of s.library.compositions) {
-    const p = c.placements.find((pl) => pl.id === placementId);
-    if (p) return { composition: c, placement: p };
+    for (const t of c.tracks ?? []) {
+      const p = t.placements.find((pl) => pl.id === placementId);
+      if (p) return { composition: c, placement: p };
+    }
   }
   return null;
 }

@@ -75,7 +75,7 @@ describe('usePatternsStore', () => {
     // The placement's snapshot must NOT have the new event.
     const s = usePatternsStore.getState();
     const comp = s.library.compositions.find((c) => c.id === compId)!;
-    const placement = comp.placements.find((p) => p.id === placementId)!;
+    const placement = comp.tracks[0].placements.find((p) => p.id === placementId)!;
     expect(placement.patternSnapshot.events).toHaveLength(1);
     expect(placement.patternSnapshot.events[0].fret).toBe(3);
   });
@@ -96,7 +96,7 @@ describe('usePatternsStore', () => {
     expect(libPat.events[0].fret).toBe(3);
     // Placement snapshot has both events.
     const comp = s.library.compositions.find((c) => c.id === compId)!;
-    const placement = comp.placements.find((p) => p.id === placementId)!;
+    const placement = comp.tracks[0].placements.find((p) => p.id === placementId)!;
     expect(placement.patternSnapshot.events).toHaveLength(2);
   });
 
@@ -152,9 +152,9 @@ describe('usePatternsStore', () => {
     reorderPlacement(aPlacement, 1);
     const s = usePatternsStore.getState();
     const comp = s.library.compositions[0];
-    expect(comp.placements[0].patternSnapshot.name).toBe('B');
-    expect(comp.placements[0].startTick).toBe(0);
-    expect(comp.placements[1].patternSnapshot.name).toBe('A');
+    expect(comp.tracks[0].placements[0].patternSnapshot.name).toBe('B');
+    expect(comp.tracks[0].placements[0].startTick).toBe(0);
+    expect(comp.tracks[0].placements[1].patternSnapshot.name).toBe('A');
   });
 
   describe('groove/bpm editing actions', () => {
@@ -258,7 +258,7 @@ describe('placement transpose / resize / composition loop', () => {
     const { compId, placementId } = setupCompositionWithPlacement();
     usePatternsStore.getState().setPlacementTranspose(placementId, 7);
     const comp = usePatternsStore.getState().library.compositions.find((c) => c.id === compId)!;
-    const placement = comp.placements.find((p) => p.id === placementId)!;
+    const placement = comp.tracks[0].placements.find((p) => p.id === placementId)!;
     expect(placement.transposeSemitones).toBe(7);
   });
 
@@ -269,7 +269,7 @@ describe('placement transpose / resize / composition loop', () => {
     const tpb = ticksPerBar(comp.timeSignature);
     usePatternsStore.getState().resizePlacement(placementId, tpb * 2);
     comp = usePatternsStore.getState().library.compositions.find((c) => c.id === compId)!;
-    const placement = comp.placements.find((p) => p.id === placementId)!;
+    const placement = comp.tracks[0].placements.find((p) => p.id === placementId)!;
     expect(placement.lengthTicks).toBe(tpb * 2);
     expect(placement.repeat).toBe(1);
   });

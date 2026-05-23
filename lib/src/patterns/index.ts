@@ -69,8 +69,12 @@ export type {
 
 export {
   createEmptyComposition,
+  createEmptyTrack,
+  migrateCompositionToTracks,
   totalDurationTicks,
   addPlacement,
+  addPlacementToTrack,
+  findPlacement,
   reorderPlacement,
   setPlacementRepeat,
   removePlacement,
@@ -79,6 +83,7 @@ export {
   setCompositionBpm,
   setPlacementSnapshot,
   flattenComposition,
+  flattenTrack,
   placementEffectiveLength,
   applyCompositionMetadata,
   setCompositionTempoMode,
@@ -87,8 +92,18 @@ export {
   setPlacementTranspose,
   resizePlacement,
   setCompositionLoop,
+  addTrack,
+  removeTrack,
+  setTrackName,
+  setTrackInstrument,
+  setTrackVolumeDb,
+  setTrackMuted,
+  setTrackSoloed,
+  setMasterVolumeDb,
 } from './composition-ops';
 export type { CompositionMetadataPatch } from './composition-ops';
+export { MAX_COMPOSITION_TRACKS } from './types';
+export type { Track } from './types';
 
 export {
   MAX_FOLDER_DEPTH,

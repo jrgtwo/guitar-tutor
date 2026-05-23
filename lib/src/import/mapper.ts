@@ -31,9 +31,12 @@ import type {
   PatternTimeSignature,
   TempoEvent,
   TimeSignatureEvent,
+  Track,
 } from '../patterns/types';
+import { MAX_COMPOSITION_TRACKS } from '../patterns/types';
 import { generateId, generateUuid } from '../patterns/ids';
 import { PPQ } from '../patterns/timebase';
+import { migrateCompositionToTracks } from '../patterns/composition-ops';
 
 const DEFAULT_INSTRUMENT_FOR_HINT: Record<string, string> = {
   guitar: 'guitar',
@@ -48,8 +51,19 @@ export type MapTopology = 'composition' | 'single-pattern';
 
 export interface MapInput {
   ir: ImportIR;
-  /** Which track in `ir.tracks` to materialize as the active import. */
+  /** Which track in `ir.tracks` is the "primary" — focus lands on this
+   *  track post-import, and the arranger's first lane comes from here. */
   selectedTrackId: string;
+  /**
+   * Composition-mode-only filter: when present, only these tracks get
+   * materialized into the composition. The rest stay in `sourceIR` for
+   * future re-extraction. When absent (the default), every non-empty
+   * track is imported.
+   *
+   * Single-pattern mode ignores this list — it always imports just the
+   * `selectedTrackId` track.
+   */
+  includedTrackIds?: readonly string[];
   /** Override the topology choice (defaults to 'composition' if sections exist). */
   topology?: MapTopology;
   /** Override the user's currently-active instrument; used when the track
@@ -85,29 +99,9 @@ export function mapImportToLibrary(input: MapInput): MapperResult {
   }
 
   const warnings: string[] = [];
-  const instrumentId = chooseInstrumentId(selected, input.fallbackInstrumentId);
-  if (selected.instrumentHint === 'drums' || selected.instrumentHint === 'vocals') {
-    warnings.push(
-      `Selected track is a "${selected.instrumentHint}" track; imported as ${instrumentId} (no native ${selected.instrumentHint} support yet)`,
-    );
-  }
-
-  // Skipped tracks (everything other than the selected one) ride along in
-  // sourceIR — name them in the warnings list so the user knows the data
-  // isn't lost.
-  const skipped = ir.tracks.filter((t) => t.id !== selectedTrackId);
-  if (skipped.length > 0) {
-    warnings.push(
-      `Skipped tracks (preserved in source data, not yet playable): ${skipped.map((t) => t.name).join(', ')}`,
-    );
-  }
-
-  // Inventory the unsupported articulations across the selected track so
-  // the preview can surface specific counts.
-  inventoryArticulations(selected, warnings);
 
   // Tempo / TS automation: phase-1 plays the initial value only. Count and
-  // warn if there's more.
+  // warn if there's more (applies regardless of topology).
   if (ir.tempos.length > 1) {
     warnings.push(
       `Tempo automation preserved (${ir.tempos.length} changes); only the initial tempo is played until automation playback ships`,
@@ -119,17 +113,42 @@ export function mapImportToLibrary(input: MapInput): MapperResult {
     );
   }
 
-  // Pick topology — fall back to single-pattern if asked for composition but
-  // the file has no sections to split on.
-  const requestedTopology = input.topology ?? (ir.sections.length > 0 ? 'composition' : 'single-pattern');
+  // Pick topology. Auto-default falls to composition mode when the file has
+  // either multiple tracks OR section markers — both are signals that the
+  // user expects more structure than a single flat pattern. An explicit
+  // `input.topology` is honored regardless of file shape (the user knows
+  // what they want).
+  const tracksWithEvents = ir.tracks.filter((t) => t.events.length > 0);
+  const multiTrack = tracksWithEvents.length > 1;
+  const hasSections = ir.sections.length > 0;
   const topology: MapTopology =
-    requestedTopology === 'composition' && ir.sections.length === 0
-      ? 'single-pattern'
-      : requestedTopology;
+    input.topology ?? (multiTrack || hasSections ? 'composition' : 'single-pattern');
 
   if (topology === 'composition') {
-    return mapAsComposition(ir, selected, instrumentId, warnings);
+    return mapAsComposition(
+      ir,
+      selected,
+      input.fallbackInstrumentId,
+      warnings,
+      input.includedTrackIds,
+    );
   }
+
+  // Single-pattern mode warns about the unselected tracks since they're
+  // dropped from active playback (still preserved in sourceIR).
+  const instrumentId = chooseInstrumentId(selected, input.fallbackInstrumentId);
+  if (selected.instrumentHint === 'drums' || selected.instrumentHint === 'vocals') {
+    warnings.push(
+      `Selected track is a "${selected.instrumentHint}" track; imported as ${instrumentId} (no native ${selected.instrumentHint} support yet)`,
+    );
+  }
+  const skipped = ir.tracks.filter((t) => t.id !== selectedTrackId);
+  if (skipped.length > 0) {
+    warnings.push(
+      `Skipped tracks (preserved in source data, not yet playable): ${skipped.map((t) => t.name).join(', ')}`,
+    );
+  }
+  inventoryArticulations(selected, warnings);
   return mapAsSinglePattern(ir, selected, instrumentId, warnings);
 }
 
@@ -196,89 +215,173 @@ function mapAsSinglePattern(
 
 // ─── Composition mode ─────────────────────────────────────────────────────
 
+/**
+ * Multi-track composition import:
+ *   - Every IR track with events becomes a Composition Track.
+ *   - When section markers exist, every track is split into per-section
+ *     patterns + placements (so all tracks share a common timeline
+ *     skeleton). Empty sections on a track still produce a pattern — they
+ *     just have no events. This keeps lane alignment intuitive in the
+ *     arranger.
+ *   - When no section markers exist, every track gets one big pattern
+ *     containing all its events (one placement per track).
+ *
+ * Tracks beyond `MAX_COMPOSITION_TRACKS` are dropped with a warning;
+ * their data is preserved in `sourceIR`.
+ */
 function mapAsComposition(
   ir: ImportIR,
-  track: IRTrack,
-  instrumentId: string,
+  selectedTrack: IRTrack,
+  fallbackInstrumentId: string | undefined,
   warnings: string[],
+  includedTrackIds?: readonly string[],
 ): MapperResult {
   const scale = scaleFactor(ir.ticksPerQuarter);
+
+  // Build section intervals (or a single full-song interval when no markers).
   const sections = ir.sections.slice().sort((a, b) => a.atTick - b.atTick);
-
-  // Build [start, end) intervals for each section (last one ends at totalTicks).
   const intervals: Array<{ name: string; start: number; end: number }> = [];
-  for (let i = 0; i < sections.length; i++) {
-    const start = sections[i].atTick;
-    const end = i + 1 < sections.length ? sections[i + 1].atTick : ir.totalTicks;
-    intervals.push({ name: sections[i].name || `Section ${i + 1}`, start, end });
+  if (sections.length > 0) {
+    for (let i = 0; i < sections.length; i++) {
+      const start = sections[i].atTick;
+      const end = i + 1 < sections.length ? sections[i + 1].atTick : ir.totalTicks;
+      intervals.push({ name: sections[i].name || `Section ${i + 1}`, start, end });
+    }
+    if (sections[0].atTick > 0) {
+      intervals.unshift({ name: 'Intro', start: 0, end: sections[0].atTick });
+    }
+  } else {
+    intervals.push({ name: 'Main', start: 0, end: ir.totalTicks });
   }
 
-  // Synthesize a leading section for any content before the first marker.
-  if (sections.length > 0 && sections[0].atTick > 0) {
-    intervals.unshift({ name: 'Intro', start: 0, end: sections[0].atTick });
+  // Tracks to import — non-empty only, capped at MAX_COMPOSITION_TRACKS.
+  // The selected track is sorted first so the arranger's "primary" lane
+  // matches the user's pick. Drum/vocals tracks come through as
+  // guitar-fallback today; richer mapping when those engines exist.
+  // When `includedTrackIds` is provided, restrict to that subset so the
+  // user can opt out of tracks they don't want (the unchecked ones still
+  // ride along in sourceIR for future re-extraction).
+  const includedSet = includedTrackIds ? new Set(includedTrackIds) : null;
+  // Always keep the selected (primary) track included so the post-commit
+  // navigation makes sense.
+  if (includedSet && !includedSet.has(selectedTrack.id)) includedSet.add(selectedTrack.id);
+  const importable = ir.tracks.filter(
+    (t) => t.events.length > 0 && (includedSet === null || includedSet.has(t.id)),
+  );
+  importable.sort((a, b) => (a.id === selectedTrack.id ? -1 : b.id === selectedTrack.id ? 1 : 0));
+  const dropped = importable.slice(MAX_COMPOSITION_TRACKS);
+  const usable = importable.slice(0, MAX_COMPOSITION_TRACKS);
+
+  // Tracks the user opted out of (still preserved in sourceIR).
+  if (includedSet) {
+    const explicitlyExcluded = ir.tracks.filter(
+      (t) => t.events.length > 0 && !includedSet.has(t.id),
+    );
+    if (explicitlyExcluded.length > 0) {
+      warnings.push(
+        `Excluded ${explicitlyExcluded.length} track${explicitlyExcluded.length === 1 ? '' : 's'} (preserved in source data): ${explicitlyExcluded.map((t) => t.name).join(', ')}`,
+      );
+    }
   }
 
-  const stringCount = track.tuning?.length ?? 6;
+  if (dropped.length > 0) {
+    warnings.push(
+      `Dropped ${dropped.length} track${dropped.length === 1 ? '' : 's'} beyond the ${MAX_COMPOSITION_TRACKS}-track cap (preserved in source data): ${dropped.map((t) => t.name).join(', ')}`,
+    );
+  }
+  const emptyTracks = ir.tracks.filter((t) => t.events.length === 0);
+  if (emptyTracks.length > 0) {
+    warnings.push(
+      `${emptyTracks.length} empty track${emptyTracks.length === 1 ? '' : 's'} skipped (preserved in source data): ${emptyTracks.map((t) => t.name).join(', ')}`,
+    );
+  }
+
+  // Materialize each track. Section patterns are collected into a single
+  // flat list (the library); each track gets per-section placements
+  // referencing snapshots.
   const patterns: Pattern[] = [];
-  const placements: Placement[] = [];
-  let totalDropped = 0;
+  const trackResults: Track[] = [];
   let totalNotes = 0;
   let totalEvents = 0;
+  let totalDropped = 0;
 
-  for (const seg of intervals) {
-    const segEvents: PatternEvent[] = [];
-    for (let ei = 0; ei < track.events.length; ei++) {
-      const irEvent = track.events[ei];
-      if (irEvent.atTick < seg.start || irEvent.atTick >= seg.end) continue;
-      for (const irNote of irEvent.notes) {
-        totalNotes++;
-        const offsetEvent: IREvent = { ...irEvent, atTick: irEvent.atTick - seg.start };
-        const pe = irNoteToPatternEvent(irNote, offsetEvent, scale, track.capo ?? 0, stringCount);
-        if (pe) {
-          resolveSlideTarget(pe, irNote, track, ei);
-          segEvents.push(pe);
-        } else totalDropped++;
+  for (const irTrack of usable) {
+    const trackInstrumentId = chooseInstrumentId(irTrack, fallbackInstrumentId);
+    const stringCount = irTrack.tuning?.length ?? 6;
+    const trackPlacements: Placement[] = [];
+
+    for (const seg of intervals) {
+      const segEvents: PatternEvent[] = [];
+      for (let ei = 0; ei < irTrack.events.length; ei++) {
+        const irEvent = irTrack.events[ei];
+        if (irEvent.atTick < seg.start || irEvent.atTick >= seg.end) continue;
+        for (const irNote of irEvent.notes) {
+          totalNotes++;
+          const offsetEvent: IREvent = { ...irEvent, atTick: irEvent.atTick - seg.start };
+          const pe = irNoteToPatternEvent(irNote, offsetEvent, scale, irTrack.capo ?? 0, stringCount);
+          if (pe) {
+            resolveSlideTarget(pe, irNote, irTrack, ei);
+            segEvents.push(pe);
+          } else totalDropped++;
+        }
       }
+      totalEvents += segEvents.length;
+
+      const tsAtSegStart = timeSignatureAt(ir.timeSignatures, seg.start);
+      const initialBpmAtSeg = bpmAt(ir.tempos, seg.start);
+      const durationTicks = Math.max(
+        segEvents.reduce((m, e) => Math.max(m, e.startTick + e.durationTicks), 0),
+        Math.round((seg.end - seg.start) / scale),
+      );
+      // Pattern name: when multi-section, "<Track> · <Section>"; when
+      // single-section, just the track name (more concise).
+      const patternName =
+        intervals.length > 1
+          ? `${irTrack.name} · ${seg.name}`
+          : irTrack.name;
+      const sectionPattern = buildPattern({
+        name: patternName,
+        instrumentId: trackInstrumentId,
+        events: segEvents,
+        durationTicks,
+        timeSignature: tsAtSegStart,
+        suggestedBpm: initialBpmAtSeg,
+        tempoTrack: sliceTempoTrack(ir.tempos, seg.start, seg.end, scale),
+        timeSignatureTrack: sliceTimeSignatureTrack(ir.timeSignatures, seg.start, seg.end, scale),
+        sourceIR: null,
+      });
+      patterns.push(sectionPattern);
+
+      trackPlacements.push({
+        id: generateId('pl'),
+        patternSnapshot: clonePatternForPlacement(sectionPattern),
+        startTick: Math.round(seg.start / scale),
+        repeat: 1,
+        transposeSemitones: 0,
+        lengthTicks: null,
+      });
     }
-    totalEvents += segEvents.length;
-    const tsAtSegStart = timeSignatureAt(ir.timeSignatures, seg.start);
-    const initialBpmAtSeg = bpmAt(ir.tempos, seg.start);
-    const durationTicks = Math.max(
-      segEvents.reduce((m, e) => Math.max(m, e.startTick + e.durationTicks), 0),
-      Math.round((seg.end - seg.start) / scale),
-    );
 
-    const sectionPattern = buildPattern({
-      name: seg.name,
-      instrumentId,
-      events: segEvents,
-      durationTicks,
-      timeSignature: tsAtSegStart,
-      suggestedBpm: initialBpmAtSeg,
-      // Each per-section pattern carries only the slice of automation tracks
-      // that overlap with it; the full song-level IR remains on the
-      // Composition's sourceIR.
-      tempoTrack: sliceTempoTrack(ir.tempos, seg.start, seg.end, scale),
-      timeSignatureTrack: sliceTimeSignatureTrack(ir.timeSignatures, seg.start, seg.end, scale),
-      sourceIR: null,
+    trackResults.push({
+      id: generateId('trk'),
+      name: irTrack.name,
+      instrumentId: trackInstrumentId,
+      volumeDb: 0,
+      muted: false,
+      soloed: false,
+      placements: trackPlacements,
     });
-    patterns.push(sectionPattern);
 
-    placements.push({
-      id: generateId('pl'),
-      patternSnapshot: clonePatternForPlacement(sectionPattern),
-      startTick: Math.round(seg.start / scale),
-      repeat: 1,
-      transposeSemitones: 0,
-      lengthTicks: null,
-    });
+    // Inventory unsupported / surfaced articulations once per track —
+    // labelled with the track name so the user knows where each warning came from.
+    inventoryArticulationsLabeled(irTrack, warnings);
   }
 
   if (totalDropped > 0) {
     warnings.push(`Dropped ${totalDropped} notes that fell outside the playable string/fret range`);
   }
   warnings.push(
-    `Selected track "${track.name}" → ${totalNotes} IR notes → ${totalEvents} pattern events across ${patterns.length} sections`,
+    `Imported ${usable.length} track${usable.length === 1 ? '' : 's'} → ${totalNotes} IR notes → ${totalEvents} pattern events across ${intervals.length} section${intervals.length === 1 ? '' : 's'}`,
   );
 
   const initialBpm = ir.tempos[0]?.bpm ?? 120;
@@ -287,12 +390,17 @@ function mapAsComposition(
       ? { numerator: ir.timeSignatures[0].numerator, denominator: ir.timeSignatures[0].denominator }
       : { numerator: 4, denominator: 4 };
 
+  // Comp-level instrumentId stays as the selected track's instrument for
+  // legacy UI bits that still read `composition.instrumentId`.
+  const primaryInstrumentId = chooseInstrumentId(selectedTrack, fallbackInstrumentId);
+
   const composition = buildComposition({
-    name: ir.meta.title || track.name || 'Imported composition',
-    instrumentId,
+    name: ir.meta.title || selectedTrack.name || 'Imported composition',
+    instrumentId: primaryInstrumentId,
     bpm: initialBpm,
     timeSignature: initialTs,
-    placements,
+    placements: [],
+    tracks: trackResults,
     tempoTrack: rescaleTempoTrack(ir.tempos, scale),
     timeSignatureTrack: rescaleTimeSignatureTrack(ir.timeSignatures, scale),
     sourceIR: ir,
@@ -313,6 +421,19 @@ function chooseInstrumentId(track: IRTrack, fallback: string | undefined): strin
     return DEFAULT_INSTRUMENT_FOR_HINT[track.instrumentHint];
   }
   return fallback ?? 'guitar';
+}
+
+/**
+ * Multi-track variant: same warning content as `inventoryArticulations`
+ * but each line is prefixed with the track name so the user knows which
+ * track's articulations are being summarized.
+ */
+function inventoryArticulationsLabeled(track: IRTrack, warnings: string[]): void {
+  const localWarnings: string[] = [];
+  inventoryArticulations(track, localWarnings);
+  for (const w of localWarnings) {
+    warnings.push(`[${track.name}] ${w}`);
+  }
 }
 
 function inventoryArticulations(track: IRTrack, warnings: string[]): void {
@@ -616,7 +737,10 @@ interface CompositionSeed {
   instrumentId: string;
   bpm: number;
   timeSignature: PatternTimeSignature;
+  /** Legacy single-track placements list. Empty when `tracks` is provided. */
   placements: Placement[];
+  /** Pre-built tracks. When provided, the migration shim is bypassed. */
+  tracks?: Track[];
   tempoTrack: TempoEvent[];
   timeSignatureTrack: TimeSignatureEvent[];
   sourceIR: ImportIR | null;
@@ -624,7 +748,12 @@ interface CompositionSeed {
 
 function buildComposition(seed: CompositionSeed): Composition {
   const now = Date.now();
-  return {
+  // Two paths:
+  //   - Multi-track import (Phase 2+) passes pre-built `tracks` — we use
+  //     them directly.
+  //   - Single-pattern fallback / legacy callers pass `placements` only;
+  //     the migration helper lifts them into `tracks[0]`.
+  const base: Composition = {
     id: generateUuid(),
     name: seed.name,
     instrumentId: seed.instrumentId,
@@ -635,6 +764,8 @@ function buildComposition(seed: CompositionSeed): Composition {
     subdivision: null,
     timeSignature: seed.timeSignature,
     placements: seed.placements,
+    tracks: seed.tracks ?? [],
+    masterVolumeDb: 0,
     loop: false,
     description: null,
     difficulty: null,
@@ -651,4 +782,5 @@ function buildComposition(seed: CompositionSeed): Composition {
     createdAt: now,
     updatedAt: now,
   };
+  return migrateCompositionToTracks(base);
 }

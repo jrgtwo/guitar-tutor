@@ -37,7 +37,7 @@ export function CompositionTimeline() {
     if (!composition) return { widths: new Map<string, number>(), totalPx: 0 };
     const widths = new Map<string, number>();
     let cursor = 0;
-    for (const p of composition.placements) {
+    for (const p of composition.tracks[0].placements) {
       const beats = (placementEffectiveLength(p) * p.repeat) / PPQ;
       const w = Math.max(MIN_BLOCK_WIDTH, beats * PX_PER_BEAT);
       widths.set(p.id, w);
@@ -51,7 +51,7 @@ export function CompositionTimeline() {
   const playheadPx = useMemo(() => {
     if (!composition || !playback.isPlaying) return null;
     let cursor = 0;
-    for (const p of composition.placements) {
+    for (const p of composition.tracks[0].placements) {
       const w = blockLayout.widths.get(p.id) ?? MIN_BLOCK_WIDTH;
       const placementDur = placementEffectiveLength(p) * p.repeat;
       const placementEnd = p.startTick + placementDur;
@@ -69,7 +69,7 @@ export function CompositionTimeline() {
   // Determine which placement is currently playing based on the head tick.
   const playingPlacementId = (() => {
     if (!playback.isPlaying) return null;
-    for (const p of composition.placements) {
+    for (const p of composition.tracks[0].placements) {
       const end = p.startTick + placementEffectiveLength(p) * p.repeat;
       if (playback.headTick >= p.startTick && playback.headTick < end) return p.id;
     }
@@ -106,7 +106,7 @@ export function CompositionTimeline() {
       setDropTarget(null);
       return;
     }
-    const placements = composition.placements;
+    const placements = composition.tracks[0].placements;
     const srcIdx = placements.findIndex((p) => p.id === draggingId);
     const tgtIdx = placements.findIndex((p) => p.id === targetId);
     if (srcIdx < 0 || tgtIdx < 0) {
@@ -135,7 +135,7 @@ export function CompositionTimeline() {
   if (tpb > 0 && totalTicks > 0) {
     let cursor = 0;
     let barIdx = 0;
-    for (const p of composition.placements) {
+    for (const p of composition.tracks[0].placements) {
       const w = blockLayout.widths.get(p.id) ?? MIN_BLOCK_WIDTH;
       const placementDur = placementEffectiveLength(p) * p.repeat;
       const beatsInBlock = placementDur / PPQ;
@@ -152,13 +152,13 @@ export function CompositionTimeline() {
 
   return (
     <div className="flex flex-col gap-2 px-3 pb-3">
-      {composition.placements.length === 0 && (
+      {composition.tracks[0].placements.length === 0 && (
         <p className="text-[11px] font-mono text-muted-foreground italic py-6">
           Empty composition. Click <strong className="text-foreground">+ Add pattern</strong> in the toolbar to start arranging. Once you have blocks, drag them to reorder.
         </p>
       )}
 
-      {composition.placements.length > 0 && (
+      {composition.tracks[0].placements.length > 0 && (
         <div className="relative">
           {/* Ruler */}
           <div
@@ -184,7 +184,7 @@ export function CompositionTimeline() {
             className="relative flex items-stretch overflow-x-auto py-1"
             style={{ minWidth: blockLayout.totalPx + 12 }}
           >
-            {composition.placements.map((p) => {
+            {composition.tracks[0].placements.map((p) => {
               const width = blockLayout.widths.get(p.id) ?? MIN_BLOCK_WIDTH;
               const hint =
                 dropTarget && dropTarget.id === p.id ? dropTarget.side : 'none';

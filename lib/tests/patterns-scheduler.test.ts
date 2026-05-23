@@ -111,7 +111,7 @@ describe('CompositionSource', () => {
     p = stampEvent({ pattern: p, stringIndex: 0, fret: 5, startTick: 0, durationTicks: PPQ }).pattern;
     let comp = createEmptyComposition();
     ({ composition: comp } = addPlacement(comp, p));
-    comp = setPlacementRepeat(comp, comp.placements[0].id, 3);
+    comp = setPlacementRepeat(comp, comp.tracks[0].placements[0].id, 3);
 
     const source = new CompositionSource(comp);
     expect(source.durationTicks).toBe(p.durationTicks * 3);
@@ -148,9 +148,9 @@ describe('EventScheduler placement-change emission', () => {
     comp = addPlacement(comp, p2).composition;
 
     const source = new CompositionSource(comp);
-    const firstPlacementId = comp.placements[0].id;
-    const secondPlacementId = comp.placements[1].id;
-    const firstDuration = comp.placements[0].patternSnapshot.durationTicks;
+    const firstPlacementId = comp.tracks[0].placements[0].id;
+    const secondPlacementId = comp.tracks[0].placements[1].id;
+    const firstDuration = comp.tracks[0].placements[0].patternSnapshot.durationTicks;
 
     const { scheduler, metronome } = makeScheduler();
     scheduler.setStream(source);

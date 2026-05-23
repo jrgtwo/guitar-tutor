@@ -78,12 +78,18 @@ export function ImportPage() {
   }, []);
 
   const handleCommit = useCallback(
-    (opts: { selectedTrackId: string; topology: MapTopology }) => {
+    (opts: {
+      selectedTrackId: string;
+      topology: MapTopology;
+      includedTrackIds: string[];
+    }) => {
       if (state.kind !== 'preview') return;
       const result = mapImportToLibrary({
         ir: state.ir,
         selectedTrackId: opts.selectedTrackId,
         topology: opts.topology,
+        includedTrackIds:
+          opts.topology === 'composition' ? opts.includedTrackIds : undefined,
         fallbackInstrumentId,
       });
       const out = commitImport(result);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { Placement, Pattern } from '../src/patterns';
+import type { Composition, Placement, Pattern } from '../src/patterns';
 import {
   createEmptyPattern,
   createEmptyComposition,
@@ -21,6 +21,31 @@ import {
   PPQ,
 } from '../src/patterns';
 
+/** Test-helper: placements live on `tracks[*].placements` after the multi-
+ *  track migration. This convenience function flattens them across all
+ *  tracks for read-side assertions, preserving authored order. Mirrors the
+ *  legacy `comp.placements` array. */
+function placementsOf(comp: Composition): Placement[] {
+  return (comp.tracks ?? []).flatMap((t) => t.placements);
+}
+
+/** Test-helper: clone the composition with `mutator(placement)` applied to
+ *  the placement matching `placementId`. Used by tests that intentionally
+ *  bypass the public ops to construct edge cases for `flattenComposition`. */
+function mutatePlacement(
+  comp: Composition,
+  placementId: string,
+  mutator: (p: Placement) => Placement,
+): Composition {
+  return {
+    ...comp,
+    tracks: comp.tracks.map((t) => ({
+      ...t,
+      placements: t.placements.map((p) => (p.id === placementId ? mutator(p) : p)),
+    })),
+  };
+}
+
 describe('composition-ops', () => {
   describe('createEmptyComposition', () => {
     it('seeds empty automation tracks and null sourceIR by default', () => {
@@ -39,7 +64,7 @@ describe('composition-ops', () => {
       const { composition: c1, placement } = addPlacement(comp, pat);
       // Mutating the library pattern's events should not affect the placement.
       pat.events[0].fret = 99;
-      const placed = c1.placements.find((p) => p.id === placement.id)!;
+      const placed = placementsOf(c1).find((p) => p.id === placement.id)!;
       expect(placed.patternSnapshot.events[0].fret).toBe(5);
     });
 
@@ -51,9 +76,9 @@ describe('composition-ops', () => {
       let comp = createEmptyComposition();
       ({ composition: comp } = addPlacement(comp, p1));
       ({ composition: comp } = addPlacement(comp, p2));
-      expect(comp.placements).toHaveLength(2);
-      expect(comp.placements[0].startTick).toBe(0);
-      expect(comp.placements[1].startTick).toBe(p1.durationTicks);
+      expect(placementsOf(comp)).toHaveLength(2);
+      expect(placementsOf(comp)[0].startTick).toBe(0);
+      expect(placementsOf(comp)[1].startTick).toBe(p1.durationTicks);
     });
   });
 
@@ -65,10 +90,10 @@ describe('composition-ops', () => {
       let placementBId = '';
       ({ composition: comp, placement: { id: placementAId } } = addPlacement(comp, p));
       ({ composition: comp, placement: { id: placementBId } } = addPlacement(comp, p));
-      const beforeB = comp.placements.find((pl) => pl.id === placementBId)!;
+      const beforeB = placementsOf(comp).find((pl) => pl.id === placementBId)!;
       expect(beforeB.startTick).toBe(p.durationTicks);
       comp = setPlacementRepeat(comp, placementAId, 3);
-      const afterB = comp.placements.find((pl) => pl.id === placementBId)!;
+      const afterB = placementsOf(comp).find((pl) => pl.id === placementBId)!;
       expect(afterB.startTick).toBe(p.durationTicks * 3);
     });
   });
@@ -84,9 +109,9 @@ describe('composition-ops', () => {
         ids.push(placement.id);
       }
       comp = removePlacement(comp, ids[1]);
-      expect(comp.placements).toHaveLength(2);
-      expect(comp.placements[0].startTick).toBe(0);
-      expect(comp.placements[1].startTick).toBe(p.durationTicks);
+      expect(placementsOf(comp)).toHaveLength(2);
+      expect(placementsOf(comp)[0].startTick).toBe(0);
+      expect(placementsOf(comp)[1].startTick).toBe(p.durationTicks);
     });
   });
 
@@ -101,11 +126,11 @@ describe('composition-ops', () => {
         ids.push(placement.id);
       }
       comp = reorderPlacement(comp, ids[0], 2);
-      expect(comp.placements[2].id).toBe(ids[0]);
+      expect(placementsOf(comp)[2].id).toBe(ids[0]);
       // After reorder, startTicks should be contiguous from 0.
-      expect(comp.placements[0].startTick).toBe(0);
-      expect(comp.placements[1].startTick).toBe(p.durationTicks);
-      expect(comp.placements[2].startTick).toBe(p.durationTicks * 2);
+      expect(placementsOf(comp)[0].startTick).toBe(0);
+      expect(placementsOf(comp)[1].startTick).toBe(p.durationTicks);
+      expect(placementsOf(comp)[2].startTick).toBe(p.durationTicks * 2);
     });
   });
 
@@ -114,7 +139,7 @@ describe('composition-ops', () => {
       let p = createEmptyPattern();
       let comp = createEmptyComposition();
       ({ composition: comp } = addPlacement(comp, p));
-      comp = setPlacementRepeat(comp, comp.placements[0].id, 4);
+      comp = setPlacementRepeat(comp, placementsOf(comp)[0].id, 4);
       expect(totalDurationTicks(comp)).toBe(p.durationTicks * 4);
     });
   });
@@ -126,7 +151,7 @@ describe('composition-ops', () => {
       p = stampEvent({ pattern: p, stringIndex: 1, fret: 3, startTick: PPQ, durationTicks: PPQ }).pattern;
       let comp = createEmptyComposition();
       ({ composition: comp } = addPlacement(comp, p));
-      comp = setPlacementRepeat(comp, comp.placements[0].id, 2);
+      comp = setPlacementRepeat(comp, placementsOf(comp)[0].id, 2);
 
       const events = flattenComposition(comp);
       // 2 events per repeat * 2 repeats = 4 events
@@ -219,12 +244,7 @@ describe('flattenComposition — transpose + truncate', () => {
     let comp = createEmptyComposition('c');
     const r = addPlacement(comp, pat);
     comp = r.composition;
-    comp = {
-      ...comp,
-      placements: comp.placements.map((p) =>
-        p.id === r.placement.id ? { ...p, transposeSemitones: 5 } : p,
-      ),
-    };
+    comp = mutatePlacement(comp, r.placement.id, (p) => ({ ...p, transposeSemitones: 5 }));
     const flat = flattenComposition(comp);
     expect(flat).toHaveLength(4);
     expect(flat.map((e) => e.fret)).toEqual([10, 12, 14, 16]);
@@ -238,12 +258,7 @@ describe('flattenComposition — transpose + truncate', () => {
     let comp = createEmptyComposition('c');
     const r = addPlacement(comp, pat);
     comp = r.composition;
-    comp = {
-      ...comp,
-      placements: comp.placements.map((p) =>
-        p.id === r.placement.id ? { ...p, transposeSemitones: -6 } : p,
-      ),
-    };
+    comp = mutatePlacement(comp, r.placement.id, (p) => ({ ...p, transposeSemitones: -6 }));
     const flat = flattenComposition(comp);
     // Frets 5,7,9,11 → -1,1,3,5. -1 is dropped; 3 survive.
     expect(flat).toHaveLength(3);
@@ -255,12 +270,7 @@ describe('flattenComposition — transpose + truncate', () => {
     let comp = createEmptyComposition('c');
     const r = addPlacement(comp, pat);
     comp = r.composition;
-    comp = {
-      ...comp,
-      placements: comp.placements.map((p) =>
-        p.id === r.placement.id ? { ...p, lengthTicks: 960 } : p,
-      ),
-    };
+    comp = mutatePlacement(comp, r.placement.id, (p) => ({ ...p, lengthTicks: 960 }));
     const flat = flattenComposition(comp);
     expect(flat).toHaveLength(2);
     expect(flat.map((e) => e.startTick)).toEqual([0, 480]);
@@ -272,12 +282,7 @@ describe('flattenComposition — transpose + truncate', () => {
     let comp = createEmptyComposition('c');
     const r = addPlacement(comp, pat);
     comp = r.composition;
-    comp = {
-      ...comp,
-      placements: comp.placements.map((p) =>
-        p.id === r.placement.id ? { ...p, lengthTicks: 960 } : p,
-      ),
-    };
+    comp = mutatePlacement(comp, r.placement.id, (p) => ({ ...p, lengthTicks: 960 }));
     const flat = flattenComposition(comp);
     expect(flat).toHaveLength(1);
     expect(flat[0].startTick).toBe(720);
@@ -289,12 +294,7 @@ describe('flattenComposition — transpose + truncate', () => {
     let comp = createEmptyComposition('c');
     const r = addPlacement(comp, pat);
     comp = r.composition;
-    comp = {
-      ...comp,
-      placements: comp.placements.map((p) =>
-        p.id === r.placement.id ? { ...p, lengthTicks: 960, transposeSemitones: 2 } : p,
-      ),
-    };
+    comp = mutatePlacement(comp, r.placement.id, (p) => ({ ...p, lengthTicks: 960, transposeSemitones: 2 }));
     const flat = flattenComposition(comp);
     expect(flat).toHaveLength(2);
     expect(flat.map((e) => e.fret)).toEqual([7, 9]);
@@ -305,12 +305,7 @@ describe('flattenComposition — transpose + truncate', () => {
     let comp = createEmptyComposition('c');
     const r = addPlacement(comp, pat);
     comp = r.composition;
-    comp = {
-      ...comp,
-      placements: comp.placements.map((p) =>
-        p.id === r.placement.id ? { ...p, lengthTicks: 960, repeat: 2 } : p,
-      ),
-    };
+    comp = mutatePlacement(comp, r.placement.id, (p) => ({ ...p, lengthTicks: 960, repeat: 2 }));
     const flat = flattenComposition(comp);
     expect(flat).toHaveLength(4);
     expect(flat.map((e) => e.startTick).sort((a, b) => a - b)).toEqual([0, 480, 960, 1440]);
@@ -321,15 +316,10 @@ describe('flattenComposition — transpose + truncate', () => {
     let comp = createEmptyComposition('c');
     const r = addPlacement(comp, pat);
     comp = r.composition;
-    comp = {
-      ...comp,
-      placements: comp.placements.map((p) =>
-        p.id === r.placement.id ? { ...p, transposeSemitones: 5, lengthTicks: 960 } : p,
-      ),
-    };
-    const before = comp.placements[0].patternSnapshot.events.map((e) => ({ ...e }));
+    comp = mutatePlacement(comp, r.placement.id, (p) => ({ ...p, transposeSemitones: 5, lengthTicks: 960 }));
+    const before = placementsOf(comp)[0].patternSnapshot.events.map((e) => ({ ...e }));
     flattenComposition(comp);
-    const after = comp.placements[0].patternSnapshot.events.map((e) => ({ ...e }));
+    const after = placementsOf(comp)[0].patternSnapshot.events.map((e) => ({ ...e }));
     expect(after).toEqual(before);
   });
 });
@@ -347,7 +337,7 @@ describe('Placement + Composition new fields', () => {
     expect(placement.transposeSemitones).toBe(0);
     expect(placement.lengthTicks).toBeNull();
     expect(placement.repeat).toBe(1);
-    expect(composition.placements).toHaveLength(1);
+    expect(placementsOf(composition)).toHaveLength(1);
   });
 
   it('placementEffectiveLength returns lengthTicks when set', () => {
@@ -384,9 +374,9 @@ describe('setPlacementTranspose / resizePlacement / setCompositionLoop', () => {
     const r = addPlacement(comp, pat);
     comp = r.composition;
     let next = setPlacementTranspose(comp, r.placement.id, 100);
-    expect(next.placements[0].transposeSemitones).toBe(24);
+    expect(placementsOf(next)[0].transposeSemitones).toBe(24);
     next = setPlacementTranspose(comp, r.placement.id, -100);
-    expect(next.placements[0].transposeSemitones).toBe(-24);
+    expect(placementsOf(next)[0].transposeSemitones).toBe(-24);
   });
 
   it('setPlacementTranspose returns same ref when unchanged', () => {
@@ -403,16 +393,11 @@ describe('setPlacementTranspose / resizePlacement / setCompositionLoop', () => {
     const pat = createEmptyPattern('p');
     const r = addPlacement(comp, pat);
     comp = r.composition;
-    comp = {
-      ...comp,
-      placements: comp.placements.map((p) =>
-        p.id === r.placement.id ? { ...p, repeat: 3 } : p,
-      ),
-    };
+    comp = mutatePlacement(comp, r.placement.id, (p) => ({ ...p, repeat: 3 }));
     const tpb = ticksPerBar(comp.timeSignature);
     const next = resizePlacement(comp, r.placement.id, tpb * 2);
-    expect(next.placements[0].lengthTicks).toBe(tpb * 2);
-    expect(next.placements[0].repeat).toBe(1);
+    expect(placementsOf(next)[0].lengthTicks).toBe(tpb * 2);
+    expect(placementsOf(next)[0].repeat).toBe(1);
   });
 
   it('setCompositionLoop toggles the flag and returns same ref when unchanged', () => {

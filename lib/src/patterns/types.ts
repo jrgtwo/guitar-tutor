@@ -315,6 +315,33 @@ export interface Pattern {
   updatedAt: number;
 }
 
+/**
+ * One playback track within a `Composition`. Compositions are multi-track:
+ * each track plays its own placements through its own voice/instrument and
+ * mixes through a per-track volume into the composition's master bus.
+ *
+ * Mute / solo follow standard DAW semantics: any soloed track silences
+ * non-soloed tracks; mute is independent. Both ride on a per-track
+ * audio-rate gain so toggling them doesn't click.
+ */
+export interface Track {
+  id: string;
+  name: string;
+  instrumentId: string;
+  /** Per-track volume in dB. 0 = unity. Range typically -60..+6.  */
+  volumeDb: number;
+  muted: boolean;
+  soloed: boolean;
+  /** This track's placements — each placement points to a deep-copied
+   *  Pattern snapshot just like the legacy single-track model. */
+  placements: Placement[];
+}
+
+/** Maximum simultaneous tracks per Composition. The cap exists because each
+ *  Sampler-based voice loads its own sample bank; 8 already pushes ~50MB
+ *  for an all-sampler band. */
+export const MAX_COMPOSITION_TRACKS = 8;
+
 export interface Placement {
   id: string;
   /** Deep-copied at placement time — no reference to the library pattern. */
@@ -357,6 +384,24 @@ export interface Composition {
    *  value at play time. See `Pattern.subdivision` for the per-pattern field. */
   subdivision: import('../metronome/types').SubdivisionId | null;
   timeSignature: PatternTimeSignature;
+  /**
+   * Multi-track playback content. Always non-empty: hydration migrates
+   * legacy single-track compositions into a one-track structure so every
+   * Composition consistently exposes `tracks`. The legacy `placements`
+   * field below is kept for one migration cycle — new code reads
+   * `tracks[*].placements`.
+   */
+  tracks: Track[];
+  /**
+   * Composition-level master volume in dB. 0 = unity. Each track's gain
+   * mixes through this before reaching the global MasterBus.
+   */
+  masterVolumeDb: number;
+  /**
+   * @deprecated Legacy single-track field. Empty array after migration;
+   * tracks[0].placements is canonical now. Kept on the type so persisted
+   * blobs hydrate without warnings.
+   */
   placements: Placement[];
   /** When true, composition playback wraps end → 0 and continues indefinitely.
    *  When false, playback stops at the end of the last placement. */

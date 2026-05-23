@@ -81,13 +81,23 @@ describe('mapImportToLibrary — single-pattern mode', () => {
     expect(result.warnings.some((w) => w.includes('1 hammer-ons'))).toBe(true);
   });
 
-  it('falls back from composition mode to single-pattern when sections are empty', () => {
+  it('auto-defaults to single-pattern for a 1-track, no-section IR', () => {
+    // No explicit topology — auto-default kicks in. With one track and no
+    // section markers, the file is "simple" → single-pattern.
+    const result = mapImportToLibrary({ ir: baseIR(), selectedTrackId: 't0' });
+    expect(result.topology).toBe('single-pattern');
+  });
+
+  it('honors explicit composition request even on a 1-track, no-section IR', () => {
+    // Explicit topology trumps the auto-default — user said composition,
+    // they get composition (degenerate but valid: 1 track, 1 placement).
     const result = mapImportToLibrary({
       ir: baseIR(),
       selectedTrackId: 't0',
       topology: 'composition',
     });
-    expect(result.topology).toBe('single-pattern');
+    expect(result.topology).toBe('composition');
+    expect(result.composition?.tracks).toHaveLength(1);
   });
 
   it('names skipped tracks in the warnings list', () => {
@@ -111,10 +121,11 @@ describe('mapImportToLibrary — composition mode', () => {
     const result = mapImportToLibrary({ ir, selectedTrackId: 't0', topology: 'composition' });
     expect(result.topology).toBe('composition');
     expect(result.patterns).toHaveLength(2);
-    expect(result.patterns[0].name).toBe('Verse');
-    expect(result.patterns[1].name).toBe('Chorus');
+    // Multi-track-aware naming: "<Track> · <Section>" when sections > 1.
+    expect(result.patterns[0].name).toBe('Lead · Verse');
+    expect(result.patterns[1].name).toBe('Lead · Chorus');
     expect(result.composition).not.toBeNull();
-    expect(result.composition?.placements).toHaveLength(2);
+    expect(result.composition?.tracks[0].placements).toHaveLength(2);
   });
 
   it('per-section pattern events are offset so each section starts at tick 0', () => {
@@ -134,8 +145,8 @@ describe('mapImportToLibrary — composition mode', () => {
   it('synthesizes a leading Intro section for content before the first marker', () => {
     const ir = baseIR({ sections: [{ atTick: 1920, name: 'Verse' }] });
     const result = mapImportToLibrary({ ir, selectedTrackId: 't0', topology: 'composition' });
-    expect(result.patterns[0].name).toBe('Intro');
-    expect(result.patterns[1].name).toBe('Verse');
+    expect(result.patterns[0].name).toBe('Lead · Intro');
+    expect(result.patterns[1].name).toBe('Lead · Verse');
   });
 
   it('preserves the full IR on the composition (not the per-section patterns)', () => {
@@ -159,8 +170,8 @@ describe('mapImportToLibrary — composition mode', () => {
     });
     const result = mapImportToLibrary({ ir, selectedTrackId: 't0', topology: 'composition' });
     // 1920 IR ticks → 960 project ticks
-    expect(result.composition?.placements[0].startTick).toBe(0);
-    expect(result.composition?.placements[1].startTick).toBe(960);
+    expect(result.composition?.tracks[0].placements[0].startTick).toBe(0);
+    expect(result.composition?.tracks[0].placements[1].startTick).toBe(960);
   });
 
   it('warns about tempo and TS automation when more than one event exists', () => {
@@ -178,6 +189,112 @@ describe('mapImportToLibrary — composition mode', () => {
     const result = mapImportToLibrary({ ir, selectedTrackId: 't0', topology: 'composition' });
     expect(result.warnings.some((w) => w.includes('Tempo automation preserved'))).toBe(true);
     expect(result.warnings.some((w) => w.includes('Time signature automation preserved'))).toBe(true);
+  });
+});
+
+describe('mapImportToLibrary — multi-track composition', () => {
+  it('imports every non-empty track as a Composition Track', () => {
+    const ir = baseIR();
+    ir.tracks.push({
+      id: 't1',
+      name: 'Rhythm',
+      instrumentHint: 'guitar',
+      tuning: ['E2', 'A2', 'D3', 'G3', 'B3', 'E4'],
+      capo: 0,
+      events: [{ atTick: 0, durationTicks: 480, notes: [{ string: 2, fret: 5 }] }],
+    });
+    const result = mapImportToLibrary({ ir, selectedTrackId: 't0', topology: 'composition' });
+    expect(result.composition?.tracks).toHaveLength(2);
+    // The selected track ('t0' = Lead) is placed first.
+    expect(result.composition?.tracks[0].name).toBe('Lead');
+    expect(result.composition?.tracks[1].name).toBe('Rhythm');
+  });
+
+  it('skips empty tracks but lists them in the warnings', () => {
+    const ir = baseIR();
+    ir.tracks.push({
+      id: 'empty',
+      name: 'Drums',
+      instrumentHint: 'drums',
+      events: [],
+    });
+    const result = mapImportToLibrary({ ir, selectedTrackId: 't0', topology: 'composition' });
+    expect(result.composition?.tracks).toHaveLength(1);
+    expect(result.warnings.some((w) => w.includes('empty track') && w.includes('Drums'))).toBe(true);
+  });
+
+  it('caps track count and reports dropped tracks', () => {
+    const ir = baseIR();
+    // Push 8 more tracks beyond the 1 already present (= 9 total, cap is 8).
+    for (let i = 1; i <= 8; i++) {
+      ir.tracks.push({
+        id: `t${i}`,
+        name: `Track${i}`,
+        instrumentHint: 'guitar',
+        tuning: ['E2', 'A2', 'D3', 'G3', 'B3', 'E4'],
+        events: [{ atTick: 0, durationTicks: 480, notes: [{ string: 0, fret: 0 }] }],
+      });
+    }
+    const result = mapImportToLibrary({ ir, selectedTrackId: 't0', topology: 'composition' });
+    expect(result.composition?.tracks).toHaveLength(8);
+    expect(result.warnings.some((w) => w.includes('Dropped 1 track'))).toBe(true);
+  });
+
+  it('names patterns "Track · Section" when sections exist', () => {
+    const ir = baseIR({
+      sections: [
+        { atTick: 0, name: 'Verse' },
+        { atTick: 1920, name: 'Chorus' },
+      ],
+    });
+    ir.tracks.push({
+      id: 't1',
+      name: 'Rhythm',
+      instrumentHint: 'guitar',
+      tuning: ['E2', 'A2', 'D3', 'G3', 'B3', 'E4'],
+      events: [{ atTick: 0, durationTicks: 480, notes: [{ string: 0, fret: 0 }] }],
+    });
+    const result = mapImportToLibrary({ ir, selectedTrackId: 't0', topology: 'composition' });
+    // Each track contributes one pattern per section.
+    expect(result.patterns).toHaveLength(4);
+    const names = result.patterns.map((p) => p.name).sort();
+    expect(names).toEqual([
+      'Lead · Chorus',
+      'Lead · Verse',
+      'Rhythm · Chorus',
+      'Rhythm · Verse',
+    ]);
+  });
+
+  it('falls back to single-section per track when file has no section markers', () => {
+    const ir = baseIR(); // no sections
+    ir.tracks.push({
+      id: 't1',
+      name: 'Rhythm',
+      instrumentHint: 'guitar',
+      events: [{ atTick: 0, durationTicks: 480, notes: [{ string: 0, fret: 0 }] }],
+    });
+    const result = mapImportToLibrary({ ir, selectedTrackId: 't0' });
+    expect(result.topology).toBe('composition');
+    // Two patterns total: one per track (single "Main" section), pattern
+    // names are the track names alone (no " · Main" suffix because
+    // intervals.length === 1).
+    expect(result.patterns.map((p) => p.name).sort()).toEqual(['Lead', 'Rhythm']);
+  });
+
+  it('single-pattern mode still imports only the selected track', () => {
+    const ir = baseIR();
+    ir.tracks.push({
+      id: 't1',
+      name: 'Rhythm',
+      events: [{ atTick: 0, durationTicks: 480, notes: [{ string: 0, fret: 0 }] }],
+    });
+    const result = mapImportToLibrary({ ir, selectedTrackId: 't0', topology: 'single-pattern' });
+    expect(result.topology).toBe('single-pattern');
+    expect(result.composition).toBeNull();
+    expect(result.patterns).toHaveLength(1);
+    // Skipped track warning includes Rhythm.
+    expect(result.warnings.some((w) => w.includes('Skipped') && w.includes('Rhythm'))).toBe(true);
   });
 });
 

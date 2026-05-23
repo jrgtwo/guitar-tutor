@@ -18,7 +18,11 @@ interface ImportPreviewProps {
    *  selections so the user sees them before committing. */
   warnings: string[];
   onCancel(): void;
-  onImport(opts: { selectedTrackId: string; topology: MapTopology }): void;
+  onImport(opts: {
+    selectedTrackId: string;
+    topology: MapTopology;
+    includedTrackIds: string[];
+  }): void;
 }
 
 export function ImportPreview({ fileName, ir, warnings, onCancel, onImport }: ImportPreviewProps) {
@@ -28,6 +32,11 @@ export function ImportPreview({ fileName, ir, warnings, onCancel, onImport }: Im
   const [topology, setTopology] = useState<MapTopology>(() =>
     ir.sections.length > 0 ? 'composition' : 'single-pattern',
   );
+  // Composition-mode track inclusion. Defaults to every non-empty track
+  // checked. Single-pattern mode ignores this set.
+  const [includedTrackIds, setIncludedTrackIds] = useState<Set<string>>(() => {
+    return new Set(ir.tracks.filter((t) => t.events.length > 0).map((t) => t.id));
+  });
 
   const selectedTrack = ir.tracks.find((t) => t.id === selectedTrackId) ?? null;
 
@@ -56,9 +65,11 @@ export function ImportPreview({ fileName, ir, warnings, onCancel, onImport }: Im
       selectedTrackId: selectedTrack.id,
       topology,
       fallbackInstrumentId,
+      includedTrackIds:
+        topology === 'composition' ? Array.from(includedTrackIds) : undefined,
     });
     return result.warnings;
-  }, [ir, selectedTrack, topology, fallbackInstrumentId]);
+  }, [ir, selectedTrack, topology, fallbackInstrumentId, includedTrackIds]);
 
   const combinedWarnings = useMemo(
     () => [...warnings, ...mapperWarnings],
@@ -78,34 +89,82 @@ export function ImportPreview({ fileName, ir, warnings, onCancel, onImport }: Im
         )}
       </div>
 
-      {/* Track selector */}
+      {/* Track selector. Each row has:
+          - A checkbox (only meaningful in composition mode): controls
+            whether the track materializes as a composition Track. The
+            primary track is always included (unchecking it doesn't take
+            effect — the primary's pin is implicit).
+          - A radio-style "primary" star: in composition mode it picks
+            which track becomes the top lane; in single-pattern mode it
+            picks the ONE track to materialize.
+          Tracks not checked + not primary stay in sourceIR for future
+          re-extraction. */}
       <section className="flex flex-col gap-2">
         <h2 className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
-          Track to import
+          {topology === 'composition' ? 'Tracks' : 'Track to import'}
         </h2>
+        {topology === 'composition' && (
+          <p className="text-[11px] text-muted-foreground/80 -mt-1">
+            Tick the tracks to import. Click the star to pick the primary
+            lane (always imported).
+          </p>
+        )}
         <div className="flex flex-col gap-1">
           {ir.tracks.map((t) => {
-            const active = t.id === selectedTrackId;
+            const isPrimary = t.id === selectedTrackId;
             const isDrums = t.instrumentHint === 'drums';
+            const isEmpty = t.events.length === 0;
+            const willBeImported =
+              topology === 'composition'
+                ? !isEmpty && (includedTrackIds.has(t.id) || isPrimary)
+                : isPrimary;
+            const toggleInclude = () => {
+              setIncludedTrackIds((prev) => {
+                const next = new Set(prev);
+                if (next.has(t.id)) next.delete(t.id);
+                else next.add(t.id);
+                // The primary track stays included even if unchecked —
+                // pin a re-add so subsequent renders show it correctly.
+                if (isPrimary) next.add(t.id);
+                return next;
+              });
+            };
             return (
-              <label
+              <div
                 key={t.id}
                 className={
-                  'flex items-center gap-3 px-3 py-2 rounded-md border cursor-pointer transition-colors ' +
-                  (active
+                  'flex items-center gap-3 px-3 py-2 rounded-md border transition-colors ' +
+                  (isPrimary
                     ? 'border-degree-root/60 bg-degree-root/10'
-                    : 'border-border/40 hover:bg-white/5')
+                    : willBeImported
+                      ? 'border-border/60 bg-white/5'
+                      : 'border-border/40')
                 }
               >
-                <input
-                  type="radio"
-                  name="track"
-                  value={t.id}
-                  checked={active}
-                  onChange={() => setSelectedTrackId(t.id)}
-                  disabled={isDrums}
-                  className="accent-current"
-                />
+                {topology === 'composition' ? (
+                  <input
+                    type="checkbox"
+                    checked={willBeImported}
+                    onChange={toggleInclude}
+                    disabled={isDrums || isEmpty || isPrimary}
+                    title={
+                      isPrimary
+                        ? 'The primary track is always imported.'
+                        : 'Import this track as a separate lane in the composition.'
+                    }
+                    className="accent-current"
+                  />
+                ) : (
+                  <input
+                    type="radio"
+                    name="track"
+                    value={t.id}
+                    checked={isPrimary}
+                    onChange={() => setSelectedTrackId(t.id)}
+                    disabled={isDrums}
+                    className="accent-current"
+                  />
+                )}
                 <div className="flex-1 flex flex-col">
                   <span className="text-sm">{t.name}</span>
                   <span className="text-[11px] font-mono text-muted-foreground">
@@ -119,12 +178,42 @@ export function ImportPreview({ fileName, ir, warnings, onCancel, onImport }: Im
                       .join(' · ')}
                   </span>
                 </div>
+                {/* Star = primary. Clickable in composition mode (changes
+                    the primary track); read-only in single-pattern mode
+                    (the radio above already controls it). */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isDrums) return;
+                    setSelectedTrackId(t.id);
+                    setIncludedTrackIds((prev) => {
+                      const next = new Set(prev);
+                      next.add(t.id);
+                      return next;
+                    });
+                  }}
+                  disabled={isDrums}
+                  title={isPrimary ? 'Primary track' : 'Make this the primary track'}
+                  className={
+                    'text-[12px] font-mono leading-none px-1.5 py-1 rounded transition-colors ' +
+                    (isPrimary
+                      ? 'text-foreground bg-degree-root/30'
+                      : 'text-muted-foreground/50 hover:text-foreground hover:bg-white/5')
+                  }
+                >
+                  ★
+                </button>
                 {isDrums && (
                   <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
                     not importable
                   </span>
                 )}
-              </label>
+                {isEmpty && !isDrums && (
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/60">
+                    empty
+                  </span>
+                )}
+              </div>
             );
           })}
         </div>
@@ -215,7 +304,13 @@ export function ImportPreview({ fileName, ir, warnings, onCancel, onImport }: Im
         </button>
         <button
           type="button"
-          onClick={() => onImport({ selectedTrackId, topology })}
+          onClick={() =>
+            onImport({
+              selectedTrackId,
+              topology,
+              includedTrackIds: Array.from(includedTrackIds),
+            })
+          }
           disabled={!canImport}
           className={
             'h-9 px-4 rounded-md text-xs font-mono uppercase tracking-wider transition-colors ' +

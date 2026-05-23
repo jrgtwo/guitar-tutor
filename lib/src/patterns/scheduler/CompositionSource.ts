@@ -52,17 +52,15 @@ export class CompositionSource implements EventStream {
       },
     }));
     let max = 0;
-    for (const p of composition.placements) {
-      const end = p.startTick + placementEffectiveLength(p) * p.repeat;
-      if (end > max) max = end;
+    const boundaries: { placementId: string; startTick: number; endTick: number }[] = [];
+    for (const track of composition.tracks ?? []) {
+      for (const p of track.placements) {
+        const end = p.startTick + placementEffectiveLength(p) * p.repeat;
+        if (end > max) max = end;
+        boundaries.push({ placementId: p.id, startTick: p.startTick, endTick: end });
+      }
     }
     this._durationTicks = max;
-
-    const boundaries: { placementId: string; startTick: number; endTick: number }[] = [];
-    for (const p of composition.placements) {
-      const end = p.startTick + placementEffectiveLength(p) * p.repeat;
-      boundaries.push({ placementId: p.id, startTick: p.startTick, endTick: end });
-    }
     boundaries.sort((a, b) => a.startTick - b.startTick);
     this.placementBoundaries = boundaries;
   }

@@ -203,7 +203,14 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
     const comp = selectEditingComposition(state);
     if (!comp) return;
     if (comp.tempoMode !== 'inherit' && comp.grooveMode !== 'inherit') return;
-    const placement = comp.placements.find((p) => p.id === currentPlacementId);
+    // Search every track's placements. After the multi-track migration,
+    // placements live under `tracks[*].placements`; the legacy
+    // `comp.placements` is always empty.
+    let placement: typeof comp.tracks[number]['placements'][number] | undefined;
+    for (const t of comp.tracks ?? []) {
+      placement = t.placements.find((p) => p.id === currentPlacementId);
+      if (placement) break;
+    }
     if (!placement) return;
     const { bpm, groove } = resolveEffectivePlayback(comp, placement);
     if (comp.tempoMode === 'inherit') metronome.setBpm(bpm);

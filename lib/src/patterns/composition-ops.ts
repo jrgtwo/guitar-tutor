@@ -12,7 +12,9 @@ import type {
   PatternTimeSignature,
   Placement,
   Tick,
+  Track,
 } from './types';
+import { MAX_COMPOSITION_TRACKS } from './types';
 import { generateId, generateUuid } from './ids';
 import { snapshotPatternForPlacement } from './pattern-ops';
 import { DEFAULT_INSTRUMENT_ID, getInstrument } from '../lib/instruments';
@@ -36,6 +38,8 @@ export function createEmptyComposition(
     bpm: DEFAULT_BPM,
     timeSignature: { ...DEFAULT_TS },
     placements: [],
+    tracks: [createEmptyTrack('Track 1', instrumentId)],
+    masterVolumeDb: 0,
     loop: false,
     tempoMode: 'global',
     groove: null,
@@ -58,24 +62,96 @@ export function createEmptyComposition(
   };
 }
 
-/** Compute where a new placement would start by default: at the end of the existing
- *  composition. */
+export function createEmptyTrack(
+  name: string,
+  instrumentId: string = DEFAULT_INSTRUMENT_ID,
+): Track {
+  return {
+    id: generateId('trk'),
+    name,
+    instrumentId,
+    volumeDb: 0,
+    muted: false,
+    soloed: false,
+    placements: [],
+  };
+}
+
+/**
+ * One-shot upgrade from the legacy single-track shape to the new tracks-
+ * based shape. Idempotent: if `tracks` is already populated, returns the
+ * input unchanged. Otherwise creates a single Track named "Track 1"
+ * inheriting the composition's instrumentId and holding the entire
+ * legacy `placements` array.
+ *
+ * Used by both the sessionStorage persist migration and the cloud-sync
+ * hydrator so a Composition coming from either source emerges with the
+ * canonical multi-track shape.
+ */
+export function migrateCompositionToTracks(comp: Composition): Composition {
+  if (comp.tracks && comp.tracks.length > 0) return comp;
+  const legacyPlacements = comp.placements ?? [];
+  const track = createEmptyTrack('Track 1', comp.instrumentId);
+  track.placements = legacyPlacements;
+  return {
+    ...comp,
+    tracks: [track],
+    masterVolumeDb: comp.masterVolumeDb ?? 0,
+    placements: [],
+  };
+}
+
+/** Compute where a new placement would start by default: at the end of the
+ *  longest track in the composition. */
 export function totalDurationTicks(comp: Composition): Tick {
   let max = 0;
-  for (const p of comp.placements) {
-    const end = p.startTick + p.patternSnapshot.durationTicks * p.repeat;
-    if (end > max) max = end;
+  for (const track of comp.tracks ?? []) {
+    for (const p of track.placements) {
+      const end = p.startTick + p.patternSnapshot.durationTicks * p.repeat;
+      if (end > max) max = end;
+    }
   }
   return max;
 }
 
-/** Add a placement at the given tick (defaults to end of composition). Snapshot the
- *  pattern at placement time — no reference is kept to the source library entry. */
-export function addPlacement(
+/**
+ * Locate which track owns a placement. Returns `{ trackIndex, placementIndex }`
+ * or null if the id isn't present. Used by the legacy single-arg
+ * placement ops (`removePlacement`, `reorderPlacement`, etc.) so existing
+ * callers don't have to know which track a placement lives in.
+ */
+export function findPlacement(
   comp: Composition,
+  placementId: string,
+): { trackIndex: number; placementIndex: number; track: Track; placement: Placement } | null {
+  for (let ti = 0; ti < (comp.tracks?.length ?? 0); ti++) {
+    const t = comp.tracks[ti];
+    for (let pi = 0; pi < t.placements.length; pi++) {
+      if (t.placements[pi].id === placementId) {
+        return { trackIndex: ti, placementIndex: pi, track: t, placement: t.placements[pi] };
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Return a new tracks array with the named track replaced. Returns the same
+ * array reference (no mutation) if the trackId isn't found.
+ */
+function replaceTrack(tracks: Track[], trackId: string, replace: (t: Track) => Track): Track[] {
+  return tracks.map((t) => (t.id === trackId ? replace(t) : t));
+}
+
+/** Add a placement to a specific track at the given tick. */
+export function addPlacementToTrack(
+  comp: Composition,
+  trackId: string,
   sourcePattern: Pattern,
   atTick?: Tick,
-): { composition: Composition; placement: Placement } {
+): { composition: Composition; placement: Placement | null } {
+  const track = comp.tracks.find((t) => t.id === trackId);
+  if (!track) return { composition: comp, placement: null };
   const placement: Placement = {
     id: generateId('pl'),
     patternSnapshot: snapshotPatternForPlacement(sourcePattern),
@@ -87,37 +163,175 @@ export function addPlacement(
   return {
     composition: {
       ...comp,
-      placements: [...comp.placements, placement],
+      tracks: replaceTrack(comp.tracks, trackId, (t) => ({
+        ...t,
+        placements: [...t.placements, placement],
+      })),
       updatedAt: Date.now(),
     },
     placement,
   };
 }
 
-/** Re-order placements. The `newIndex` is the desired position in the placements array
- *  (NOT the absolute start tick — the strip is rendered in placement-array order, which
- *  is independent of `startTick`). For Phase 1, reordering also re-flows `startTick`
- *  values so the placements remain end-to-end with no gaps. */
+/**
+ * Legacy single-track API — adds to the first track. Preserved for callers
+ * that don't yet have a track id (e.g. existing keyboard shortcuts that
+ * append a pattern to the composition's "main" lane). New UI uses
+ * `addPlacementToTrack`.
+ */
+export function addPlacement(
+  comp: Composition,
+  sourcePattern: Pattern,
+  atTick?: Tick,
+): { composition: Composition; placement: Placement } {
+  const firstTrack = comp.tracks?.[0];
+  if (!firstTrack) {
+    // Degenerate composition with no tracks — synthesize one to keep the
+    // contract alive. Shouldn't happen post-migration but is cheap to handle.
+    const seeded = migrateCompositionToTracks(comp);
+    return addPlacement(seeded, sourcePattern, atTick) as {
+      composition: Composition;
+      placement: Placement;
+    };
+  }
+  const result = addPlacementToTrack(comp, firstTrack.id, sourcePattern, atTick);
+  // The legacy contract guarantees a placement; the trackId is always valid here.
+  return { composition: result.composition, placement: result.placement! };
+}
+
+// ─── Track-level ops ────────────────────────────────────────────────────────
+
+export function addTrack(comp: Composition, name?: string, instrumentId?: string): Composition {
+  if ((comp.tracks?.length ?? 0) >= MAX_COMPOSITION_TRACKS) return comp;
+  const next = createEmptyTrack(
+    name ?? `Track ${(comp.tracks?.length ?? 0) + 1}`,
+    instrumentId ?? comp.instrumentId,
+  );
+  return {
+    ...comp,
+    tracks: [...(comp.tracks ?? []), next],
+    updatedAt: Date.now(),
+  };
+}
+
+export function removeTrack(comp: Composition, trackId: string): Composition {
+  if (!comp.tracks?.length) return comp;
+  // Never let removeTrack leave the composition with zero tracks — the
+  // model invariant is at least one. If the user wants an empty timeline
+  // they can just delete the placements within the last track.
+  if (comp.tracks.length === 1) return comp;
+  const next = comp.tracks.filter((t) => t.id !== trackId);
+  if (next.length === comp.tracks.length) return comp;
+  return { ...comp, tracks: next, updatedAt: Date.now() };
+}
+
+export function setTrackName(comp: Composition, trackId: string, name: string): Composition {
+  return {
+    ...comp,
+    tracks: replaceTrack(comp.tracks, trackId, (t) => ({ ...t, name })),
+    updatedAt: Date.now(),
+  };
+}
+
+export function setTrackInstrument(
+  comp: Composition,
+  trackId: string,
+  instrumentId: string,
+): Composition {
+  return {
+    ...comp,
+    tracks: replaceTrack(comp.tracks, trackId, (t) => ({ ...t, instrumentId })),
+    updatedAt: Date.now(),
+  };
+}
+
+export function setTrackVolumeDb(
+  comp: Composition,
+  trackId: string,
+  volumeDb: number,
+): Composition {
+  const clamped = Math.max(-60, Math.min(6, volumeDb));
+  return {
+    ...comp,
+    tracks: replaceTrack(comp.tracks, trackId, (t) => ({ ...t, volumeDb: clamped })),
+    updatedAt: Date.now(),
+  };
+}
+
+export function setTrackMuted(comp: Composition, trackId: string, muted: boolean): Composition {
+  return {
+    ...comp,
+    tracks: replaceTrack(comp.tracks, trackId, (t) => ({ ...t, muted })),
+    updatedAt: Date.now(),
+  };
+}
+
+export function setTrackSoloed(comp: Composition, trackId: string, soloed: boolean): Composition {
+  return {
+    ...comp,
+    tracks: replaceTrack(comp.tracks, trackId, (t) => ({ ...t, soloed })),
+    updatedAt: Date.now(),
+  };
+}
+
+export function setMasterVolumeDb(comp: Composition, masterVolumeDb: number): Composition {
+  const clamped = Math.max(-60, Math.min(6, masterVolumeDb));
+  if (comp.masterVolumeDb === clamped) return comp;
+  return { ...comp, masterVolumeDb: clamped, updatedAt: Date.now() };
+}
+
+/**
+ * Helper: re-flow startTicks on a track's placements so they sit end-to-end
+ * with no gaps. Preserves the order of the input list.
+ */
+function reflowTrackPlacements(list: Placement[]): Placement[] {
+  let cursor = 0;
+  return list.map((p) => {
+    const next = { ...p, startTick: cursor };
+    cursor += p.patternSnapshot.durationTicks * p.repeat;
+    return next;
+  });
+}
+
+/**
+ * Update the track that owns the named placement. The updater receives the
+ * track's current placements and returns the new placement list; the helper
+ * re-flows startTicks afterward to keep the lane contiguous.
+ */
+function updateTrackForPlacement(
+  comp: Composition,
+  placementId: string,
+  updater: (placements: Placement[]) => Placement[] | null,
+): Composition {
+  const found = findPlacement(comp, placementId);
+  if (!found) return comp;
+  const nextPlacements = updater(found.track.placements);
+  if (nextPlacements === null) return comp;
+  const flowed = reflowTrackPlacements(nextPlacements);
+  return {
+    ...comp,
+    tracks: replaceTrack(comp.tracks, found.track.id, (t) => ({ ...t, placements: flowed })),
+    updatedAt: Date.now(),
+  };
+}
+
+/** Re-order a placement within its track. The `newIndex` is the desired
+ *  position within the track's placement array. */
 export function reorderPlacement(
   comp: Composition,
   placementId: string,
   newIndex: number,
 ): Composition {
-  const idx = comp.placements.findIndex((p) => p.id === placementId);
-  if (idx < 0) return comp;
-  const clamped = Math.max(0, Math.min(newIndex, comp.placements.length - 1));
-  if (clamped === idx) return comp;
-  const list = [...comp.placements];
-  const [moved] = list.splice(idx, 1);
-  list.splice(clamped, 0, moved);
-  // Re-flow startTicks so the timeline stays contiguous.
-  let cursor = 0;
-  const flowed = list.map((p) => {
-    const next = { ...p, startTick: cursor };
-    cursor += p.patternSnapshot.durationTicks * p.repeat;
+  return updateTrackForPlacement(comp, placementId, (list) => {
+    const idx = list.findIndex((p) => p.id === placementId);
+    if (idx < 0) return null;
+    const clamped = Math.max(0, Math.min(newIndex, list.length - 1));
+    if (clamped === idx) return null;
+    const next = [...list];
+    const [moved] = next.splice(idx, 1);
+    next.splice(clamped, 0, moved);
     return next;
   });
-  return { ...comp, placements: flowed, updatedAt: Date.now() };
 }
 
 export function setPlacementRepeat(
@@ -126,30 +340,16 @@ export function setPlacementRepeat(
   repeat: number,
 ): Composition {
   const clamped = Math.max(1, Math.floor(repeat));
-  const list = comp.placements.map((p) =>
-    p.id === placementId ? { ...p, repeat: clamped } : p,
+  return updateTrackForPlacement(comp, placementId, (list) =>
+    list.map((p) => (p.id === placementId ? { ...p, repeat: clamped } : p)),
   );
-  // Re-flow startTicks to keep timeline contiguous.
-  let cursor = 0;
-  const flowed = list.map((p) => {
-    const next = { ...p, startTick: cursor };
-    cursor += p.patternSnapshot.durationTicks * p.repeat;
-    return next;
-  });
-  return { ...comp, placements: flowed, updatedAt: Date.now() };
 }
 
 export function removePlacement(comp: Composition, placementId: string): Composition {
-  const list = comp.placements.filter((p) => p.id !== placementId);
-  if (list.length === comp.placements.length) return comp;
-  // Re-flow startTicks.
-  let cursor = 0;
-  const flowed = list.map((p) => {
-    const next = { ...p, startTick: cursor };
-    cursor += p.patternSnapshot.durationTicks * p.repeat;
-    return next;
+  return updateTrackForPlacement(comp, placementId, (list) => {
+    const filtered = list.filter((p) => p.id !== placementId);
+    return filtered.length === list.length ? null : filtered;
   });
-  return { ...comp, placements: flowed, updatedAt: Date.now() };
 }
 
 export function setCompositionName(comp: Composition, name: string): Composition {
@@ -203,16 +403,9 @@ export function setPlacementSnapshot(
   placementId: string,
   next: Pattern,
 ): Composition {
-  const list = comp.placements.map((p) =>
-    p.id === placementId ? { ...p, patternSnapshot: next } : p,
+  return updateTrackForPlacement(comp, placementId, (list) =>
+    list.map((p) => (p.id === placementId ? { ...p, patternSnapshot: next } : p)),
   );
-  let cursor = 0;
-  const flowed = list.map((p) => {
-    const out = { ...p, startTick: cursor };
-    cursor += p.patternSnapshot.durationTicks * p.repeat;
-    return out;
-  });
-  return { ...comp, placements: flowed, updatedAt: Date.now() };
 }
 
 /** Effective length of one repetition of a placement, in ticks. Honors the
@@ -270,17 +463,20 @@ export interface FlattenedEvent {
     placementId: string;
     patternId: string;
     eventId: string;
+    /** Composition Track id this event belongs to. Lets multi-track
+     *  schedulers route to the right voice. */
+    trackId: string;
     /** Which repeat iteration (0-indexed) this event came from. */
     repeatIndex: number;
   };
 }
 
-/** Flatten a composition into an absolute-tick event stream. Lazy callers may prefer
- *  the scheduler's CompositionSource which slices by range rather than building the
- *  whole stream up front. */
-export function flattenComposition(comp: Composition): FlattenedEvent[] {
+/** Flatten one track's placements into absolute-composition-tick events.
+ *  Used by both `flattenComposition` (union across tracks) and the per-track
+ *  scheduler source. */
+export function flattenTrack(track: Track): FlattenedEvent[] {
   const out: FlattenedEvent[] = [];
-  for (const p of comp.placements) {
+  for (const p of track.placements) {
     const effLen = placementEffectiveLength(p);
     const transpose = p.transposeSemitones ?? 0;
     const fretCount =
@@ -288,11 +484,8 @@ export function flattenComposition(comp: Composition): FlattenedEvent[] {
     for (let r = 0; r < p.repeat; r++) {
       const baseTick = p.startTick + r * effLen;
       for (const e of p.patternSnapshot.events) {
-        // Truncate: drop events that start at or after the cut.
         if (e.startTick >= effLen) continue;
-        // Clip durations that straddle the cut.
         const clippedDuration = Math.min(e.durationTicks, effLen - e.startTick);
-        // Transpose: shift fret; drop if out of range.
         const newFret = e.fret + transpose;
         if (newFret < 0 || newFret > fretCount) continue;
         out.push({
@@ -317,11 +510,24 @@ export function flattenComposition(comp: Composition): FlattenedEvent[] {
             placementId: p.id,
             patternId: p.patternSnapshot.id,
             eventId: e.id,
+            trackId: track.id,
             repeatIndex: r,
           },
         });
       }
     }
+  }
+  out.sort((a, b) => a.startTick - b.startTick);
+  return out;
+}
+
+/** Flatten the whole composition into a merged event stream. Each event
+ *  carries `sourceMeta.trackId` so consumers that need per-track routing
+ *  can re-split. Sorted by absolute tick globally. */
+export function flattenComposition(comp: Composition): FlattenedEvent[] {
+  const out: FlattenedEvent[] = [];
+  for (const track of comp.tracks ?? []) {
+    out.push(...flattenTrack(track));
   }
   out.sort((a, b) => a.startTick - b.startTick);
   return out;
@@ -367,13 +573,19 @@ export function setPlacementTranspose(
   semitones: number,
 ): Composition {
   const clamped = Math.max(-24, Math.min(24, Math.round(semitones)));
-  const idx = comp.placements.findIndex((p) => p.id === placementId);
-  if (idx === -1) return comp;
-  if (comp.placements[idx].transposeSemitones === clamped) return comp;
-  const list = comp.placements.map((p) =>
-    p.id === placementId ? { ...p, transposeSemitones: clamped } : p,
-  );
-  return { ...comp, placements: list, updatedAt: Date.now() };
+  const found = findPlacement(comp, placementId);
+  if (!found) return comp;
+  if (found.placement.transposeSemitones === clamped) return comp;
+  return {
+    ...comp,
+    tracks: replaceTrack(comp.tracks, found.track.id, (t) => ({
+      ...t,
+      placements: t.placements.map((p) =>
+        p.id === placementId ? { ...p, transposeSemitones: clamped } : p,
+      ),
+    })),
+    updatedAt: Date.now(),
+  };
 }
 
 /** Truncate a placement to `lengthTicks` ticks (one cycle). Clamps to
@@ -386,17 +598,21 @@ export function resizePlacement(
   placementId: string,
   lengthTicks: Tick,
 ): Composition {
-  const placement = comp.placements.find((p) => p.id === placementId);
-  if (!placement) return comp;
-  const snapshotDur = placement.patternSnapshot.durationTicks;
+  const found = findPlacement(comp, placementId);
+  if (!found) return comp;
+  const snapshotDur = found.placement.patternSnapshot.durationTicks;
   const clamped = Math.max(PPQ, Math.min(lengthTicks, snapshotDur));
-  if (clamped === placement.lengthTicks && placement.repeat === 1) return comp;
-  const list = comp.placements.map((p) =>
-    p.id === placementId
-      ? { ...p, lengthTicks: clamped, repeat: 1 }
-      : p,
-  );
-  return { ...comp, placements: list, updatedAt: Date.now() };
+  if (clamped === found.placement.lengthTicks && found.placement.repeat === 1) return comp;
+  return {
+    ...comp,
+    tracks: replaceTrack(comp.tracks, found.track.id, (t) => ({
+      ...t,
+      placements: t.placements.map((p) =>
+        p.id === placementId ? { ...p, lengthTicks: clamped, repeat: 1 } : p,
+      ),
+    })),
+    updatedAt: Date.now(),
+  };
 }
 
 /** Set the composition's loop flag. Returns same reference when no change. */

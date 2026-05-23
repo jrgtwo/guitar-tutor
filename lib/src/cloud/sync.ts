@@ -26,6 +26,7 @@ import {
   DEFAULT_PATTERNS_STATE,
 } from '../patterns/store/usePatternsStore';
 import type { Collection, Composition, Pattern } from '../patterns';
+import { migrateCompositionToTracks } from '../patterns/composition-ops';
 import { useVoiceStore, VOICE_STORAGE_KEY } from '../playback/voices/useVoiceStore';
 import { makeDefaultActiveVariants } from '../playback/voices/variant-types';
 import type { Variant, ActiveVariantsMap } from '../playback/voices/variant-types';
@@ -211,7 +212,7 @@ function hydratePatternRow(row: Record<string, unknown>): Pattern {
 
 function hydrateCompositionRow(row: Record<string, unknown>): Composition {
   const data = (row.data as Partial<Composition>) ?? ({} as Partial<Composition>);
-  return {
+  const hydrated: Composition = {
     ...(data as Composition),
     id: row.id as string,
     description: data.description ?? (row.description as string | null) ?? null,
@@ -239,7 +240,14 @@ function hydrateCompositionRow(row: Record<string, unknown>): Composition {
     tempoTrack: data.tempoTrack ?? [],
     timeSignatureTrack: data.timeSignatureTrack ?? [],
     sourceIR: data.sourceIR ?? null,
+    // Multi-track expansion: legacy rows have no tracks; the migration
+    // helper bucketizes legacy `placements` into a single auto-generated
+    // Track 1 so the composition can flow through the multi-track playback
+    // engine without special-casing single-track shape.
+    tracks: data.tracks ?? [],
+    masterVolumeDb: data.masterVolumeDb ?? 0,
   };
+  return migrateCompositionToTracks(hydrated);
 }
 
 function hydrateCollectionRow(row: Record<string, unknown>): Collection {
