@@ -193,9 +193,38 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
     // every subscriber across the store (~25ms per cycle per Chrome trace).
     // Consumers that need per-frame head position run their own rAF loops
     // reading Tone.Transport.ticks directly via getTransportTicks().
+    // Cache last-emitted ids/cells so we can skip redundant setStates when
+    // the active set hasn't actually changed (the scheduler fires
+    // _emitActive on every slice add, but the active set frequently stays
+    // identical across consecutive slices for held notes). Skipping pointless
+    // re-renders reduces React work + GC pressure during long playback.
+    let lastIds: string[] = [];
+    let lastCellsKey = '';
     const offActive = scheduler.onActive((events) => {
-      setActiveEventIds(events.map((e) => e.id));
-      setActiveCells(events.map((e) => ({ stringIndex: e.stringIndex, fret: e.fret })));
+      const nextIds: string[] = new Array(events.length);
+      let cellsKey = '';
+      const nextCells = new Array<{ stringIndex: number; fret: number }>(events.length);
+      for (let i = 0; i < events.length; i++) {
+        const e = events[i];
+        nextIds[i] = e.id;
+        nextCells[i] = { stringIndex: e.stringIndex, fret: e.fret };
+        cellsKey += e.stringIndex + ':' + e.fret + ',';
+      }
+      // Shallow-equal ids check.
+      let idsChanged = nextIds.length !== lastIds.length;
+      if (!idsChanged) {
+        for (let i = 0; i < nextIds.length; i++) {
+          if (nextIds[i] !== lastIds[i]) { idsChanged = true; break; }
+        }
+      }
+      if (idsChanged) {
+        lastIds = nextIds;
+        setActiveEventIds(nextIds);
+      }
+      if (cellsKey !== lastCellsKey) {
+        lastCellsKey = cellsKey;
+        setActiveCells(nextCells);
+      }
     });
     return () => {
       offActive();

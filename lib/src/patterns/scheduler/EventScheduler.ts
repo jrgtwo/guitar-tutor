@@ -529,6 +529,7 @@ export class EventScheduler {
   }
 
   private _emitHead(t: number): void {
+    if (this._headListeners.size === 0) return;
     for (const l of this._headListeners) {
       try {
         l(t);
@@ -539,6 +540,11 @@ export class EventScheduler {
   }
 
   private _emitActive(): void {
+    // Skip allocation entirely when nobody's listening. Per-track schedulers
+    // in MultiTrackPlayback have no active subscribers (only the shared
+    // scheduler does), and they fire _emitActive on every slice — every
+    // skipped allocation is reduced GC pressure on the audio main thread.
+    if (this._activeListeners.size === 0) return;
     const snapshot = Array.from(this._activeNow.values());
     for (const l of this._activeListeners) {
       try {
