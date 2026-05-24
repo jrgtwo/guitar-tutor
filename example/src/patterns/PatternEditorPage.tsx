@@ -6,6 +6,8 @@ import {
   usePatternsStore,
   usePlaybackStore,
 } from '@fretwork/lib';
+import { PreRollOverlay } from './playback/PreRollOverlay';
+import { usePatternsPlayback } from './playback/usePatternsPlayback';
 import { TopBar } from '../components/TopBar';
 import { HeaderCard } from './header-card/HeaderCard';
 import { HeaderCardTitleRow } from './header-card/HeaderCardTitleRow';
@@ -26,6 +28,7 @@ export function PatternEditorPage() {
   const setPlaybackEnabled = usePlaybackStore((s) => s.setEnabled);
   const renamePattern = usePatternsStore((s) => s.renamePattern);
   const updatePatternMetadata = usePatternsStore((s) => s.updatePatternMetadata);
+  const playback = usePatternsPlayback();
 
   const [nameDraft, setNameDraft] = useState(pattern?.name ?? '');
   useEffect(() => { setNameDraft(pattern?.name ?? ''); }, [pattern?.id]);
@@ -117,8 +120,13 @@ export function PatternEditorPage() {
           collapsedSummary={collapsedSummary}
         />
         <MusicalBand />
-        <div className="flex-1 overflow-auto">
+        <div className="relative flex-1 overflow-auto">
           <EditPatternTab />
+          <PreRollOverlay
+            barsRemaining={playback.preRollState?.barsRemaining ?? null}
+            beatInBar={playback.preRollState?.beatInBar ?? 0}
+            beatsPerBar={playback.preRollState?.beatsPerBar ?? 4}
+          />
         </div>
       </main>
     </div>

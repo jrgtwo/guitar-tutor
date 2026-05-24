@@ -83,6 +83,7 @@ export {
   setCompositionName,
   setCompositionInstrument,
   setCompositionBpm,
+  setCompositionTimeSignature,
   setPlacementSnapshot,
   flattenComposition,
   flattenTrack,
@@ -133,14 +134,10 @@ export type { EffectivePlayback } from './scheduler/resolvePlayback';
 
 export { MultiTrackPlayback } from './scheduler/MultiTrackPlayback';
 export { CompositionTrackSource } from './scheduler/CompositionTrackSource';
-export {
-  applyTempoAutomation,
-  applyCompositionTempoAutomation,
-} from './scheduler/tempoAutomation';
-export {
-  applyTimeSignatureAutomation,
-  applyCompositionTimeSignatureAutomation,
-} from './scheduler/timeSignatureAutomation';
+export { applyTempoAutomation } from './scheduler/tempoAutomation';
+export type { BpmSetter } from './scheduler/tempoAutomation';
+export { applyTimeSignatureAutomation } from './scheduler/timeSignatureAutomation';
+export type { TimeSignatureSetter } from './scheduler/timeSignatureAutomation';
 export { mergeTrackPlacementsAutomation } from './scheduler/mergeTrackPlacementsAutomation';
 
 export { selectCompositionsUsingPattern } from './store/usePatternsStore';

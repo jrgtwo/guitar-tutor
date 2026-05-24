@@ -7,6 +7,9 @@
  *   - `draggingId` — the placement being dragged
  *   - `fromTrackId` — the lane it started in (so a drop can decide between
  *     within-lane reorder vs cross-lane move)
+ *   - `grabOffsetTicks` — cursor position relative to the block's leading
+ *     edge at drag start. Applied in all gesture handlers so the drop lands
+ *     the leading edge at (cursorTick - grabOffsetTicks), not at cursorTick.
  *
  * State lives in React (not module-scope) so React re-renders lanes when
  * drag starts/ends. The drop-hint indicator (the `before/after` bar that
@@ -19,25 +22,27 @@ import { createContext, useContext, useMemo, useState, type ReactNode } from 're
 interface DragState {
   draggingId: string | null;
   fromTrackId: string | null;
+  grabOffsetTicks: number;
 }
 
 interface ArrangerDragContextValue extends DragState {
-  beginDrag(id: string, fromTrackId: string): void;
+  beginDrag(id: string, fromTrackId: string, grabOffsetTicks: number): void;
   endDrag(): void;
 }
 
 const ArrangerDragContext = createContext<ArrangerDragContextValue | null>(null);
 
 export function ArrangerDragProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<DragState>({ draggingId: null, fromTrackId: null });
+  const [state, setState] = useState<DragState>({ draggingId: null, fromTrackId: null, grabOffsetTicks: 0 });
   const value = useMemo<ArrangerDragContextValue>(
     () => ({
       draggingId: state.draggingId,
       fromTrackId: state.fromTrackId,
-      beginDrag: (id, fromTrackId) => setState({ draggingId: id, fromTrackId }),
-      endDrag: () => setState({ draggingId: null, fromTrackId: null }),
+      grabOffsetTicks: state.grabOffsetTicks,
+      beginDrag: (id, fromTrackId, grabOffsetTicks) => setState({ draggingId: id, fromTrackId, grabOffsetTicks }),
+      endDrag: () => setState({ draggingId: null, fromTrackId: null, grabOffsetTicks: 0 }),
     }),
-    [state.draggingId, state.fromTrackId],
+    [state.draggingId, state.fromTrackId, state.grabOffsetTicks],
   );
   return <ArrangerDragContext.Provider value={value}>{children}</ArrangerDragContext.Provider>;
 }

@@ -1,11 +1,15 @@
 /**
  * TimeSignatureSelect — dropdown for the metronome time signature.
  *
- * Self-contained: reads and writes the metronome store directly.
- * Used inline on the FretboardMetronomeStrip and in any future ribbon
- * that needs time-signature control.
+ * Default (no props): reads and writes the metronome store directly —
+ * fine for the standalone fretboard metronome strip.
+ *
+ * With an `onChange` prop: the caller takes responsibility for persisting
+ * the choice (typically writing to a composition or pattern entity AND
+ * the metronome store). Mirrors the BpmStepper wiring pattern.
  */
 import {
+  getTimeSignature,
   Select,
   SelectContent,
   SelectItem,
@@ -13,14 +17,29 @@ import {
   SelectValue,
   TIME_SIGNATURES,
   useMetronomeStore,
+  type TimeSignature,
 } from '@fretwork/lib';
 
-export function TimeSignatureSelect() {
-  const timeSignatureId = useMetronomeStore((s) => s.timeSignatureId);
-  const setTimeSignatureId = useMetronomeStore((s) => s.setTimeSignatureId);
+interface Props {
+  value?: string;
+  onChange?: (ts: TimeSignature) => void;
+}
+
+export function TimeSignatureSelect({ value, onChange }: Props = {}) {
+  const storeId = useMetronomeStore((s) => s.timeSignatureId);
+  const setStoreId = useMetronomeStore((s) => s.setTimeSignatureId);
+
+  const handleChange = (id: string) => {
+    if (onChange) {
+      const ts = getTimeSignature(id);
+      if (ts) onChange(ts);
+    } else {
+      setStoreId(id);
+    }
+  };
 
   return (
-    <Select value={timeSignatureId} onValueChange={setTimeSignatureId}>
+    <Select value={value ?? storeId} onValueChange={handleChange}>
       <SelectTrigger className="font-mono uppercase tracking-wider text-xs w-[78px] h-9 shrink-0">
         <SelectValue />
       </SelectTrigger>

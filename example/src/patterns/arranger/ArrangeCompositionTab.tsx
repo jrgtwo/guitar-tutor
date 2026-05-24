@@ -5,6 +5,8 @@ import { BlockInspector } from './BlockInspector';
 import { FretboardInput } from '../editor/FretboardInput';
 import { PlaybackRibbon } from '../../components/playback/PlaybackRibbon';
 import { usePatternsArrangeRibbonSections } from '../playback/patternsArrangeRibbonSections';
+import { ArrangerToolbar } from './ArrangerToolbar';
+import { ArrangerViewProvider } from './ArrangerViewContext';
 
 export function ArrangeCompositionTab() {
   const composition = usePatternsStore(selectEditingComposition);
@@ -32,34 +34,37 @@ export function ArrangeCompositionTab() {
   }
 
   return (
-    <div className="h-full flex flex-col overflow-hidden">
-      <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-border/40 bg-charcoal-raised/20">
-        <AddPlacementPopover />
-        <label className="inline-flex items-center gap-1 text-[11px] font-mono text-muted-foreground">
-          <span>Name</span>
-          <input
-            type="text"
-            value={composition.name}
-            onChange={(e) => renameComposition(composition.id, e.target.value)}
-            className="h-7 px-2 w-40 bg-charcoal-deep/60 border border-border/60 rounded text-foreground outline-none focus:border-degree-root/60 text-[11px]"
-          />
-        </label>
-        {/* Loop button removed — now in the ribbon */}
-      </div>
+    <ArrangerViewProvider>
+      <div className="h-full flex flex-col overflow-hidden">
+        <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-border/40 bg-charcoal-raised/20">
+          <AddPlacementPopover />
+          <label className="inline-flex items-center gap-1 text-[11px] font-mono text-muted-foreground">
+            <span>Name</span>
+            <input
+              type="text"
+              value={composition.name}
+              onChange={(e) => renameComposition(composition.id, e.target.value)}
+              className="h-7 px-2 w-40 bg-charcoal-deep/60 border border-border/60 rounded text-foreground outline-none focus:border-degree-root/60 text-[11px]"
+            />
+          </label>
+          {/* Loop button removed — now in the ribbon */}
+        </div>
+        <ArrangerToolbar />
 
-      <div className="flex-1 overflow-auto flex flex-col gap-3">
-        <section className="px-3 pt-3" aria-label="Currently playing">
-          <FretboardInput />
-        </section>
-        <section aria-label="Composition timeline">
-          <CompositionTimeline />
-        </section>
-        <section aria-label="Playback ribbon" className="relative z-30">
-          <PlaybackRibbon sections={ribbonSections} />
-        </section>
-      </div>
+        <div className="flex-1 overflow-auto flex flex-col gap-3">
+          <section className="px-3 pt-3" aria-label="Currently playing">
+            <FretboardInput />
+          </section>
+          <section aria-label="Composition timeline">
+            <CompositionTimeline />
+          </section>
+          <section aria-label="Playback ribbon" className="relative z-30">
+            <PlaybackRibbon sections={ribbonSections} />
+          </section>
+        </div>
 
-      <BlockInspector />
-    </div>
+        <BlockInspector />
+      </div>
+    </ArrangerViewProvider>
   );
 }

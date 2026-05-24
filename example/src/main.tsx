@@ -14,11 +14,18 @@ import { SharedCompositionView } from './shared/SharedCompositionView';
 import { SharedVoicePresetView } from './shared/SharedVoicePresetView';
 import { SharedFolderView } from './shared/SharedFolderView';
 import { useLocation } from './router';
+import { usePatternsStore } from '@fretwork/lib';
 
 // Lib design tokens MUST be imported before the app's own stylesheet so Tailwind's
 // generated layers can reference the CSS variables.
 import '@fretwork/lib/styles/tokens.css';
 import './styles/index.css';
+
+// Dev-only: expose the patterns store on window for console debugging.
+if (import.meta.env.DEV) {
+  (window as unknown as { usePatternsStore: typeof usePatternsStore }).usePatternsStore =
+    usePatternsStore;
+}
 
 // Query-param routing:
 //   ?lab=1              → Sound Lab (developer-facing audio tuning surface)

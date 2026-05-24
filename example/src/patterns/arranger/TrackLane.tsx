@@ -16,6 +16,8 @@
 
 import { useMemo, useState, useRef } from 'react';
 import { useArrangerDrag } from './ArrangerDragContext';
+import { useArrangerView } from './ArrangerViewContext';
+import { snapTick, tickToPx, TRACK_SIDEBAR_WIDTH } from './timeline-math';
 import { Trash2, Volume2, VolumeX } from 'lucide-react';
 import type { Track, Composition, VariantRef, FretInstrumentId, SlotId } from '@fretwork/lib';
 import {
@@ -29,6 +31,7 @@ import {
   getDefaultPresetForSlot,
 } from '@fretwork/lib';
 import { BlockCard } from './BlockCard';
+import { CascadeGhost } from './CascadeGhost';
 import { usePatternsPlayback } from '../playback/usePatternsPlayback';
 
 const MIN_BLOCK_WIDTH = 80;
@@ -50,17 +53,35 @@ function clientXToTick(
   return Math.max(0, Math.round(beats * PPQ));
 }
 
+function gridBackgroundImage(pxPerBeat: number): string {
+  // Two layers: minor (every bar) faint, major (every 4 bars) stronger.
+  // Minor lines fade out at narrow zoom to avoid moiré.
+  const minorAlpha = pxPerBeat >= 24 ? 0.05 : 0;
+  const minorLayer = `linear-gradient(90deg, rgba(255,255,255,${minorAlpha}) 1px, transparent 1px)`;
+  const majorLayer = 'linear-gradient(90deg, rgba(255,255,255,0.12) 1px, transparent 1px)';
+  return `${minorLayer}, ${majorLayer}`;
+}
+
+function gridBackgroundSize(
+  timeSignature: { numerator: number; denominator: number },
+  pxPerBeat: number,
+): string {
+  const beatsPerBar = timeSignature.numerator * (4 / timeSignature.denominator);
+  const barPx = beatsPerBar * pxPerBeat;
+  const majorPx = barPx * 4;
+  return `${barPx}px 100%, ${majorPx}px 100%`;
+}
+
 interface Props {
   composition: Composition;
   track: Track;
-  pxPerBeat: number;
-  sidebarWidth: number;
   /** Any track is soloed somewhere in the composition? Drives the visual
    *  "soloed-elsewhere" cue on non-soloed tracks. */
   anySoloed: boolean;
 }
 
-export function TrackLane({ composition, track, pxPerBeat, sidebarWidth, anySoloed }: Props) {
+export function TrackLane({ composition, track, anySoloed }: Props) {
+  const { pxPerBeat, snapMode } = useArrangerView();
   const selectedPlacementId = usePatternsStore((s) => s.selectedPlacementId);
   const selectPlacement = usePatternsStore((s) => s.selectPlacement);
   const removePlacement = usePatternsStore((s) => s.removePlacement);
@@ -120,7 +141,7 @@ export function TrackLane({ composition, track, pxPerBeat, sidebarWidth, anySolo
   // know what's being dragged so it can render drop hints and accept the
   // gesture. The `before/after` hint indicator is still local: it's
   // inherently target-side and resets on dragleave / drop.
-  const { draggingId, fromTrackId, beginDrag, endDrag } = useArrangerDrag();
+  const { draggingId, fromTrackId, grabOffsetTicks, beginDrag, endDrag } = useArrangerDrag();
   const [dropTarget, setDropTarget] = useState<{ id: string; side: 'before' | 'after' } | null>(
     null,
   );
@@ -128,6 +149,8 @@ export function TrackLane({ composition, track, pxPerBeat, sidebarWidth, anySolo
   // trailing area after the last block). When set, a drop here appends
   // the dragged placement to the end of this track.
   const [laneAppendHover, setLaneAppendHover] = useState(false);
+  const [snapGuidePx, setSnapGuidePx] = useState<number | null>(null);
+  const [previewDestTick, setPreviewDestTick] = useState<number | null>(null);
   const dragOverCleanup = useRef<number | null>(null);
 
   // Audible-state cue: a track gets dimmed if (a) it's muted directly, or
@@ -163,7 +186,16 @@ export function TrackLane({ composition, track, pxPerBeat, sidebarWidth, anySolo
   const isCrossLaneDrag = draggingId !== null && fromTrackId !== null && fromTrackId !== track.id;
 
   function handleDragStart(e: React.DragEvent, id: string) {
-    beginDrag(id, track.id);
+    const laneCanvas = (e.currentTarget as HTMLElement).closest('[data-lane-canvas]') as HTMLElement | null;
+    let grabOffset = 0;
+    if (laneCanvas) {
+      const placementBeingDragged = track.placements.find((p) => p.id === id);
+      if (placementBeingDragged) {
+        const cursorTick = clientXToTick(e.clientX, laneCanvas, pxPerBeat);
+        grabOffset = cursorTick - placementBeingDragged.startTick;
+      }
+    }
+    beginDrag(id, track.id, grabOffset);
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', id);
   }
@@ -186,6 +218,14 @@ export function TrackLane({ composition, track, pxPerBeat, sidebarWidth, anySolo
     );
     if (dragOverCleanup.current !== null) window.clearTimeout(dragOverCleanup.current);
     dragOverCleanup.current = window.setTimeout(() => setDropTarget(null), 300);
+    const laneCanvas = (e.currentTarget as HTMLElement).closest('[data-lane-canvas]') as HTMLElement | null;
+    if (laneCanvas) {
+      const cursorTick = clientXToTick(e.clientX, laneCanvas, pxPerBeat);
+      const raw = Math.max(0, cursorTick - grabOffsetTicks);
+      const snapped = snapTick(raw, snapMode, composition.timeSignature);
+      setSnapGuidePx(tickToPx(snapped, pxPerBeat));
+      setPreviewDestTick(snapped);
+    }
   }
   function handleDrop(e: React.DragEvent, targetId: string) {
     e.preventDefault();
@@ -204,12 +244,11 @@ export function TrackLane({ composition, track, pxPerBeat, sidebarWidth, anySolo
       setDropTarget(null);
       return;
     }
-    // Phase 1A: tick-based drop. clientX → composition tick on the
-    // destination lane's canvas. The data-lane-canvas attribute on the
+    // Tick-based drop. clientX → composition tick on the destination
+    // lane's canvas. Snap is applied via snapTick using the arranger
+    // view context's snapMode. The data-lane-canvas attribute on the
     // lane container locates the right element regardless of which child
-    // we're dropping on. Hard-coded pxPerBeat matches
-    // CompositionTimeline's PX_PER_BEAT until Phase 1B promotes it to
-    // view state.
+    // we're dropping on.
     const laneCanvas = (e.currentTarget as HTMLElement).closest(
       '[data-lane-canvas]',
     ) as HTMLElement | null;
@@ -218,15 +257,21 @@ export function TrackLane({ composition, track, pxPerBeat, sidebarWidth, anySolo
       setDropTarget(null);
       return;
     }
-    const destStartTick = clientXToTick(e.clientX, laneCanvas, 28);
+    const cursorTick = clientXToTick(e.clientX, laneCanvas, pxPerBeat);
+    const raw = Math.max(0, cursorTick - grabOffsetTicks);
+    const destStartTick = snapTick(raw, snapMode, composition.timeSignature);
     movePlacement(draggingId, track.id, destStartTick);
     endDrag();
     setDropTarget(null);
+    setSnapGuidePx(null);
+    setPreviewDestTick(null);
   }
   function handleDragEnd() {
     endDrag();
     setDropTarget(null);
     setLaneAppendHover(false);
+    setSnapGuidePx(null);
+    setPreviewDestTick(null);
   }
 
   // Lane-area drop (empty lane or trailing whitespace) → append to this
@@ -237,9 +282,17 @@ export function TrackLane({ composition, track, pxPerBeat, sidebarWidth, anySolo
     e.dataTransfer.dropEffect = 'move';
     setLaneAppendHover(true);
     setDropTarget(null);
+    const laneCanvas = e.currentTarget as HTMLElement;
+    const cursorTick = clientXToTick(e.clientX, laneCanvas, pxPerBeat);
+    const raw = Math.max(0, cursorTick - grabOffsetTicks);
+    const snapped = snapTick(raw, snapMode, composition.timeSignature);
+    setSnapGuidePx(tickToPx(snapped, pxPerBeat));
+    setPreviewDestTick(snapped);
   }
   function handleLaneDragLeave() {
     setLaneAppendHover(false);
+    setSnapGuidePx(null);
+    setPreviewDestTick(null);
   }
   function handleLaneDrop(e: React.DragEvent) {
     e.preventDefault();
@@ -257,11 +310,15 @@ export function TrackLane({ composition, track, pxPerBeat, sidebarWidth, anySolo
       setLaneAppendHover(false);
       return;
     }
-    const destStartTick = clientXToTick(e.clientX, laneCanvas, 28);
+    const cursorTick = clientXToTick(e.clientX, laneCanvas, pxPerBeat);
+    const raw = Math.max(0, cursorTick - grabOffsetTicks);
+    const destStartTick = snapTick(raw, snapMode, composition.timeSignature);
     movePlacement(draggingId, track.id, destStartTick);
     endDrag();
     setDropTarget(null);
     setLaneAppendHover(false);
+    setSnapGuidePx(null);
+    setPreviewDestTick(null);
   }
 
   return (
@@ -274,7 +331,7 @@ export function TrackLane({ composition, track, pxPerBeat, sidebarWidth, anySolo
       {/* Sidebar — track-level controls */}
       <div
         className="shrink-0 flex flex-col gap-1 px-2 py-2 border-r border-border/30 bg-charcoal-deep/30"
-        style={{ width: sidebarWidth }}
+        style={{ width: TRACK_SIDEBAR_WIDTH }}
       >
         <input
           type="text"
@@ -409,7 +466,11 @@ export function TrackLane({ composition, track, pxPerBeat, sidebarWidth, anySolo
           'relative flex items-stretch py-1 min-h-[64px] transition-colors ' +
           (laneAppendHover ? 'bg-degree-root/10 outline outline-1 outline-degree-root/40' : '')
         }
-        style={{ minWidth: totalLanePx + 12 }}
+        style={{
+          minWidth: totalLanePx + 12,
+          backgroundImage: gridBackgroundImage(pxPerBeat),
+          backgroundSize: gridBackgroundSize(composition.timeSignature, pxPerBeat),
+        }}
         onDragOver={handleLaneDragOver}
         onDragLeave={handleLaneDragLeave}
         onDrop={handleLaneDrop}
@@ -458,6 +519,22 @@ export function TrackLane({ composition, track, pxPerBeat, sidebarWidth, anySolo
               />
             );
           })
+        )}
+        {draggingId !== null && previewDestTick !== null && (
+          <CascadeGhost
+            composition={composition}
+            trackId={track.id}
+            draggingId={draggingId}
+            destStartTick={previewDestTick}
+            pxPerBeat={pxPerBeat}
+          />
+        )}
+        {snapGuidePx !== null && (
+          <div
+            className="absolute top-0 bottom-0 w-px bg-degree-root pointer-events-none z-10"
+            style={{ left: snapGuidePx, boxShadow: '0 0 6px var(--degree-root, #d4b860)' }}
+            aria-hidden
+          />
         )}
       </div>
     </div>

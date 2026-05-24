@@ -77,14 +77,15 @@ export class MultiTrackPlayback {
       const gain = new Tone.Gain(0); // start silent; applyTrackState below sets real value
       voice.setRoutingTarget(gain);
       gain.connect(this._masterGain);
-
       const scheduler = new EventScheduler({
         metronome: opts.metronome,
         instrument: voice,
         tuning: opts.tuning,
         capo: opts.capo,
       });
-      scheduler.setStream(new CompositionTrackSource(opts.composition, track.id));
+
+      const stream = new CompositionTrackSource(opts.composition, track.id);
+      scheduler.setStream(stream);
 
       this._entries.push({ trackId: track.id, scheduler, voice, gain });
     }

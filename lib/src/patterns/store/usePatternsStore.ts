@@ -17,6 +17,7 @@ import type {
   GrooveSpec,
   Library,
   Pattern,
+  PatternTimeSignature,
   Placement,
   StepLength,
   Tick,
@@ -58,6 +59,7 @@ import {
   splitPlacement as opsSplitPlacement,
   duplicatePlacements as opsDuplicatePlacements,
   setCompositionBpm,
+  setCompositionTimeSignature,
   setCompositionGroove,
   setCompositionGrooveMode,
   setCompositionInstrument,
@@ -104,6 +106,12 @@ export interface PendingStamp {
   fret: number;
 }
 
+export interface PreRollStateValue {
+  barsRemaining: number;
+  beatInBar: number;
+  beatsPerBar: number;
+}
+
 export interface PatternsState {
   // Persisted
   library: Library;
@@ -125,6 +133,13 @@ export interface PatternsState {
   selectedEventIds: string[];
   pendingChordStamp: PendingStamp[];
   selectedPlacementId: string | null;
+  /** Non-null while the 2-bar pre-roll count-in is active. Stored here (not in
+   *  the hook) so every usePatternsPlayback caller shares the same value. */
+  preRollState: PreRollStateValue | null;
+  /** Current playback head position in ticks. Null when not playing. Stored
+   *  here so the timeline playhead and any other subscriber share one value
+   *  regardless of which component initiated playback. */
+  headTick: number | null;
 }
 
 export interface PatternsActions {
@@ -175,6 +190,7 @@ export interface PatternsActions {
   setCompositionInstrument(id: string, instrumentId: string): void;
   updateCompositionMetadata(id: string, patch: CompositionMetadataPatch): void;
   setCompositionBpm(id: string, bpm: number): void;
+  setCompositionTimeSignature(id: string, ts: PatternTimeSignature): void;
   setEditingPatternSuggestedBpm(bpm: number | null): void;
   setEditingPatternGroove(groove: GrooveSpec | null): void;
   setEditingPatternSubdivision(subdivision: import('../../metronome/types').SubdivisionId | null): void;
@@ -258,6 +274,14 @@ export interface PatternsActions {
   setCompositionTrackSoloed(trackId: string, soloed: boolean): void;
   setCompositionMasterVolumeDb(masterVolumeDb: number): void;
 
+  /** Update (or clear) the pre-roll countdown state. Stored at store level so
+   *  every usePatternsPlayback caller shares the same value regardless of which
+   *  hook instance initiated the playback. */
+  setPreRollState(state: PreRollStateValue | null): void;
+  /** Update (or clear) the playback head tick. Stored at store level so the
+   *  timeline playhead and any subscriber see the same position. */
+  setHeadTick(tick: number | null): void;
+
   // Collections (nested folders). Returned id is the new/affected collection id;
   // returns null when a create is refused (e.g. max depth).
   createCollection(name: string, parentId: string | null): string | null;
@@ -287,6 +311,8 @@ export const DEFAULT_PATTERNS_STATE: PatternsState = {
   selectedEventIds: [],
   pendingChordStamp: [],
   selectedPlacementId: null,
+  preRollState: null,
+  headTick: null,
 };
 
 // Anon users persist to sessionStorage — survives reload within the same tab,
@@ -657,6 +683,16 @@ export const usePatternsStore = create<PatternsStoreState>()(
           },
         }));
       },
+      setCompositionTimeSignature(id, ts) {
+        set((s) => ({
+          library: {
+            ...s.library,
+            compositions: s.library.compositions.map((c) =>
+              c.id === id ? setCompositionTimeSignature(c, ts) : c,
+            ),
+          },
+        }));
+      },
       setEditingPatternSuggestedBpm(bpm) {
         set((s) => {
           const id = s.editingPatternId;
@@ -930,6 +966,16 @@ export const usePatternsStore = create<PatternsStoreState>()(
           editingPlacementId: null,
           selectedPlacementId: null,
         });
+      },
+
+      // ─── Pre-roll countdown ──────────────────────────────────────────────────
+      setPreRollState(state) {
+        set({ preRollState: state });
+      },
+
+      // ─── Playback head tick ──────────────────────────────────────────────────
+      setHeadTick(tick) {
+        set({ headTick: tick });
       },
 
       // ─── Editor state ────────────────────────────────────────────────────────

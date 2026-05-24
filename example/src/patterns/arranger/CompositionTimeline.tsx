@@ -9,6 +9,7 @@
  * that lane.
  */
 
+import { useRef, useEffect } from 'react';
 import { Plus } from 'lucide-react';
 import {
   usePatternsStore,
@@ -17,13 +18,36 @@ import {
 } from '@fretwork/lib';
 import { TrackLane } from './TrackLane';
 import { ArrangerDragProvider } from './ArrangerDragContext';
-
-const PX_PER_BEAT = 28;
-const SIDEBAR_WIDTH = 200;
+import { TimelineRuler } from './TimelineRuler';
+import { TimelinePlayhead } from './TimelinePlayhead';
+import { totalDurationTicks } from '@fretwork/lib';
+import { TRACK_SIDEBAR_WIDTH, tickToPx } from './timeline-math';
+import { useArrangerView } from './ArrangerViewContext';
+import { PreRollOverlay } from '../playback/PreRollOverlay';
+import { usePatternsPlayback } from '../playback/usePatternsPlayback';
 
 export function CompositionTimeline() {
   const composition = usePatternsStore(selectEditingComposition);
   const addTrack = usePatternsStore((s) => s.addCompositionTrack);
+  const playback = usePatternsPlayback();
+  const { pxPerBeat } = useArrangerView();
+
+  // Auto-scroll: keep the playhead visible as it moves right.
+  const lanesScrollRef = useRef<HTMLDivElement | null>(null);
+  const headTick = usePatternsStore((s) => s.headTick);
+
+  useEffect(() => {
+    if (headTick === null) return;
+    const el = lanesScrollRef.current;
+    if (!el) return;
+    const playheadX = TRACK_SIDEBAR_WIDTH + tickToPx(headTick, pxPerBeat);
+    const visibleStart = el.scrollLeft + TRACK_SIDEBAR_WIDTH; // sidebar is sticky
+    const visibleEnd = el.scrollLeft + el.clientWidth;
+    const margin = 80; // keep some headroom on the right
+    if (playheadX < visibleStart || playheadX > visibleEnd - margin) {
+      el.scrollTo({ left: Math.max(0, playheadX - el.clientWidth / 2), behavior: 'smooth' });
+    }
+  }, [headTick, pxPerBeat]);
 
   if (!composition) return null;
   const anySoloed = composition.tracks.some((t) => t.soloed);
@@ -41,14 +65,16 @@ export function CompositionTimeline() {
 
       {/* Track lanes — horizontally scrollable as a unit so all lanes share the
           same scrollLeft / playhead alignment. */}
-      <div className="border border-border/40 rounded-md overflow-x-auto bg-charcoal-deep/20">
+      <div ref={lanesScrollRef} className="relative border border-border/40 rounded-md overflow-x-auto bg-charcoal-deep/20">
+        <TimelineRuler
+          timeSignature={composition.timeSignature}
+          totalTicks={totalDurationTicks(composition)}
+        />
         {composition.tracks.map((track) => (
           <TrackLane
             key={track.id}
             composition={composition}
             track={track}
-            pxPerBeat={PX_PER_BEAT}
-            sidebarWidth={SIDEBAR_WIDTH}
             anySoloed={anySoloed}
           />
         ))}
@@ -57,7 +83,7 @@ export function CompositionTimeline() {
         <div className="flex items-stretch border-t border-border/40">
           <div
             className="shrink-0 flex items-center px-2 py-1"
-            style={{ width: SIDEBAR_WIDTH }}
+            style={{ width: TRACK_SIDEBAR_WIDTH }}
           >
             <button
               type="button"
@@ -85,6 +111,12 @@ export function CompositionTimeline() {
           </div>
           <div className="flex-1" />
         </div>
+        <TimelinePlayhead />
+        <PreRollOverlay
+          barsRemaining={playback.preRollState?.barsRemaining ?? null}
+          beatInBar={playback.preRollState?.beatInBar ?? 0}
+          beatsPerBar={playback.preRollState?.beatsPerBar ?? 4}
+        />
       </div>
 
       <p className="text-[10px] font-mono text-muted-foreground/60">

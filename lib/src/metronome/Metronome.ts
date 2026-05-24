@@ -33,6 +33,7 @@ import {
 
 const MIN_BPM = 40;
 const MAX_BPM = 240;
+
 const SWING_MIN = 0.5;
 const SWING_MAX = 0.95;
 
@@ -134,25 +135,39 @@ export class Metronome {
 
   async start(): Promise<void> {
     if (this._isRunning) return;
-    // Tone.start() unlocks the AudioContext on first user interaction.
-    await Tone.start();
-
-    // Build voices now that AudioContext is alive.
-    this._ensureVoices();
-
-    const transport = Tone.getTransport();
-    transport.bpm.value = this._bpm;
-    transport.position = 0;
-    this._tickIndex = 0;
-
-    const interval = tickSubdivision(this._timeSignature);
-    this._scheduledEventId = transport.scheduleRepeat((audioTime) => {
-      this._dispatchTick(audioTime);
-    }, interval, 0);
-
-    transport.start();
+    // Reserve the running slot immediately so a concurrent call to start()
+    // that arrives while we await Tone.start() is rejected by the guard
+    // above. Without this, two concurrent callers both pass the guard,
+    // each register their own scheduleRepeat for _dispatchTick, and the
+    // second call's ID overwrites _scheduledEventId — leaking the first
+    // callback permanently and producing a double-click on every subsequent
+    // start.
     this._isRunning = true;
-    this._fire('start');
+    try {
+      // Tone.start() unlocks the AudioContext on first user interaction.
+      await Tone.start();
+
+      // Build voices now that AudioContext is alive.
+      this._ensureVoices();
+
+      const transport = Tone.getTransport();
+      transport.bpm.value = this._bpm;
+      transport.position = 0;
+      this._tickIndex = 0;
+
+      const interval = tickSubdivision(this._timeSignature);
+      this._scheduledEventId = transport.scheduleRepeat((audioTime) => {
+        this._dispatchTick(audioTime);
+      }, interval, 0);
+
+      transport.start();
+      this._fire('start');
+    } catch (err) {
+      // AudioContext unlock or transport start failed. Roll back the
+      // reservation so a subsequent play attempt can retry cleanly.
+      this._isRunning = false;
+      throw err;
+    }
   }
 
   stop(): void {

@@ -8,32 +8,38 @@
  * `'<n>i'` tick-time syntax maps 1:1 with our authoring ticks. Each
  * event past index 0 schedules a `setValueAtTime` (step) or
  * `linearRampToValueAtTime` (linear) on Tone.Transport.bpm. The first
- * event is applied immediately (via metronome.setBpm) before scheduling
- * because Tone.Transport doesn't accept a setValueAtTime at the current
- * cursor reliably.
+ * event is applied immediately (via the `setBpm` callback) before
+ * scheduling because Tone.Transport doesn't accept a setValueAtTime at
+ * the current cursor reliably. Alongside each scheduled audio-rate
+ * change, a transport.scheduleOnce JS callback fires at the same tick
+ * so the caller's setter (typically a store action) sees the same value
+ * — keeping the UI's BPM display in sync with the actual playing tempo.
  *
- * Source-agnostic: callers pass an event array directly. Composition
- * playback feeds in `composition.tempoTrack`; pattern editor playback
- * feeds in `pattern.tempoTrack`; composition `inherit` mode feeds in a
- * pre-merged track built from `tracks[0]`'s placements.
+ * Source-agnostic: callers pass an event array directly and a setter
+ * callback. The setter is responsible for whatever side effects keep
+ * the caller's source of truth coherent — typically pushing into a
+ * Zustand store so subscribers (UI components + the audio Metronome
+ * instance) stay aligned.
  */
 
 import * as Tone from 'tone';
-import type { Composition, TempoEvent } from '../types';
-import type { Metronome } from '../../metronome';
+import type { TempoEvent } from '../types';
 import { PPQ } from '../timebase';
 
+export type BpmSetter = (bpm: number) => void;
+
 /**
- * Schedule a series of `TempoEvent`s on Tone.Transport.bpm. When the array is
- * empty the metronome is set to `fallbackBpm` and no schedule is registered.
+ * Schedule a series of `TempoEvent`s on Tone.Transport.bpm. When the array
+ * is empty the setter is called once with `fallbackBpm` and no schedule
+ * is registered.
  */
 export function applyTempoAutomation(
   events: TempoEvent[],
   fallbackBpm: number,
-  metronome: Metronome,
+  setBpm: BpmSetter,
 ): () => void {
   if (events.length === 0) {
-    metronome.setBpm(fallbackBpm);
+    setBpm(fallbackBpm);
     return () => {};
   }
 
@@ -53,7 +59,9 @@ export function applyTempoAutomation(
 
   // Apply the first event immediately so the transport starts at the
   // right tempo from tick 0.
-  metronome.setBpm(events[0].bpm);
+  setBpm(events[0].bpm);
+
+  const scheduleIds: number[] = [];
 
   for (let i = 1; i < events.length; i++) {
     const event = events[i];
@@ -64,6 +72,15 @@ export function applyTempoAutomation(
       } else {
         transport.bpm.setValueAtTime(event.bpm, tickTime);
       }
+      // Mirror the change into the caller's setter at the same tick so
+      // UI state (and any subscribers downstream) stay in sync with the
+      // audio-side BPM. The transport.bpm Signal is sample-accurate; the
+      // JS callback runs slightly later on Tone's draw loop, which is
+      // imperceptible for UI display purposes.
+      const id = transport.scheduleOnce(() => {
+        setBpm(event.bpm);
+      }, tickTime);
+      scheduleIds.push(id);
     } catch {
       // setValueAtTime can throw if Tone considers the time invalid
       // (e.g., past values when scheduling out-of-order). Swallow so one
@@ -77,13 +94,12 @@ export function applyTempoAutomation(
     } catch {
       // ignore
     }
+    for (const id of scheduleIds) {
+      try {
+        transport.clear(id);
+      } catch {
+        // ignore
+      }
+    }
   };
-}
-
-/** Thin compatibility wrapper for the original composition-shaped call. */
-export function applyCompositionTempoAutomation(
-  composition: Composition,
-  metronome: Metronome,
-): () => void {
-  return applyTempoAutomation(composition.tempoTrack ?? [], composition.bpm, metronome);
 }

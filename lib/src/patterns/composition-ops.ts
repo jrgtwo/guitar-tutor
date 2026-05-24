@@ -410,6 +410,30 @@ export function setCompositionBpm(comp: Composition, bpm: number): Composition {
   return { ...comp, bpm: Math.max(40, Math.min(240, bpm)), updatedAt: Date.now() };
 }
 
+/**
+ * Set the composition's static time signature. Idempotent when the value
+ * matches. Note: this does NOT clear `timeSignatureTrack` — that's
+ * automation data preserved from the source IR. In global tempoMode the
+ * playback engine ignores `timeSignatureTrack` and uses only this static
+ * value, so the user can override an imported meter cleanly.
+ */
+export function setCompositionTimeSignature(
+  comp: Composition,
+  timeSignature: PatternTimeSignature,
+): Composition {
+  if (
+    comp.timeSignature.numerator === timeSignature.numerator &&
+    comp.timeSignature.denominator === timeSignature.denominator
+  ) {
+    return comp;
+  }
+  return {
+    ...comp,
+    timeSignature: { ...timeSignature },
+    updatedAt: Date.now(),
+  };
+}
+
 /** Update the placement's snapshot (used when editing the placement's own pattern
  *  via the editor tab). */
 export function setPlacementSnapshot(

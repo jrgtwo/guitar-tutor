@@ -8,5 +8,6 @@ export function buildEffectiveVoice(
   options?: { autoConnectToMaster?: boolean; voiceRef?: VariantRef | null },
 ): { voice: Voice; preset: VoicePreset } {
   const preset = resolveActiveVoice(instrumentId, options?.voiceRef ?? null);
-  return { voice: new Voice(preset, options), preset };
+  const voice = new Voice(preset, options);
+  return { voice, preset };
 }

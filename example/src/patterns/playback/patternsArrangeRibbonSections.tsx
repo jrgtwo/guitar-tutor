@@ -25,6 +25,8 @@ export function usePatternsArrangeRibbonSections(): readonly PlaybackRibbonSecti
   const playback = usePatternsPlayback();
   const composition = usePatternsStore(selectEditingComposition);
   const setCompositionBpm = usePatternsStore((s) => s.setCompositionBpm);
+  const setCompositionTimeSignature = usePatternsStore((s) => s.setCompositionTimeSignature);
+  const setMetronomeTimeSignatureId = useMetronomeStore((s) => s.setTimeSignatureId);
   const setEditingCompositionGroove = usePatternsStore((s) => s.setEditingCompositionGroove);
   const setEditingCompositionSubdivision = usePatternsStore((s) => s.setEditingCompositionSubdivision);
   const m = useMetronome();
@@ -59,7 +61,16 @@ export function usePatternsArrangeRibbonSections(): readonly PlaybackRibbonSecti
           }}
         />
       : null,
-    <TimeSignatureSelect key="ts" />,
+    composition
+      ? <TimeSignatureSelect
+          key="ts"
+          value={`${composition.timeSignature.numerator}/${composition.timeSignature.denominator}`}
+          onChange={(ts) => {
+            setCompositionTimeSignature(composition.id, ts);
+            setMetronomeTimeSignatureId(ts.id);
+          }}
+        />
+      : <TimeSignatureSelect key="ts" />,
     <TempoModeToggle key="tempo-mode" />,
   ].filter(Boolean) as ReactNode[];
 
