@@ -96,6 +96,7 @@ export {
   removeTrack,
   setTrackName,
   setTrackInstrument,
+  setTrackVoiceRef,
   setTrackVolumeDb,
   setTrackMuted,
   setTrackSoloed,
@@ -129,6 +130,7 @@ export type { EffectivePlayback } from './scheduler/resolvePlayback';
 export { MultiTrackPlayback } from './scheduler/MultiTrackPlayback';
 export { CompositionTrackSource } from './scheduler/CompositionTrackSource';
 export { applyCompositionTempoAutomation } from './scheduler/tempoAutomation';
+export { applyCompositionTimeSignatureAutomation } from './scheduler/timeSignatureAutomation';
 
 export { selectCompositionsUsingPattern } from './store/usePatternsStore';
 

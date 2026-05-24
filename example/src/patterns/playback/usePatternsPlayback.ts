@@ -18,6 +18,7 @@ import {
   MultiTrackPlayback,
   PatternSource,
   applyCompositionTempoAutomation,
+  applyCompositionTimeSignatureAutomation,
   buildEffectiveVoice,
   getTuning,
   useFretworkStore,
@@ -28,7 +29,7 @@ import {
   selectEditingComposition,
   resolveEffectivePlayback,
 } from '@fretwork/lib';
-import type { FretInstrumentId, GuitarInstrument, Track } from '@fretwork/lib';
+import type { FretInstrumentId, GuitarInstrument, Track, VariantRef } from '@fretwork/lib';
 import { PluckSynthInstrument, SilentInstrument } from '@fretwork/lib';
 
 const FRET_INSTRUMENT_IDS = ['guitar', 'bass', 'ukulele'] as const;
@@ -61,9 +62,10 @@ interface UsePatternsPlaybackReturn {
 // short-lived MultiTrackPlayback that owns its own schedulers + voices.
 let sharedScheduler: EventScheduler | null = null;
 let currentMultiTrack: MultiTrackPlayback | null = null;
-/** Cancel-handle returned by `applyCompositionTempoAutomation`. Cleared on
- *  stop / restart so a fresh play doesn't replay stale tempo curves. */
+/** Cancel-handles for the automation schedulers. Cleared on stop /
+ *  restart so a fresh play doesn't replay stale tempo / TS curves. */
 let cancelTempoAutomation: (() => void) | null = null;
+let cancelTimeSignatureAutomation: (() => void) | null = null;
 
 function ensureScheduler(metronome: ReturnType<typeof useMetronome>['metronome']): EventScheduler | null {
   if (typeof window === 'undefined') return null;
@@ -289,6 +291,12 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
     // value so the transport starts at the right tempo.
     cancelTempoAutomation?.();
     cancelTempoAutomation = applyCompositionTempoAutomation(composition, metronome);
+    // TS automation — schedules `metronome.setTimeSignature` at each
+    // event's tick. For single-TS compositions this just sets the initial
+    // signature; for multi-TS files (rare but valid) it switches the
+    // metronome's accent pattern + tick subdivision live at each boundary.
+    cancelTimeSignatureAutomation?.();
+    cancelTimeSignatureAutomation = applyCompositionTimeSignatureAutomation(composition, metronome);
     // Static fallbacks (groove / subdivision) still come from the comp.
     metronome.setSwing(composition.groove?.swing ?? 0.5);
     if (composition.subdivision) metronome.setSubdivision(composition.subdivision);
@@ -308,9 +316,16 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
         tuning,
         capo: fretState.capo,
         buildVoice: (track: Track) => {
+          // Per-track voice override: when the track carries an explicit
+          // voiceRef (user picked a specific variant for THIS lane), use
+          // it. Otherwise fall back to the global active variant for the
+          // instrument (legacy behavior).
           const { voice } = buildEffectiveVoice(
             asFretInstrumentId(track.instrumentId),
-            { autoConnectToMaster: false },
+            {
+              autoConnectToMaster: false,
+              voiceRef: (track.voiceRef ?? null) as VariantRef | null,
+            },
           );
           return voice;
         },
@@ -340,9 +355,11 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
       currentMultiTrack.dispose();
       currentMultiTrack = null;
     }
-    // Clear any scheduled tempo automations so they don't replay next time.
+    // Clear any scheduled automations so they don't replay next time.
     cancelTempoAutomation?.();
     cancelTempoAutomation = null;
+    cancelTimeSignatureAutomation?.();
+    cancelTimeSignatureAutomation = null;
   }, [metronome]);
 
   const previewCell = useCallback(

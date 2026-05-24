@@ -10,15 +10,18 @@
  * Layout uses fixed pixel widths so multiple lanes align horizontally.
  */
 
-import { useState, useRef } from 'react';
+import { useMemo, useState, useRef } from 'react';
 import { Trash2, Volume2, VolumeX } from 'lucide-react';
-import type { Track, Composition } from '@fretwork/lib';
+import type { Track, Composition, VariantRef, FretInstrumentId, SlotId } from '@fretwork/lib';
 import {
   INSTRUMENTS,
   PPQ,
   ticksPerBar,
   placementEffectiveLength,
   usePatternsStore,
+  useVoiceStore,
+  getSlotsForInstrument,
+  getDefaultPresetForSlot,
 } from '@fretwork/lib';
 import { BlockCard } from './BlockCard';
 import { usePatternsPlayback } from '../playback/usePatternsPlayback';
@@ -44,6 +47,7 @@ export function TrackLane({ composition, track, pxPerBeat, sidebarWidth, anySolo
   const resizePlacement = usePatternsStore((s) => s.resizePlacement);
   const setTrackName = usePatternsStore((s) => s.setCompositionTrackName);
   const setTrackInstrument = usePatternsStore((s) => s.setCompositionTrackInstrument);
+  const setTrackVoiceRef = usePatternsStore((s) => s.setCompositionTrackVoiceRef);
   const setTrackVolume = usePatternsStore((s) => s.setCompositionTrackVolumeDb);
   const setTrackMuted = usePatternsStore((s) => s.setCompositionTrackMuted);
   const setTrackSoloed = usePatternsStore((s) => s.setCompositionTrackSoloed);
@@ -51,6 +55,44 @@ export function TrackLane({ composition, track, pxPerBeat, sidebarWidth, anySolo
   const trackCount = composition.tracks.length;
   const canDelete = trackCount > 1;
   const playback = usePatternsPlayback();
+
+  // Voice variants available for this track's instrument: built-in slot
+  // defaults + any user-created variants. Two tracks of the same
+  // instrument can pick different voices via this dropdown.
+  const instId = track.instrumentId as FretInstrumentId;
+  const slotIds = getSlotsForInstrument(instId);
+  // IMPORTANT: select the stable underlying `variants` array. Filtering
+  // inside the selector returns a fresh array on every render, which
+  // breaks Zustand's `useSyncExternalStore` equality check and causes an
+  // infinite re-render loop. Filter in render via useMemo instead.
+  const allVariants = useVoiceStore((s) => s.variants);
+  const userVariants = useMemo(
+    () => allVariants.filter((v) => v.instrumentId === instId),
+    [allVariants, instId],
+  );
+  const voiceRef = (track.voiceRef ?? null) as VariantRef | null;
+  // Compose dropdown value: '' = inherit (use global active),
+  //   'default:<slotId>' for a built-in slot, 'user:<id>' for a variant.
+  const voiceSelectValue = voiceRef
+    ? voiceRef.kind === 'default'
+      ? `default:${voiceRef.slotId}`
+      : `user:${voiceRef.id}`
+    : '';
+  function onVoiceSelectChange(value: string) {
+    if (value === '') {
+      setTrackVoiceRef(track.id, null);
+      return;
+    }
+    if (value.startsWith('default:')) {
+      const slotId = value.slice('default:'.length) as SlotId;
+      setTrackVoiceRef(track.id, { kind: 'default', slotId });
+      return;
+    }
+    if (value.startsWith('user:')) {
+      const id = value.slice('user:'.length);
+      setTrackVoiceRef(track.id, { kind: 'user', id });
+    }
+  }
 
   // Local drag state, scoped to this lane (cross-lane drag deferred).
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -166,6 +208,40 @@ export function TrackLane({ composition, track, pxPerBeat, sidebarWidth, anySolo
                 {inst.name}
               </option>
             ))}
+          </select>
+        </div>
+        {/* Voice picker: per-track override of which voice variant plays.
+            Inherit (blank) follows the global active variant for the
+            instrument; otherwise lists built-in slot defaults + user
+            variants for the track's instrument. */}
+        <div className="flex items-center gap-1">
+          <select
+            value={voiceSelectValue}
+            onChange={(e) => onVoiceSelectChange(e.target.value)}
+            className="flex-1 h-6 px-1 bg-charcoal-deep/60 border border-border/60 rounded text-[10px] font-mono text-foreground outline-none focus:border-degree-root/80"
+            aria-label="Track voice"
+            title="Voice variant for this track (independent of global active variant)"
+          >
+            <option value="">Inherit (global)</option>
+            <optgroup label="Built-in">
+              {slotIds.map((slotId) => {
+                const preset = getDefaultPresetForSlot(slotId);
+                return (
+                  <option key={slotId} value={`default:${slotId}`}>
+                    {preset.name}
+                  </option>
+                );
+              })}
+            </optgroup>
+            {userVariants.length > 0 && (
+              <optgroup label="Your variants">
+                {userVariants.map((v) => (
+                  <option key={v.id} value={`user:${v.id}`}>
+                    {v.name}
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </select>
         </div>
         <div className="flex items-center gap-1">

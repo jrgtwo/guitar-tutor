@@ -240,7 +240,25 @@ export function setTrackInstrument(
 ): Composition {
   return {
     ...comp,
-    tracks: replaceTrack(comp.tracks, trackId, (t) => ({ ...t, instrumentId })),
+    // Changing the instrument also clears any per-track voice override —
+    // the picked voice may have been for the OLD instrument, so falling
+    // back to the new instrument's global default is safer than carrying
+    // a now-incompatible variant ref.
+    tracks: replaceTrack(comp.tracks, trackId, (t) => ({ ...t, instrumentId, voiceRef: null })),
+    updatedAt: Date.now(),
+  };
+}
+
+/** Set the per-track voice override. Pass `null` to clear (the track will
+ *  fall back to the global active variant for its instrument). */
+export function setTrackVoiceRef(
+  comp: Composition,
+  trackId: string,
+  voiceRef: unknown | null,
+): Composition {
+  return {
+    ...comp,
+    tracks: replaceTrack(comp.tracks, trackId, (t) => ({ ...t, voiceRef })),
     updatedAt: Date.now(),
   };
 }

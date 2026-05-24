@@ -12,6 +12,7 @@ import { HeaderCardDescription } from './header-card/HeaderCardDescription';
 import { HeaderCardChips } from './header-card/HeaderCardChips';
 import { HeaderCardActions } from './header-card/HeaderCardActions';
 import { ForkedFromBadge } from './layout/PatternMetadataControls';
+import { ImportedFromBadge } from './header-card/ImportedFromBadge';
 import { ArrangeCompositionTab } from './arranger/ArrangeCompositionTab';
 
 export function CompositionArrangerPage() {
@@ -94,6 +95,7 @@ export function CompositionArrangerPage() {
               {composition.forkedFromId !== null && (
                 <ForkedFromBadge creatorName={composition.forkedFromCreatorName} />
               )}
+              <ImportedFromBadge sourceIR={composition.sourceIR} />
               <HeaderCardDescription
                 itemId={composition.id}
                 value={composition.description}

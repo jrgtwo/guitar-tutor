@@ -70,6 +70,7 @@ import {
   removeTrack as opsRemoveTrack,
   setTrackName as opsSetTrackName,
   setTrackInstrument as opsSetTrackInstrument,
+  setTrackVoiceRef as opsSetTrackVoiceRef,
   setTrackVolumeDb as opsSetTrackVolumeDb,
   setTrackMuted as opsSetTrackMuted,
   setTrackSoloed as opsSetTrackSoloed,
@@ -246,6 +247,8 @@ export interface PatternsActions {
   removeCompositionTrack(trackId: string): void;
   setCompositionTrackName(trackId: string, name: string): void;
   setCompositionTrackInstrument(trackId: string, instrumentId: string): void;
+  /** Set a per-track voice-variant override (or null to follow the global active). */
+  setCompositionTrackVoiceRef(trackId: string, voiceRef: unknown | null): void;
   setCompositionTrackVolumeDb(trackId: string, volumeDb: number): void;
   setCompositionTrackMuted(trackId: string, muted: boolean): void;
   setCompositionTrackSoloed(trackId: string, soloed: boolean): void;
@@ -1223,6 +1226,9 @@ export const usePatternsStore = create<PatternsStoreState>()(
       },
       setCompositionTrackInstrument(trackId, instrumentId) {
         applyComposition(set, get, (comp) => opsSetTrackInstrument(comp, trackId, instrumentId));
+      },
+      setCompositionTrackVoiceRef(trackId, voiceRef) {
+        applyComposition(set, get, (comp) => opsSetTrackVoiceRef(comp, trackId, voiceRef));
       },
       setCompositionTrackVolumeDb(trackId, volumeDb) {
         applyComposition(set, get, (comp) => opsSetTrackVolumeDb(comp, trackId, volumeDb));

@@ -14,6 +14,7 @@ import { HeaderCardChips } from './header-card/HeaderCardChips';
 import { HeaderCardUsedIn } from './header-card/HeaderCardUsedIn';
 import { HeaderCardActions } from './header-card/HeaderCardActions';
 import { ForkedFromBadge } from './layout/PatternMetadataControls';
+import { ImportedFromBadge } from './header-card/ImportedFromBadge';
 import { MusicalBand } from './MusicalBand';
 import { EditPatternTab } from './editor/EditPatternTab';
 
@@ -97,6 +98,7 @@ export function PatternEditorPage() {
               {pattern.forkedFromId !== null && (
                 <ForkedFromBadge creatorName={pattern.forkedFromCreatorName} />
               )}
+              <ImportedFromBadge sourceIR={pattern.sourceIR} />
               <HeaderCardDescription
                 itemId={pattern.id}
                 value={pattern.description}

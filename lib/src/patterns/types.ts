@@ -328,6 +328,17 @@ export interface Track {
   id: string;
   name: string;
   instrumentId: string;
+  /**
+   * Optional voice / variant override for this track. When null /
+   * undefined, the global `activeVariants[instrumentId]` setting is used
+   * (matches pre-multi-track behavior). When set, two tracks of the same
+   * instrument can use different voice variants (e.g. a clean lead guitar
+   * + a distorted rhythm guitar).
+   *
+   * Loose-typed (`unknown`) to avoid a hard dependency from the patterns
+   * model to the voices module. Cast to `VariantRef` at consumption.
+   */
+  voiceRef?: unknown | null;
   /** Per-track volume in dB. 0 = unity. Range typically -60..+6.  */
   volumeDb: number;
   muted: boolean;

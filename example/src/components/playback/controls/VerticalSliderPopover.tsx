@@ -54,6 +54,11 @@ export function VerticalSliderPopover({
   panelClassName,
 }: Props) {
   const [open, setOpen] = useState(false);
+  // Open direction. Defaults 'down'; flips to 'up' when there isn't
+  // enough viewport room below the trigger (e.g. when the popover lives
+  // in a ribbon docked at the bottom of the page). Reset whenever the
+  // popover re-opens so the measurement reflects current scroll/layout.
+  const [direction, setDirection] = useState<'down' | 'up'>('down');
   const hoverCloseTimer = useRef<number | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -98,6 +103,41 @@ export function VerticalSliderPopover({
   // Cleanup pending close on unmount.
   useEffect(() => () => cancelClose(), [cancelClose]);
 
+  // Auto-flip: when the popover opens, check whether there's enough room
+  // below the trigger for the panel. If not, flip it upward.
+  //
+  // The relevant clip is the nearest scrollable/clipping ancestor, NOT
+  // the viewport — the playback ribbon sits at the bottom of an
+  // `overflow-auto` container that's shorter than the viewport, so a
+  // viewport-only check would think there's plenty of room below when
+  // there's actually none. Walk up the DOM to find any ancestor whose
+  // computed `overflow-y` clips, and use its bottom edge as the limit.
+  useEffect(() => {
+    if (!open || !triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    const ESTIMATED_PANEL_HEIGHT = 160;
+    // Default clip is the viewport bottom.
+    let clipBottom = window.innerHeight;
+    let parent: HTMLElement | null = triggerRef.current.parentElement;
+    while (parent) {
+      const style = window.getComputedStyle(parent);
+      if (
+        style.overflowY === 'auto' ||
+        style.overflowY === 'scroll' ||
+        style.overflowY === 'hidden' ||
+        style.overflow === 'auto' ||
+        style.overflow === 'scroll' ||
+        style.overflow === 'hidden'
+      ) {
+        const parentBottom = parent.getBoundingClientRect().bottom;
+        if (parentBottom < clipBottom) clipBottom = parentBottom;
+      }
+      parent = parent.parentElement;
+    }
+    const spaceBelow = clipBottom - rect.bottom;
+    setDirection(spaceBelow < ESTIMATED_PANEL_HEIGHT ? 'up' : 'down');
+  }, [open]);
+
   return (
     <div className="relative inline-flex">
       <button
@@ -139,7 +179,8 @@ export function VerticalSliderPopover({
           onMouseLeave={scheduleClose}
           className={
             panelClassName ??
-            'absolute left-1/2 top-full z-50 mt-1 -translate-x-1/2 flex flex-col items-center gap-2 rounded-md border border-border/60 bg-charcoal-deep/95 backdrop-blur p-2 shadow-lg'
+            'absolute left-1/2 z-50 -translate-x-1/2 flex flex-col items-center gap-2 rounded-md border border-border/60 bg-charcoal-deep/95 backdrop-blur p-2 shadow-lg ' +
+            (direction === 'up' ? 'bottom-full mb-1' : 'top-full mt-1')
           }
         >
           {display ? (

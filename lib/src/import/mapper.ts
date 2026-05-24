@@ -112,7 +112,7 @@ export function mapImportToLibrary(input: MapInput): MapperResult {
   }
   if (ir.timeSignatures.length > 1) {
     warnings.push(
-      `Time signature automation preserved (${ir.timeSignatures.length} changes); only the initial signature is played until TS automation playback ships`,
+      `Time signature automation (${ir.timeSignatures.length} changes) — scheduled on the transport; the metronome accent pattern and tick subdivision switch live at each boundary`,
     );
   }
 
