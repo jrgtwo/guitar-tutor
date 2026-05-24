@@ -14,7 +14,7 @@
  * Layout uses fixed pixel widths so multiple lanes align horizontally.
  */
 
-import { useMemo, useState, useRef } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import { useArrangerDrag } from './ArrangerDragContext';
 import { useArrangerView } from './ArrangerViewContext';
 import { snapTick, tickToPx, TRACK_SIDEBAR_WIDTH } from './timeline-math';
@@ -25,14 +25,15 @@ import {
   PPQ,
   ticksPerBar,
   placementEffectiveLength,
+  getTransportTicks,
   usePatternsStore,
+  useMetronomeStore,
   useVoiceStore,
   getSlotsForInstrument,
   getDefaultPresetForSlot,
 } from '@fretwork/lib';
 import { BlockCard } from './BlockCard';
 import { CascadeGhost } from './CascadeGhost';
-import { usePatternsPlayback } from '../playback/usePatternsPlayback';
 
 const MIN_BLOCK_WIDTH = 80;
 
@@ -81,7 +82,12 @@ interface Props {
 }
 
 export function TrackLane({ composition, track, anySoloed }: Props) {
-  const { pxPerBeat, snapMode } = useArrangerView();
+  const { pxPerBeat, snapMode, laneHeight } = useArrangerView();
+  // Progressive sidebar reveal — voice (least-edited) hides first, then
+  // instrument, then volume. M/S/delete + name stay visible at every step.
+  const showVoice = laneHeight >= 192;
+  const showInstrument = laneHeight >= 128;
+  const showVolume = laneHeight >= 96;
   const selectedPlacementId = usePatternsStore((s) => s.selectedPlacementId);
   const selectPlacement = usePatternsStore((s) => s.selectPlacement);
   const removePlacement = usePatternsStore((s) => s.removePlacement);
@@ -97,7 +103,6 @@ export function TrackLane({ composition, track, anySoloed }: Props) {
   const movePlacement = usePatternsStore((s) => s.movePlacement);
   const trackCount = composition.tracks.length;
   const canDelete = trackCount > 1;
-  const playback = usePatternsPlayback();
 
   // Voice variants available for this track's instrument: built-in slot
   // defaults + any user-created variants. Two tracks of the same
@@ -169,15 +174,40 @@ export function TrackLane({ composition, track, anySoloed }: Props) {
   }
 
   // Per-track playhead: highlights the placement currently sounding in this
-  // lane (each track has its own placement series with their own startTicks).
-  const playingPlacementId = (() => {
-    if (!playback.isPlaying) return null;
-    for (const p of track.placements) {
-      const end = p.startTick + placementEffectiveLength(p) * p.repeat;
-      if (playback.headTick >= p.startTick && playback.headTick < end) return p.id;
+  // lane. Runs its OWN rAF loop (only while transport is running) reading
+  // Tone.Transport.ticks directly — no store subscription, no per-frame
+  // Zustand notify cascade. setState only fires when the placement actually
+  // changes (rare, only at placement boundaries).
+  const [playingPlacementId, setPlayingPlacementId] = useState<string | null>(null);
+  const isPlayingForPlacement = useMetronomeStore((s) => s.isRunning);
+  useEffect(() => {
+    if (!isPlayingForPlacement) {
+      setPlayingPlacementId(null);
+      return;
     }
-    return null;
-  })();
+    let rafId: number | null = null;
+    let currentId: string | null = null;
+    const tick = () => {
+      rafId = requestAnimationFrame(tick);
+      const headTick = getTransportTicks(PPQ);
+      let nextId: string | null = null;
+      for (const p of track.placements) {
+        const end = p.startTick + placementEffectiveLength(p) * p.repeat;
+        if (headTick >= p.startTick && headTick < end) {
+          nextId = p.id;
+          break;
+        }
+      }
+      if (nextId !== currentId) {
+        currentId = nextId;
+        setPlayingPlacementId(nextId);
+      }
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId);
+    };
+  }, [isPlayingForPlacement, track.placements]);
 
   // ─── Drag handlers ────────────────────────────────────────────────────
   // Same gesture handles both within-lane reorder and cross-lane move —
@@ -340,75 +370,81 @@ export function TrackLane({ composition, track, anySoloed }: Props) {
           className="h-6 px-1.5 bg-charcoal-deep/60 border border-border/60 rounded text-xs font-mono text-foreground outline-none focus:border-degree-root/80"
           aria-label="Track name"
         />
-        <div className="flex items-center gap-1">
-          <select
-            value={track.instrumentId}
-            onChange={(e) => setTrackInstrument(track.id, e.target.value)}
-            className="flex-1 h-6 px-1 bg-charcoal-deep/60 border border-border/60 rounded text-[11px] font-mono text-foreground outline-none focus:border-degree-root/80"
-            aria-label="Track instrument"
-          >
-            {INSTRUMENTS.map((inst) => (
-              <option key={inst.id} value={inst.id}>
-                {inst.name}
-              </option>
-            ))}
-          </select>
-        </div>
+        {showInstrument && (
+          <div className="flex items-center gap-1">
+            <select
+              value={track.instrumentId}
+              onChange={(e) => setTrackInstrument(track.id, e.target.value)}
+              className="flex-1 h-6 px-1 bg-charcoal-deep/60 border border-border/60 rounded text-[11px] font-mono text-foreground outline-none focus:border-degree-root/80"
+              aria-label="Track instrument"
+            >
+              {INSTRUMENTS.map((inst) => (
+                <option key={inst.id} value={inst.id}>
+                  {inst.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         {/* Voice picker: per-track override of which voice variant plays.
             Inherit (blank) follows the global active variant for the
             instrument; otherwise lists built-in slot defaults + user
             variants for the track's instrument. */}
-        <div className="flex items-center gap-1">
-          <select
-            value={voiceSelectValue}
-            onChange={(e) => onVoiceSelectChange(e.target.value)}
-            className="flex-1 h-6 px-1 bg-charcoal-deep/60 border border-border/60 rounded text-[10px] font-mono text-foreground outline-none focus:border-degree-root/80"
-            aria-label="Track voice"
-            title="Voice variant for this track (independent of global active variant)"
-          >
-            <option value="">Inherit (global)</option>
-            <optgroup label="Built-in">
-              {slotIds.map((slotId) => {
-                const preset = getDefaultPresetForSlot(slotId);
-                return (
-                  <option key={slotId} value={`default:${slotId}`}>
-                    {preset.name}
-                  </option>
-                );
-              })}
-            </optgroup>
-            {userVariants.length > 0 && (
-              <optgroup label="Your variants">
-                {userVariants.map((v) => (
-                  <option key={v.id} value={`user:${v.id}`}>
-                    {v.name}
-                  </option>
-                ))}
+        {showVoice && (
+          <div className="flex items-center gap-1">
+            <select
+              value={voiceSelectValue}
+              onChange={(e) => onVoiceSelectChange(e.target.value)}
+              className="flex-1 h-6 px-1 bg-charcoal-deep/60 border border-border/60 rounded text-[10px] font-mono text-foreground outline-none focus:border-degree-root/80"
+              aria-label="Track voice"
+              title="Voice variant for this track (independent of global active variant)"
+            >
+              <option value="">Inherit (global)</option>
+              <optgroup label="Built-in">
+                {slotIds.map((slotId) => {
+                  const preset = getDefaultPresetForSlot(slotId);
+                  return (
+                    <option key={slotId} value={`default:${slotId}`}>
+                      {preset.name}
+                    </option>
+                  );
+                })}
               </optgroup>
+              {userVariants.length > 0 && (
+                <optgroup label="Your variants">
+                  {userVariants.map((v) => (
+                    <option key={v.id} value={`user:${v.id}`}>
+                      {v.name}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+            </select>
+          </div>
+        )}
+        {showVolume && (
+          <div className="flex items-center gap-1">
+            {track.muted ? (
+              <VolumeX size={12} className="text-muted-foreground/70 shrink-0" />
+            ) : (
+              <Volume2 size={12} className="text-muted-foreground shrink-0" />
             )}
-          </select>
-        </div>
-        <div className="flex items-center gap-1">
-          {track.muted ? (
-            <VolumeX size={12} className="text-muted-foreground/70 shrink-0" />
-          ) : (
-            <Volume2 size={12} className="text-muted-foreground shrink-0" />
-          )}
-          <input
-            type="range"
-            min={-30}
-            max={6}
-            step={0.5}
-            value={track.volumeDb}
-            onChange={(e) => setTrackVolume(track.id, Number.parseFloat(e.target.value))}
-            className="flex-1 accent-current"
-            aria-label="Track volume (dB)"
-          />
-          <span className="text-[9px] font-mono tabular-nums text-muted-foreground w-8 text-right">
-            {track.volumeDb > 0 ? '+' : ''}
-            {track.volumeDb.toFixed(0)}
-          </span>
-        </div>
+            <input
+              type="range"
+              min={-30}
+              max={6}
+              step={0.5}
+              value={track.volumeDb}
+              onChange={(e) => setTrackVolume(track.id, Number.parseFloat(e.target.value))}
+              className="flex-1 accent-current"
+              aria-label="Track volume (dB)"
+            />
+            <span className="text-[9px] font-mono tabular-nums text-muted-foreground w-8 text-right">
+              {track.volumeDb > 0 ? '+' : ''}
+              {track.volumeDb.toFixed(0)}
+            </span>
+          </div>
+        )}
         <div className="flex items-center gap-1">
           <button
             type="button"
@@ -463,11 +499,12 @@ export function TrackLane({ composition, track, anySoloed }: Props) {
       <div
         data-lane-canvas
         className={
-          'relative flex items-stretch py-1 min-h-[64px] transition-colors ' +
+          'relative flex items-stretch py-1 transition-colors ' +
           (laneAppendHover ? 'bg-degree-root/10 outline outline-1 outline-degree-root/40' : '')
         }
         style={{
           minWidth: totalLanePx + 12,
+          minHeight: laneHeight,
           backgroundImage: gridBackgroundImage(pxPerBeat),
           backgroundSize: gridBackgroundSize(composition.timeSignature, pxPerBeat),
         }}

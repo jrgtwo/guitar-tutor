@@ -25,3 +25,31 @@
     font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
   }
 }
+
+/* App-wide themed scrollbars. Only the visual chrome changes — native scroll
+ * behavior, keyboard nav, momentum, touch, RTL, and screen-reader region
+ * announcement are all preserved. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(0 0% 100% / 0.15) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: hsl(0 0% 100% / 0.12);
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--degree-root) / 0.5);
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}

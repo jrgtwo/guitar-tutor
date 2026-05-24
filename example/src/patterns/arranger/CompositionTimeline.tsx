@@ -12,6 +12,9 @@
 import { useRef, useEffect } from 'react';
 import { Plus } from 'lucide-react';
 import {
+  PPQ,
+  getTransportTicks,
+  useMetronomeStore,
   usePatternsStore,
   selectEditingComposition,
   MAX_COMPOSITION_TRACKS,
@@ -23,31 +26,41 @@ import { TimelinePlayhead } from './TimelinePlayhead';
 import { totalDurationTicks } from '@fretwork/lib';
 import { TRACK_SIDEBAR_WIDTH, tickToPx } from './timeline-math';
 import { useArrangerView } from './ArrangerViewContext';
-import { PreRollOverlay } from '../playback/PreRollOverlay';
-import { usePatternsPlayback } from '../playback/usePatternsPlayback';
 
 export function CompositionTimeline() {
   const composition = usePatternsStore(selectEditingComposition);
   const addTrack = usePatternsStore((s) => s.addCompositionTrack);
-  const playback = usePatternsPlayback();
   const { pxPerBeat } = useArrangerView();
 
   // Auto-scroll: keep the playhead visible as it moves right.
+  //
+  // Runs its OWN rAF loop reading Tone.Transport.ticks directly. Does NOT
+  // subscribe to the patterns store — we removed the 60Hz setHeadTick writes
+  // precisely because cascading Zustand notify cycles were costing ~25ms per
+  // flush (visible in Chrome trace). Reading transport.ticks here is O(1).
   const lanesScrollRef = useRef<HTMLDivElement | null>(null);
-  const headTick = usePatternsStore((s) => s.headTick);
-
+  const isPlayingForScroll = useMetronomeStore((s) => s.isRunning);
   useEffect(() => {
-    if (headTick === null) return;
-    const el = lanesScrollRef.current;
-    if (!el) return;
-    const playheadX = TRACK_SIDEBAR_WIDTH + tickToPx(headTick, pxPerBeat);
-    const visibleStart = el.scrollLeft + TRACK_SIDEBAR_WIDTH; // sidebar is sticky
-    const visibleEnd = el.scrollLeft + el.clientWidth;
-    const margin = 80; // keep some headroom on the right
-    if (playheadX < visibleStart || playheadX > visibleEnd - margin) {
-      el.scrollTo({ left: Math.max(0, playheadX - el.clientWidth / 2), behavior: 'smooth' });
-    }
-  }, [headTick, pxPerBeat]);
+    if (!isPlayingForScroll) return;
+    let rafId: number | null = null;
+    const tick = () => {
+      rafId = requestAnimationFrame(tick);
+      const headTick = getTransportTicks(PPQ);
+      const el = lanesScrollRef.current;
+      if (!el) return;
+      const playheadX = TRACK_SIDEBAR_WIDTH + tickToPx(headTick, pxPerBeat);
+      const visibleStart = el.scrollLeft + TRACK_SIDEBAR_WIDTH; // sidebar is sticky
+      const visibleEnd = el.scrollLeft + el.clientWidth;
+      const margin = 80; // keep some headroom on the right
+      if (playheadX < visibleStart || playheadX > visibleEnd - margin) {
+        el.scrollTo({ left: Math.max(0, playheadX - el.clientWidth / 2), behavior: 'smooth' });
+      }
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId);
+    };
+  }, [isPlayingForScroll, pxPerBeat]);
 
   if (!composition) return null;
   const anySoloed = composition.tracks.some((t) => t.soloed);
@@ -112,11 +125,6 @@ export function CompositionTimeline() {
           <div className="flex-1" />
         </div>
         <TimelinePlayhead />
-        <PreRollOverlay
-          barsRemaining={playback.preRollState?.barsRemaining ?? null}
-          beatInBar={playback.preRollState?.beatInBar ?? 0}
-          beatsPerBar={playback.preRollState?.beatsPerBar ?? 4}
-        />
       </div>
 
       <p className="text-[10px] font-mono text-muted-foreground/60">

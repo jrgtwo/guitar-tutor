@@ -8,6 +8,8 @@ import { LoopToggle } from '../../components/playback/controls/LoopToggle';
 import { TempoModeToggle } from '../../components/playback/controls/TempoModeToggle';
 import { GrooveModeToggle } from '../../components/playback/controls/GrooveModeToggle';
 import { FeelPicker } from '../../components/playback/controls/FeelPicker';
+import { PreRollToggle } from '../../components/playback/controls/PreRollToggle';
+import { BeatDots } from '../../components/metronome/BeatDots';
 import type { PlaybackRibbonSection } from '../../components/playback/PlaybackRibbon';
 import {
   deriveFeel,
@@ -46,10 +48,13 @@ export function usePatternsArrangeRibbonSections(): readonly PlaybackRibbonSecti
     <PlayStopButton
       key="play"
       isRunning={playback.isPlaying}
+      isStarting={playback.isStarting}
       onPlay={() => playback.playEditingComposition()}
       onStop={() => playback.stop()}
     />,
     <LoopToggle key="loop" />,
+    <BeatDots key="beat-dots" />,
+    <PreRollToggle key="preroll" />,
     composition
       ? <BpmStepper
           key="bpm"

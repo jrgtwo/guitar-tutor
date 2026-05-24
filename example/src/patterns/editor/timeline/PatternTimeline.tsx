@@ -7,6 +7,7 @@ import {
   ticksPerBeat,
   useFretworkStore,
   getInstrument,
+  getTransportTicks,
   DEFAULT_INSTRUMENT_ID,
 } from '@fretwork/lib';
 import { EventBar } from './EventBar';
@@ -81,6 +82,7 @@ export function PatternTimeline() {
   const svgRef = useRef<SVGSVGElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const lastScrollAtRef = useRef(0);
+  const playheadLineRef = useRef<SVGLineElement | null>(null);
   const stampAt = usePatternsStore((s) => s.stampAt);
 
   const marqueeRef = useRef<
@@ -100,26 +102,48 @@ export function PatternTimeline() {
   // - Loop-back: when the playhead falls off the left edge (e.g. wrap to tick 0 at
   //   pattern end), jump *instantly* — a smooth scroll here would hide the first
   //   notes of the loop while the animation eases.
+  // Auto-scroll + playhead line position driven by their own rAF loop reading
+  // transport.ticks directly. Bypasses any Zustand subscription that would
+  // re-render PatternTimeline (and its hundreds of EventBars) at 60Hz — the
+  // Chrome trace showed that cascade cost ~40ms per flush.
   useEffect(() => {
     if (!playback.isPlaying) return;
-    const el = scrollRef.current;
-    if (!el) return;
-    const playheadX = STRING_LABEL_WIDTH + (playback.headTick / PPQ) * PX_PER_QUARTER;
-    const viewLeft = el.scrollLeft;
-    const viewWidth = el.clientWidth;
-    const triggerRight = viewLeft + viewWidth * 0.75;
-    const landingOffset = viewWidth * 0.25;
-    if (playheadX < viewLeft) {
-      el.scrollLeft = Math.max(0, playheadX - landingOffset);
-      lastScrollAtRef.current = 0;
-      return;
-    }
-    if (performance.now() - lastScrollAtRef.current < 350) return;
-    if (playheadX > triggerRight) {
-      el.scrollTo({ left: Math.max(0, playheadX - landingOffset), behavior: 'smooth' });
-      lastScrollAtRef.current = performance.now();
-    }
-  }, [playback.headTick, playback.isPlaying]);
+    let rafId: number | null = null;
+    const tick = () => {
+      rafId = requestAnimationFrame(tick);
+      const headTick = getTransportTicks(PPQ);
+      const playheadX = STRING_LABEL_WIDTH + (headTick / PPQ) * PX_PER_QUARTER;
+      // Position the playhead <line> via ref + setAttribute — avoids React
+      // re-render per frame.
+      const line = playheadLineRef.current;
+      if (line) {
+        const xStr = String(Math.round(playheadX));
+        line.setAttribute('x1', xStr);
+        line.setAttribute('x2', xStr);
+      }
+      // Auto-scroll into view.
+      const el = scrollRef.current;
+      if (!el) return;
+      const viewLeft = el.scrollLeft;
+      const viewWidth = el.clientWidth;
+      const triggerRight = viewLeft + viewWidth * 0.75;
+      const landingOffset = viewWidth * 0.25;
+      if (playheadX < viewLeft) {
+        el.scrollLeft = Math.max(0, playheadX - landingOffset);
+        lastScrollAtRef.current = 0;
+        return;
+      }
+      if (performance.now() - lastScrollAtRef.current < 350) return;
+      if (playheadX > triggerRight) {
+        el.scrollTo({ left: Math.max(0, playheadX - landingOffset), behavior: 'smooth' });
+        lastScrollAtRef.current = performance.now();
+      }
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId);
+    };
+  }, [playback.isPlaying]);
 
   // Reset the lockout when playback stops so the next play-start can scroll
   // immediately if needed.
@@ -459,12 +483,14 @@ export function PatternTimeline() {
           />
         </g>
 
-        {/* Playhead */}
+        {/* Playhead — position is driven by the rAF loop above via
+            playheadLineRef + setAttribute, NOT by re-render. */}
         {playback.isPlaying && (
           <line
-            x1={STRING_LABEL_WIDTH + ticksToPx(playback.headTick)}
+            ref={playheadLineRef}
+            x1={STRING_LABEL_WIDTH}
             y1={RULER_HEIGHT}
-            x2={STRING_LABEL_WIDTH + ticksToPx(playback.headTick)}
+            x2={STRING_LABEL_WIDTH}
             y2={heightPx}
             stroke="rgba(250, 204, 21, 0.7)"
             strokeWidth={1.4}

@@ -35,7 +35,6 @@ import {
 import type { TimeSignature } from '@fretwork/lib';
 import type { FretInstrumentId, GuitarInstrument, Track, VariantRef } from '@fretwork/lib';
 import { PluckSynthInstrument, SilentInstrument } from '@fretwork/lib';
-import { scheduleHeadTickFlush, cancelHeadTickRaf } from './headtick-coalesce';
 import { startPreRoll } from './preroll';
 
 const FRET_INSTRUMENT_IDS = ['guitar', 'bass', 'ukulele'] as const;
@@ -60,7 +59,11 @@ const setMetronomeTimeSignatureViaStore = (ts: TimeSignature) => {
 
 interface UsePatternsPlaybackReturn {
   isPlaying: boolean;
-  headTick: number;
+  /** True between the user pressing Play and the metronome 'start' event
+   *  firing. Covers the await window for AudioContext unlock + sample
+   *  buffer loads + voice build. Used to render a spinner on the Play
+   *  button so the user gets feedback when first-play takes >100ms. */
+  isStarting: boolean;
   /** Event ids that are currently sounding (useful for selecting on the timeline). */
   activeEventIds: string[];
   /** Cells (stringIndex + fret) that are currently sounding, for the fretboard playhead. */
@@ -91,6 +94,15 @@ let currentMultiTrack: MultiTrackPlayback | null = null;
  *  restart so a fresh play doesn't replay stale tempo / TS curves. */
 let cancelTempoAutomation: (() => void) | null = null;
 let cancelTimeSignatureAutomation: (() => void) | null = null;
+/** True while the shared scheduler is parked with SilentInstrument because a
+ *  composition is the active stream — real audio comes from per-track
+ *  schedulers inside currentMultiTrack. The voice useEffect MUST NOT replace
+ *  the shared scheduler's instrument while this is true; doing so un-silences
+ *  the shared scheduler and produces phantom-voice / previous-pattern bleed
+ *  in parallel with the per-track audio. Set in playEditingComposition AFTER
+ *  the SilentInstrument is installed, cleared in playEditingPattern BEFORE
+ *  the real instrument is installed, and cleared in stop(). */
+let isCompositionMode = false;
 
 function ensureScheduler(metronome: ReturnType<typeof useMetronome>['metronome']): EventScheduler | null {
   if (typeof window === 'undefined') return null;
@@ -124,10 +136,14 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
   const scheduler = useMemo(() => ensureScheduler(metronome), [metronome]);
 
   const [isPlaying, setIsPlaying] = useState(() => !!metronome?.isRunning);
-  // headTick lives in the patterns store so every subscriber (CompositionTimeline
-  // playhead, TrackLane highlight, etc.) sees the same value without each call to
-  // usePatternsPlayback maintaining its own isolated copy.
-  const headTick = usePatternsStore((s) => s.headTick) ?? 0;
+  const [isStarting, setIsStarting] = useState(false);
+  // headTick is intentionally NOT read here via a Zustand selector. Doing so
+  // would re-render every usePatternsPlayback caller (ribbons, FretboardInput,
+  // etc.) on every store write at 60Hz — the Chrome trace showed 40ms per
+  // flush from the cascading ribbon re-renders. Consumers that genuinely need
+  // per-frame head position (PatternTimeline, TimelinePlayhead) subscribe
+  // imperatively via usePatternsStore.subscribe or read transport.ticks
+  // directly via getTransportTicks.
   const [activeEventIds, setActiveEventIds] = useState<string[]>([]);
   const [activeCells, setActiveCells] = useState<ReadonlyArray<{ stringIndex: number; fret: number }>>([]);
   // preRollState lives in the Zustand store so every usePatternsPlayback caller
@@ -146,12 +162,13 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
   // Track metronome running state.
   useEffect(() => {
     if (!metronome) return;
-    const offStart = metronome.on('start', () => setIsPlaying(true));
+    const offStart = metronome.on('start', () => {
+      setIsPlaying(true);
+      setIsStarting(false);
+    });
     const offStop = metronome.on('stop', () => {
       setIsPlaying(false);
-      // Cancel any in-flight rAF so stale ticks don't land after the
-      // transport stops (covers both explicit stop() and external stops).
-      cancelHeadTickRaf();
+      setIsStarting(false);
       usePatternsStore.getState().setHeadTick(null);
       setActiveEventIds([]);
       setActiveCells([]);
@@ -171,20 +188,16 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
   // instead of audio-thread rate (~1000Hz at 480 PPQ × 2bps).
   useEffect(() => {
     if (!scheduler) return;
-    const offHead = scheduler.onHead((t) => {
-      // Guard: don't advance the playhead while the pre-roll overlay is still
-      // visible. preRollState is cleared before metronome.start() fires, so
-      // this is only a safety net in case of any timing edge cases.
-      const store = usePatternsStore.getState();
-      if (store.preRollState !== null) return;
-      scheduleHeadTickFlush(t);
-    });
+    // Intentionally NOT subscribed to scheduler.onHead anymore — writing
+    // headTick to the Zustand store at 60Hz cascades a notify cycle through
+    // every subscriber across the store (~25ms per cycle per Chrome trace).
+    // Consumers that need per-frame head position run their own rAF loops
+    // reading Tone.Transport.ticks directly via getTransportTicks().
     const offActive = scheduler.onActive((events) => {
       setActiveEventIds(events.map((e) => e.id));
       setActiveCells(events.map((e) => ({ stringIndex: e.stringIndex, fret: e.fret })));
     });
     return () => {
-      offHead();
       offActive();
     };
   }, [scheduler]);
@@ -220,6 +233,13 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
   }, []);
   useEffect(() => {
     if (!scheduler) return;
+    // While a composition is the active playback target, the shared scheduler
+    // is intentionally parked with SilentInstrument and real audio flows
+    // through MultiTrackPlayback's per-track voices. Replacing the shared
+    // scheduler's instrument here would un-silence it and cause the shared
+    // scheduler to trigger audio in parallel with the per-track schedulers —
+    // exactly the "previous pattern bleeds" symptom we're fixing.
+    if (isCompositionMode) return;
     try {
       const { voice } = buildEffectiveVoice(asFretInstrumentId(instrumentId));
       scheduler.setInstrument(voice);
@@ -335,6 +355,11 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
     if (!pattern) {
       return;
     }
+    // Fire-and-forget warmup so the AudioContext is unlocked and click voices
+    // are built before pre-roll completes. By the time metronome.start() fires
+    // (after the ~4s countdown), Tone.start() and _ensureVoices() inside
+    // start() are no-ops — eliminating the cold-start hiccup on first play.
+    void metronome.preWarm();
     // Always stop first so the transport position resets to 0 and any in-flight
     // audio from a previous stream (composition, different pattern) is cut.
     if (metronome.isRunning) metronome.stop();
@@ -356,6 +381,10 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
       currentMultiTrack.dispose();
       currentMultiTrack = null;
     }
+    // Clear BEFORE setInstrument so any voice useEffect triggered by a
+    // concurrent state change in the same render sees the right value and
+    // doesn't bail incorrectly on what is now pattern playback.
+    isCompositionMode = false;
     try {
       const fretState = useFretworkStore.getState();
       const { voice } = buildEffectiveVoice(asFretInstrumentId(fretState.instrumentId));
@@ -395,21 +424,29 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
     // count-in completes — that guarantees PPQ alignment and automation
     // scheduling happen while the transport is stopped.
     preRollCancelRef.current?.();
-    preRollCancelRef.current = startPreRoll({
-      bpm: pattern.suggestedBpm ?? useMetronomeStore.getState().bpm,
-      beatsPerBar: pattern.timeSignature.numerator * (4 / pattern.timeSignature.denominator),
-      onState: (s) => setPreRollState(s),
-      onClear: () => setPreRollState(null),
-      onComplete: () => {
-        preRollCancelRef.current = null;
-        // Reset the playhead before content starts so the timeline begins
-        // from tick 0.
-        usePatternsStore.getState().setHeadTick(0);
-        // Start the transport — Metronome.start() resets transport.position
-        // to 0 internally, so all automation events fire from tick 0.
-        void metronome.start();
-      },
-    }).cancel;
+    const startContent = () => {
+      preRollCancelRef.current = null;
+      // Reset the playhead before content starts so the timeline begins
+      // from tick 0.
+      usePatternsStore.getState().setHeadTick(0);
+      // Spinner on Play button while metronome.start() awaits Tone.start +
+      // Tone.loaded + voice build. Cleared by the 'start' event handler.
+      setIsStarting(true);
+      // Start the transport — Metronome.start() resets transport.position
+      // to 0 internally, so all automation events fire from tick 0.
+      void metronome.start().catch(() => setIsStarting(false));
+    };
+    if (!usePatternsStore.getState().preRollEnabled) {
+      startContent();
+    } else {
+      preRollCancelRef.current = startPreRoll({
+        bpm: pattern.suggestedBpm ?? useMetronomeStore.getState().bpm,
+        beatsPerBar: pattern.timeSignature.numerator * (4 / pattern.timeSignature.denominator),
+        onState: (s) => setPreRollState(s),
+        onClear: () => setPreRollState(null),
+        onComplete: startContent,
+      }).cancel;
+    }
   }, [scheduler, metronome]);
 
   const playEditingComposition = useCallback(() => {
@@ -421,6 +458,8 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
     if (!composition) {
       return;
     }
+    // Fire-and-forget warmup (see playEditingPattern for rationale).
+    void metronome.preWarm();
     if (metronome.isRunning) metronome.stop();
 
     // ── Setup: run ALL transport-touching work while the transport is stopped ──
@@ -502,21 +541,31 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
     scheduler.setInstrument(new SilentInstrument());
     scheduler.setStream(new CompositionSource(composition));
     scheduler.setLoop(composition.loop);
+    // Set AFTER setInstrument so the voice useEffect guard is armed only
+    // once the SilentInstrument is installed. Any voice useEffect that
+    // fires next render will bail and leave the silent state intact.
+    isCompositionMode = true;
     // ── End setup ──
 
     // Pre-roll: visual-only count-in (same shape as playEditingPattern).
     preRollCancelRef.current?.();
-    preRollCancelRef.current = startPreRoll({
-      bpm: composition.bpm,
-      beatsPerBar: composition.timeSignature.numerator * (4 / composition.timeSignature.denominator),
-      onState: (s) => setPreRollState(s),
-      onClear: () => setPreRollState(null),
-      onComplete: () => {
-        preRollCancelRef.current = null;
-        usePatternsStore.getState().setHeadTick(0);
-        void metronome.start();
-      },
-    }).cancel;
+    const startContent = () => {
+      preRollCancelRef.current = null;
+      usePatternsStore.getState().setHeadTick(0);
+      setIsStarting(true);
+      void metronome.start().catch(() => setIsStarting(false));
+    };
+    if (!usePatternsStore.getState().preRollEnabled) {
+      startContent();
+    } else {
+      preRollCancelRef.current = startPreRoll({
+        bpm: composition.bpm,
+        beatsPerBar: composition.timeSignature.numerator * (4 / composition.timeSignature.denominator),
+        onState: (s) => setPreRollState(s),
+        onClear: () => setPreRollState(null),
+        onComplete: startContent,
+      }).cancel;
+    }
   }, [scheduler, metronome]);
 
   const stop = useCallback(() => {
@@ -524,8 +573,7 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
     preRollCancelRef.current?.();
     preRollCancelRef.current = null;
     setPreRollState(null);
-    // Cancel any in-flight rAF so stale ticks don't land after stop.
-    cancelHeadTickRaf();
+    setIsStarting(false);
     usePatternsStore.getState().setHeadTick(null);
     metronome.stop();
     // Tear down the multi-track manager on explicit stop so the next play
@@ -536,6 +584,7 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
       currentMultiTrack.dispose();
       currentMultiTrack = null;
     }
+    isCompositionMode = false;
     // Clear any scheduled automations so they don't replay next time.
     cancelTempoAutomation?.();
     cancelTempoAutomation = null;
@@ -556,7 +605,7 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
 
   return {
     isPlaying,
-    headTick,
+    isStarting,
     activeEventIds,
     activeCells,
     currentPlacementId,
@@ -572,4 +621,11 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
 export function _resetPatternsPlaybackForTests(): void {
   sharedScheduler?.dispose();
   sharedScheduler = null;
+  currentMultiTrack?.dispose();
+  currentMultiTrack = null;
+  isCompositionMode = false;
+  cancelTempoAutomation?.();
+  cancelTempoAutomation = null;
+  cancelTimeSignatureAutomation?.();
+  cancelTimeSignatureAutomation = null;
 }

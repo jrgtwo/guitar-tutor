@@ -6,7 +6,7 @@
  * Each page wires its own engine (practice vs. patterns) without the button
  * needing to know about it.
  */
-import { Play, Square } from 'lucide-react';
+import { Play, Square, Loader2 } from 'lucide-react';
 import { Button, useMetronomeStore } from '@fretwork/lib';
 
 interface PlayStopButtonProps {
@@ -21,11 +21,16 @@ interface PlayStopButtonProps {
    * from the patterns playback engine instead.
    */
   isRunning?: boolean;
+  /** When true, replace the Play icon with a spinner and disable input.
+   *  Used while metronome.start() is awaiting (Tone unlock, buffer load,
+   *  voice build). Ignored when isRunning is true. */
+  isStarting?: boolean;
 }
 
-export function PlayStopButton({ onPlay, onStop, isRunning: isRunningProp }: PlayStopButtonProps) {
+export function PlayStopButton({ onPlay, onStop, isRunning: isRunningProp, isStarting = false }: PlayStopButtonProps) {
   const metronomePlaying = useMetronomeStore((s) => s.isRunning);
   const isRunning = isRunningProp !== undefined ? isRunningProp : metronomePlaying;
+  const showSpinner = isStarting && !isRunning;
 
   return (
     <Button
@@ -33,9 +38,17 @@ export function PlayStopButton({ onPlay, onStop, isRunning: isRunningProp }: Pla
       variant={isRunning ? 'default' : 'secondary'}
       className="h-9 px-3 shrink-0"
       onClick={() => (isRunning ? onStop() : onPlay())}
-      aria-label={isRunning ? 'Stop' : 'Play'}
+      disabled={showSpinner}
+      aria-label={showSpinner ? 'Starting' : isRunning ? 'Stop' : 'Play'}
+      aria-busy={showSpinner}
     >
-      {isRunning ? <Square className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+      {showSpinner ? (
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+      ) : isRunning ? (
+        <Square className="h-3.5 w-3.5" />
+      ) : (
+        <Play className="h-3.5 w-3.5" />
+      )}
     </Button>
   );
 }

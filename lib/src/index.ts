@@ -350,6 +350,7 @@ export {
   SilentInstrument,
   startAudio,
   audioNow,
+  getTransportTicks,
   Voice,
   MasterBus,
   VOICE_PRESETS,

@@ -108,6 +108,17 @@ export class Voice implements GuitarInstrument {
 
   // ─── Build / tear down ───────────────────────────────────────────────────────
 
+  /** Eagerly construct the synth + audio chain. Normally `play()` does this
+   *  lazily on first call, but callers that need the chain ready before the
+   *  first note (most importantly MultiTrackPlayback wiring per-track
+   *  routing during composition setup) should call this explicitly so any
+   *  sample loads begin immediately instead of waiting for the first
+   *  triggerAttackRelease — otherwise the first few notes fire into an
+   *  unloaded Sampler and play silently. */
+  ensureBuilt(): void {
+    this._ensureBuilt();
+  }
+
   private _ensureBuilt(): void {
     if (this._synth) return;
     this._synth = buildSynth(this._preset.source);

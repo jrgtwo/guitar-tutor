@@ -28,11 +28,16 @@ import type { TuningDef } from '../../types';
 import type { Metronome } from '../../metronome';
 import { EventScheduler, type ScheduledEvent } from './EventScheduler';
 import { CompositionTrackSource } from './CompositionTrackSource';
+import { totalDurationTicks } from '../composition-ops';
 import type { GuitarInstrument } from '../../playback/types';
 import { MasterBus } from '../../playback/voices/MasterBus';
 
 export interface BuildVoiceForTrack {
-  (track: Track): GuitarInstrument & { setRoutingTarget(target: Tone.ToneAudioNode | null): void; dispose(): void };
+  (track: Track): GuitarInstrument & {
+    setRoutingTarget(target: Tone.ToneAudioNode | null): void;
+    ensureBuilt(): void;
+    dispose(): void;
+  };
 }
 
 export interface MultiTrackPlaybackOpts {
@@ -72,19 +77,44 @@ export class MultiTrackPlayback {
     this._masterGain = new Tone.Gain(dbToLinearGain(opts.composition.masterVolumeDb ?? 0));
     MasterBus.connectVoice(this._masterGain);
 
+    // Composition-wide loop boundary so every per-track scheduler loops at
+    // the SAME tick, instead of each track looping at its own per-track max.
+    // Without this, tracks of unequal lengths drift out of sync on every
+    // loop iteration — Finding 3 from the playback audit.
+    const compositionLoopBoundary = totalDurationTicks(opts.composition);
+
     for (const track of opts.composition.tracks ?? []) {
       const voice = opts.buildVoice(track);
       const gain = new Tone.Gain(0); // start silent; applyTrackState below sets real value
       voice.setRoutingTarget(gain);
+      // Build the voice's synth + chain eagerly so any Sampler buffer loads
+      // begin now rather than on the first triggerAttackRelease. Without
+      // this, the first ~600ms of track audio is silent because the lazy
+      // build inside `play()` is racing the audio thread — Tone.loaded() in
+      // metronome.start() then waits for the buffers to be ready before
+      // transport begins, eliminating the silent-first-notes symptom.
+      voice.ensureBuilt();
       gain.connect(this._masterGain);
       const scheduler = new EventScheduler({
         metronome: opts.metronome,
         instrument: voice,
         tuning: opts.tuning,
         capo: opts.capo,
+        // Per-track schedulers are followers: they schedule audio normally
+        // but don't run the visual playhead rAF loop or call cutTails on
+        // stop. The shared scheduler (built in usePatternsPlayback) is the
+        // UI primary. Without this every per-track scheduler emits a
+        // competing tickPos wrapped by ITS stream's duration — for tracks
+        // shorter than the composition, the displayed playhead jumps back
+        // unpredictably whenever the shorter track loops.
+        role: 'follower',
       });
 
-      const stream = new CompositionTrackSource(opts.composition, track.id);
+      const stream = new CompositionTrackSource(
+        opts.composition,
+        track.id,
+        compositionLoopBoundary,
+      );
       scheduler.setStream(stream);
 
       this._entries.push({ trackId: track.id, scheduler, voice, gain });
@@ -119,10 +149,13 @@ export class MultiTrackPlayback {
     this._masterGain.gain.rampTo(dbToLinearGain(next.masterVolumeDb ?? 0), 0.02);
     if (!sameTracks) return true;
     // Refresh each scheduler's stream so newly-edited placements take
-    // effect on the next play. Cheap because CompositionTrackSource
-    // constructs a slice-indexed array eagerly.
+    // effect on the next play. Recompute the composition-wide loop boundary
+    // here too in case edits changed the longest-track end.
+    const compositionLoopBoundary = totalDurationTicks(next);
     for (const entry of this._entries) {
-      entry.scheduler.setStream(new CompositionTrackSource(next, entry.trackId));
+      entry.scheduler.setStream(
+        new CompositionTrackSource(next, entry.trackId, compositionLoopBoundary),
+      );
     }
     this.applyTrackState();
     return false;

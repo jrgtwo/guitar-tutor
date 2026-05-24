@@ -23,11 +23,24 @@ export class CompositionTrackSource implements EventStream {
     endTick: number;
   }>;
 
-  constructor(composition: Composition, public readonly trackId: string) {
+  /**
+   * @param composition Composition to read this track's placements from.
+   * @param trackId Track to scope to.
+   * @param loopBoundaryTicks Optional override for `durationTicks` — used by
+   *   MultiTrackPlayback so every per-track scheduler loops at the
+   *   composition's total duration rather than each track's per-track max
+   *   end. Without this, tracks of unequal lengths drift out of sync because
+   *   each loops at its own boundary.
+   */
+  constructor(
+    composition: Composition,
+    public readonly trackId: string,
+    loopBoundaryTicks?: number,
+  ) {
     const track = composition.tracks.find((t) => t.id === trackId);
     if (!track) {
       this._sorted = [];
-      this._durationTicks = 0;
+      this._durationTicks = loopBoundaryTicks ?? 0;
       this.placementBoundaries = [];
       return;
     }
@@ -56,14 +69,15 @@ export class CompositionTrackSource implements EventStream {
         placementId: e.sourceMeta.placementId,
       },
     }));
-    let max = 0;
+    let trackMax = 0;
     const boundaries: { placementId: string; startTick: number; endTick: number }[] = [];
     for (const p of track.placements) {
       const end = p.startTick + placementEffectiveLength(p) * p.repeat;
-      if (end > max) max = end;
+      if (end > trackMax) trackMax = end;
       boundaries.push({ placementId: p.id, startTick: p.startTick, endTick: end });
     }
-    this._durationTicks = max;
+    // Honor explicit loop-boundary override (composition-wide loop point).
+    this._durationTicks = loopBoundaryTicks ?? trackMax;
     boundaries.sort((a, b) => a.startTick - b.startTick);
     this.placementBoundaries = boundaries;
   }

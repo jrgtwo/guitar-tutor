@@ -12,7 +12,7 @@ export type { UsePlaybackReturn } from './usePlayback';
 export { usePlaybackStore, DEFAULT_PLAYBACK_STATE } from './usePlaybackStore';
 export type { PlaybackStoreState } from './usePlaybackStore';
 export { PluckSynthInstrument, SilentInstrument } from './instrument';
-export { startAudio, audioNow } from './audio-context';
+export { startAudio, audioNow, getTransportTicks } from './audio-context';
 export {
   Voice,
   MasterBus,

@@ -30,6 +30,7 @@ import {
   triggerClick,
   type NormalizedClickVoices,
 } from './click-sounds';
+import { MasterBus } from '../playback/voices/MasterBus';
 
 const MIN_BPM = 40;
 const MAX_BPM = 240;
@@ -133,6 +134,23 @@ export class Metronome {
 
   // ─── Lifecycle ────────────────────────────────────────────────────────────────
 
+  /** Eagerly unlock the AudioContext, build the click voices, and wait for
+   *  any in-flight Tone.Buffer loads (most commonly Tone.Sampler sample
+   *  downloads). Safe to call multiple times — every step is idempotent.
+   *  Use this to pre-pay the cold-start cost during a visible setup window
+   *  (e.g. while a pre-roll countdown plays) so the actual `start()` call
+   *  later has minimal latency to contend with. */
+  async preWarm(): Promise<void> {
+    await Tone.start();
+    this._ensureVoices();
+    // Build the MasterBus and wait for its reverb IR to render. Track audio
+    // routes through MasterBus → reverb → destination, so until the convolver
+    // has its impulse response, every track note is silent (click voices
+    // bypass MasterBus, which is why this only affects content audio).
+    await MasterBus.warmup();
+    await Tone.loaded();
+  }
+
   async start(): Promise<void> {
     if (this._isRunning) return;
     // Reserve the running slot immediately so a concurrent call to start()
@@ -150,6 +168,19 @@ export class Metronome {
       // Build voices now that AudioContext is alive.
       this._ensureVoices();
 
+      // Wait for the MasterBus reverb IR to render. Track audio routes
+      // through MasterBus → reverb → destination, so without a ready IR the
+      // convolver eats every track note. Click voices bypass MasterBus, so
+      // the symptom is "click plays but content silent" for the first
+      // ~300-700ms of playback.
+      await MasterBus.warmup();
+
+      // Wait for any pending Tone.Buffer loads (e.g. Tone.Sampler samples
+      // still downloading). Without this, transport.start() fires before
+      // the first BufferSource exists, so the first triggerAttackRelease
+      // is silently dropped — the "missing first beat" symptom.
+      await Tone.loaded();
+
       const transport = Tone.getTransport();
       transport.bpm.value = this._bpm;
       transport.position = 0;
@@ -160,7 +191,15 @@ export class Metronome {
         this._dispatchTick(audioTime);
       }, interval, 0);
 
-      transport.start();
+      // Schedule transport.start() one lookAhead window in the future so
+      // Tone's scheduler has runway to prep the first-tick callbacks before
+      // their audio time arrives. Without this, the first callback fires
+      // with audioTime already in the past (because the scheduler worker
+      // hasn't tick'd yet), producing a degraded or dropped first event.
+      // Cost: a fixed ~100ms latency from start() call to first audible
+      // note — but every event after is sample-accurate.
+      const lookAhead = Tone.getContext().lookAhead;
+      transport.start(Tone.now() + lookAhead);
       this._fire('start');
     } catch (err) {
       // AudioContext unlock or transport start failed. Roll back the

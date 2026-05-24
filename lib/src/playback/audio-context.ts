@@ -15,3 +15,14 @@ export async function startAudio(): Promise<void> {
 export function audioNow(): number {
   return Tone.now();
 }
+
+/** Current Tone.Transport tick position, normalized to the project PPQ. Used
+ *  by UI animation loops (most importantly the timeline playhead) that need
+ *  a continuous, frame-rate-friendly read of where audio actually is —
+ *  without depending on any store / coalesce pipeline. Returns 0 before the
+ *  transport has started. */
+export function getTransportTicks(projectPpq: number): number {
+  const transport = Tone.getTransport();
+  const transportPpq = transport.PPQ || projectPpq;
+  return (transport.ticks * projectPpq) / transportPpq;
+}

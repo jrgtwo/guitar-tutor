@@ -93,6 +93,17 @@ export interface EventSchedulerOpts {
   instrument: GuitarInstrument;
   tuning: TuningDef;
   capo: number;
+  /** UI role of this scheduler.
+   *   - 'primary' (default): runs the visual playhead rAF loop and calls
+   *     MasterBus.cutTails on stop. Owns the user-visible playback head.
+   *   - 'follower': schedules audio normally but does NOT run the visual
+   *     loop or call cutTails. Use for per-track schedulers in
+   *     MultiTrackPlayback where the shared scheduler upstream is the
+   *     UI primary. Without this, every per-track scheduler runs its
+   *     own rAF and emits a competing tickPos based on ITS stream's
+   *     duration — for tracks shorter than the composition, that
+   *     produces a playhead that wraps early or jumps unpredictably. */
+  role?: 'primary' | 'follower';
   /** Optional constructor-time listeners. Most consumers should use the `onHead`,
    *  `onActive`, `onComplete` subscription methods instead — those support multiple
    *  simultaneous subscribers (e.g. the toolbar, timeline, and fretboard all reading
@@ -131,24 +142,32 @@ export class EventScheduler {
    *  updates smoothly between scheduler ticks. Audio scheduling stays per-slice in
    *  `_onTick` — this loop only drives the visual playhead. */
   private _visualRafId: number | null = null;
+  private _role: 'primary' | 'follower';
 
   constructor(opts: EventSchedulerOpts) {
     this._metronome = opts.metronome;
     this._instrument = opts.instrument;
     this._tuning = opts.tuning;
     this._capo = opts.capo;
+    this._role = opts.role ?? 'primary';
     // Honor constructor-time listeners by adding them to the listener sets.
     if (opts.onHeadChange) this._headListeners.add(opts.onHeadChange);
     if (opts.onActiveChange) this._activeListeners.add(opts.onActiveChange);
     if (opts.onComplete) this._completeListeners.add(opts.onComplete);
 
     // Reset state when the transport starts. The metronome wraps Tone.Transport.start().
+    //
+    // Note: we intentionally do NOT start a per-scheduler visual rAF loop here
+    // anymore. The store-based headTick flow it fed was removed; consumers
+    // (TimelinePlayhead, PatternTimeline, CompositionTimeline auto-scroll,
+    // TrackLane placement detection) each run their own self-contained rAF
+    // reading Tone.Transport.ticks directly. Starting an orphan loop here
+    // would just burn CPU without any subscribers.
     this._unsubStart = this._metronome.on('start', () => {
       this._headTick = 0;
       this._activeNow.clear();
       this._emitActive();
       this._emitHead(0);
-      this._startVisualLoop();
     });
 
     // Clear active state when transport stops.
@@ -166,10 +185,16 @@ export class EventScheduler {
       // resonance, layered FMSynth releases). Without this, the previous stream's
       // notes keep ringing into the next start — exactly the "both playing"
       // perception when switching between pattern and composition playback.
-      try {
-        MasterBus.cutTails();
-      } catch {
-        // No-op.
+      // Only the primary scheduler does this: multiple followers calling
+      // cutTails in rapid succession all schedule + cancel each other's
+      // ramps on the same shared MasterBus gain node, producing an
+      // undefined gain trajectory.
+      if (this._role === 'primary') {
+        try {
+          MasterBus.cutTails();
+        } catch {
+          // No-op.
+        }
       }
       this._currentPlacementId = null;
       for (const l of this._placementChangeListeners) {
@@ -187,6 +212,13 @@ export class EventScheduler {
     // always available because Tone is initialized before this code path runs.
     try {
       const transport = Tone.getTransport();
+      // Align Tone.Transport's PPQ with our project PPQ so `transport.ticks`
+      // and any tick-time scheduling (`${n}i`) maps 1:1 with our authoring
+      // ticks. Without this, the visual playhead's transport.ticks-based
+      // position math is wrong whenever Tone's default PPQ (often 192)
+      // differs from ours. Safe to set here: transport is always stopped
+      // at scheduler-construction time. Idempotent on the global transport.
+      if (transport.PPQ !== PPQ) transport.PPQ = PPQ;
       if (typeof transport.scheduleRepeat === 'function') {
         this._scheduledId = transport.scheduleRepeat((audioTime) => {
           this._onTick(audioTime);
@@ -466,38 +498,6 @@ export class EventScheduler {
     if (changed) {
       this._emitActive();
     }
-  }
-
-  private _startVisualLoop(): void {
-    if (typeof requestAnimationFrame === 'undefined') return;
-    if (this._visualRafId !== null) return;
-    const loop = () => {
-      if (!this._metronome.isRunning) {
-        this._visualRafId = null;
-        return;
-      }
-      try {
-        const transport = Tone.getTransport();
-        const seconds = typeof transport.seconds === 'number' ? transport.seconds : 0;
-        const sec = secondsPerTick(this._metronome.bpm);
-        let tickPos = sec > 0 ? seconds / sec : 0;
-        // Wrap by stream duration for looped playback so the displayed head
-        // matches the audio loop.
-        const stream = this._stream;
-        if (stream && stream.durationTicks > 0) {
-          if (this._loop) {
-            tickPos = ((tickPos % stream.durationTicks) + stream.durationTicks) % stream.durationTicks;
-          } else if (tickPos > stream.durationTicks) {
-            tickPos = stream.durationTicks;
-          }
-        }
-        this._emitHead(tickPos);
-      } catch {
-        // Defensive — never let an animation frame error break the loop.
-      }
-      this._visualRafId = requestAnimationFrame(loop);
-    };
-    this._visualRafId = requestAnimationFrame(loop);
   }
 
   private _stopVisualLoop(): void {

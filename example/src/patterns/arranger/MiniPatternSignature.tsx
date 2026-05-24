@@ -33,7 +33,14 @@ export function MiniPatternSignature({
   const rowHeight = height / stringCount;
   const dur = (effectiveLengthTicks ?? pattern.durationTicks) || 1;
   return (
-    <svg width={width} height={height} aria-hidden style={{ display: 'block' }}>
+    <svg
+      width="100%"
+      height="100%"
+      viewBox={`0 0 ${width} ${height}`}
+      preserveAspectRatio="none"
+      aria-hidden
+      style={{ display: 'block' }}
+    >
       {Array.from({ length: stringCount }).map((_, i) => (
         <line
           key={i}

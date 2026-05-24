@@ -11,6 +11,10 @@ interface BeatDotProps {
   size?: 'sm' | 'md' | 'lg';
   /** Visually fade the dot when the metronome is stopped. */
   dimmed?: boolean;
+  /** Render the active dot in the cream "count-in" colour instead of amber.
+   *  Used during pre-roll so the dots read as visually distinct from real
+   *  playback. Ignored when `active` is false. */
+  preRoll?: boolean;
 }
 
 const SIZE_CLASS: Record<NonNullable<BeatDotProps['size']>, string> = {
@@ -30,9 +34,10 @@ const SIZE_CLASS: Record<NonNullable<BeatDotProps['size']>, string> = {
  * weak beats. Inactive accent dots keep the amber ring as a "this is where the accent
  * lives" hint.
  */
-export function BeatDot({ active, isAccent, size = 'sm', dimmed = false }: BeatDotProps) {
-  const activeAccent = active && isAccent;
-  const activeRegular = active && !isAccent;
+export function BeatDot({ active, isAccent, size = 'sm', dimmed = false, preRoll = false }: BeatDotProps) {
+  const activePreRoll = active && preRoll;
+  const activeAccent = active && !preRoll && isAccent;
+  const activeRegular = active && !preRoll && !isAccent;
   // The outer span owns the layout box (fixed size, never changes between
   // active/inactive). The inner span is absolutely positioned so its scale
   // transform on flash cannot perturb sibling layout. Without this isolation the
@@ -45,6 +50,8 @@ export function BeatDot({ active, isAccent, size = 'sm', dimmed = false }: BeatD
       <span
         className={cn(
           'absolute inset-0 rounded-full transition-all duration-100',
+          activePreRoll &&
+            'bg-degree-fifth scale-125 shadow-[0_0_12px_2px_hsl(var(--degree-fifth)/0.55)]',
           activeAccent &&
             'bg-degree-third scale-125 shadow-[0_0_14px_3px_hsl(var(--degree-third)/0.6)]',
           activeRegular &&

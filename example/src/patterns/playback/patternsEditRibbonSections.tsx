@@ -4,6 +4,8 @@ import { BpmStepper } from '../../components/playback/controls/BpmStepper';
 import { TimeSignatureSelect } from '../../components/playback/controls/TimeSignatureSelect';
 import { VolumeSlider } from '../../components/playback/controls/VolumeSlider';
 import { FeelPicker } from '../../components/playback/controls/FeelPicker';
+import { PreRollToggle } from '../../components/playback/controls/PreRollToggle';
+import { BeatDots } from '../../components/metronome/BeatDots';
 import type { PlaybackRibbonSection } from '../../components/playback/PlaybackRibbon';
 import {
   deriveFeel,
@@ -20,8 +22,10 @@ import { usePatternsPlayback } from './usePatternsPlayback';
 export function usePatternsEditRibbonSections(): readonly PlaybackRibbonSection[] {
   const playback = usePatternsPlayback();
   const setEditingPatternSuggestedBpm = usePatternsStore((s) => s.setEditingPatternSuggestedBpm);
+  const setEditingPatternTimeSignature = usePatternsStore((s) => s.setEditingPatternTimeSignature);
   const setEditingPatternGroove = usePatternsStore((s) => s.setEditingPatternGroove);
   const setEditingPatternSubdivision = usePatternsStore((s) => s.setEditingPatternSubdivision);
+  const setMetronomeTimeSignatureId = useMetronomeStore((s) => s.setTimeSignatureId);
   const pattern = usePatternsStore(selectEditingPattern);
   const m = useMetronome();
   const liveSwing = useMetronomeStore((s) => s.swing);
@@ -38,9 +42,12 @@ export function usePatternsEditRibbonSections(): readonly PlaybackRibbonSection[
     <PlayStopButton
       key="play"
       isRunning={playback.isPlaying}
+      isStarting={playback.isStarting}
       onPlay={() => playback.playEditingPattern()}
       onStop={() => playback.stop()}
     />,
+    <BeatDots key="beat-dots" />,
+    <PreRollToggle key="preroll" />,
     <BpmStepper
       key="bpm"
       value={displayedBpm}
@@ -49,7 +56,16 @@ export function usePatternsEditRibbonSections(): readonly PlaybackRibbonSection[
         m.setBpm(bpm);
       }}
     />,
-    <TimeSignatureSelect key="ts" />,
+    pattern
+      ? <TimeSignatureSelect
+          key="ts"
+          value={`${pattern.timeSignature.numerator}/${pattern.timeSignature.denominator}`}
+          onChange={(ts) => {
+            setEditingPatternTimeSignature(ts);
+            setMetronomeTimeSignatureId(ts.id);
+          }}
+        />
+      : <TimeSignatureSelect key="ts" />,
   ];
 
   const feelControls: ReactNode[] = [];

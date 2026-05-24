@@ -41,6 +41,7 @@ import {
   setPatternInstrument,
   setPatternName,
   setPatternSuggestedBpm,
+  setPatternTimeSignature,
   stampEvent,
   transposeEventsDiatonic as opsTransposeDiatonic,
   type EventDragSnapshot,
@@ -117,6 +118,9 @@ export interface PatternsState {
   library: Library;
   fretboardCollapsed: boolean;
   stepLength: StepLength;
+  /** Whether the 2-bar visual count-in plays before content starts. Persisted
+   *  user preference; defaults to true. */
+  preRollEnabled: boolean;
   /**
    * Id of the auto-seeded "Untitled" draft created by `ensureEditingPattern` when the
    * user enters the patterns page with no pattern open. The draft is invisible to cloud
@@ -192,6 +196,7 @@ export interface PatternsActions {
   setCompositionBpm(id: string, bpm: number): void;
   setCompositionTimeSignature(id: string, ts: PatternTimeSignature): void;
   setEditingPatternSuggestedBpm(bpm: number | null): void;
+  setEditingPatternTimeSignature(ts: PatternTimeSignature): void;
   setEditingPatternGroove(groove: GrooveSpec | null): void;
   setEditingPatternSubdivision(subdivision: import('../../metronome/types').SubdivisionId | null): void;
   setEditingCompositionTempoMode(mode: 'global' | 'inherit'): void;
@@ -278,6 +283,8 @@ export interface PatternsActions {
    *  every usePatternsPlayback caller shares the same value regardless of which
    *  hook instance initiated the playback. */
   setPreRollState(state: PreRollStateValue | null): void;
+  /** Toggle whether the 2-bar visual count-in plays before content starts. */
+  setPreRollEnabled(enabled: boolean): void;
   /** Update (or clear) the playback head tick. Stored at store level so the
    *  timeline playhead and any subscriber see the same position. */
   setHeadTick(tick: number | null): void;
@@ -303,6 +310,7 @@ export const DEFAULT_PATTERNS_STATE: PatternsState = {
   fretboardCollapsed: false,
   stepLength: 'eighth',
   unpersistedDraftId: null,
+  preRollEnabled: true,
 
   editingPatternId: null,
   editingPlacementId: null,
@@ -318,7 +326,7 @@ export const DEFAULT_PATTERNS_STATE: PatternsState = {
 // Anon users persist to sessionStorage — survives reload within the same tab,
 // dies when the tab closes. Privacy stance: no public-computer leaks. Signed-in
 // users sync to Supabase (Group E) instead of relying on this layer.
-const persistOptions: PersistOptions<PatternsStoreState, Pick<PatternsStoreState, 'library' | 'fretboardCollapsed' | 'stepLength' | 'unpersistedDraftId'>> = {
+const persistOptions: PersistOptions<PatternsStoreState, Pick<PatternsStoreState, 'library' | 'fretboardCollapsed' | 'stepLength' | 'unpersistedDraftId' | 'preRollEnabled'>> = {
   name: PERSIST_KEY,
   version: 2,
   storage: createJSONStorage(() => (typeof sessionStorage !== 'undefined' ? sessionStorage : memoryStorage())),
@@ -329,6 +337,7 @@ const persistOptions: PersistOptions<PatternsStoreState, Pick<PatternsStoreState
     // Persisted so a refresh-within-tab keeps the draft as a draft rather than
     // accidentally promoting it on next load.
     unpersistedDraftId: state.unpersistedDraftId,
+    preRollEnabled: state.preRollEnabled,
   }),
   // Migration stub for future schema changes.
   migrate: (persisted, _version) => {
@@ -707,6 +716,20 @@ export const usePatternsStore = create<PatternsStoreState>()(
           };
         });
       },
+      setEditingPatternTimeSignature(ts) {
+        set((s) => {
+          const id = s.editingPatternId;
+          if (!id) return s;
+          return {
+            library: {
+              ...s.library,
+              patterns: s.library.patterns.map((p) =>
+                p.id === id ? setPatternTimeSignature(p, ts) : p,
+              ),
+            },
+          };
+        });
+      },
       setEditingPatternGroove(groove) {
         set((s) => {
           const id = s.editingPatternId;
@@ -971,6 +994,9 @@ export const usePatternsStore = create<PatternsStoreState>()(
       // ─── Pre-roll countdown ──────────────────────────────────────────────────
       setPreRollState(state) {
         set({ preRollState: state });
+      },
+      setPreRollEnabled(enabled) {
+        set({ preRollEnabled: enabled });
       },
 
       // ─── Playback head tick ──────────────────────────────────────────────────

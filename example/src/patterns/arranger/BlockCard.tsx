@@ -136,7 +136,7 @@ export function BlockCard({
   return (
     <div
       className={[
-        'group relative flex flex-col gap-1 rounded-md border px-2 py-2 cursor-pointer transition-all select-none',
+        'group relative flex flex-col gap-1 rounded-md border px-2 py-2 cursor-pointer transition select-none overflow-hidden',
         playing
           ? 'border-yellow-400/80 bg-yellow-500/10'
           : selected
@@ -191,12 +191,14 @@ export function BlockCard({
           → {annotationParts}
         </span>
       )}
-      <MiniPatternSignature
-        pattern={placement.patternSnapshot}
-        width={sigW}
-        height={24}
-        effectiveLengthTicks={effectiveLengthTicks}
-      />
+      <div className="flex-1 min-h-0">
+        <MiniPatternSignature
+          pattern={placement.patternSnapshot}
+          width={sigW}
+          height={24}
+          effectiveLengthTicks={effectiveLengthTicks}
+        />
+      </div>
       <div className="text-[9px] font-mono text-muted-foreground/70 flex items-center justify-between">
         <span>
           {totalBeats.toFixed(totalBeats % 1 === 0 ? 0 : 1)} beats
