@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { PlayStopButton } from '../../components/playback/controls/PlayStopButton';
 import { BpmStepper } from '../../components/playback/controls/BpmStepper';
 import { TimeSignatureSelect } from '../../components/playback/controls/TimeSignatureSelect';
-import { VolumeSlider } from '../../components/playback/controls/VolumeSlider';
+import { MasterVolumeSlider } from '../../components/playback/controls/MasterVolumeSlider';
 import { LoopToggle } from '../../components/playback/controls/LoopToggle';
 import { TempoModeToggle } from '../../components/playback/controls/TempoModeToggle';
 import { GrooveModeToggle } from '../../components/playback/controls/GrooveModeToggle';
@@ -82,7 +82,10 @@ export function usePatternsArrangeRibbonSections(): readonly PlaybackRibbonSecti
   feelControls.push(<GrooveModeToggle key="groove-mode" />);
 
   const outputControls: ReactNode[] = [
-    <VolumeSlider key="vol" />,
+    // Composition arranger uses the composition's master volume, not the
+    // metronome click volume. Per-track volumes live in each lane's
+    // sidebar and ride below this master fader.
+    <MasterVolumeSlider key="master-vol" />,
   ];
 
   return [

@@ -66,6 +66,14 @@ import {
   setPlacementTranspose as opsSetPlacementTranspose,
   resizePlacement as opsResizePlacement,
   setCompositionLoop as opsSetCompositionLoop,
+  addTrack as opsAddTrack,
+  removeTrack as opsRemoveTrack,
+  setTrackName as opsSetTrackName,
+  setTrackInstrument as opsSetTrackInstrument,
+  setTrackVolumeDb as opsSetTrackVolumeDb,
+  setTrackMuted as opsSetTrackMuted,
+  setTrackSoloed as opsSetTrackSoloed,
+  setMasterVolumeDb as opsSetMasterVolumeDb,
   type CompositionMetadataPatch,
 } from '../composition-ops';
 import {
@@ -230,6 +238,18 @@ export interface PatternsActions {
   setCompositionLoop(compositionId: string, loop: boolean): void;
   removePlacement(placementId: string): void;
   selectPlacement(id: string | null): void;
+
+  // ─── Multi-track composition ───────────────────────────────────────────
+  /** Append a new empty Track to the editing composition. Refuses past cap. */
+  addCompositionTrack(name?: string, instrumentId?: string): void;
+  /** Remove a track. Refuses to remove the last remaining track. */
+  removeCompositionTrack(trackId: string): void;
+  setCompositionTrackName(trackId: string, name: string): void;
+  setCompositionTrackInstrument(trackId: string, instrumentId: string): void;
+  setCompositionTrackVolumeDb(trackId: string, volumeDb: number): void;
+  setCompositionTrackMuted(trackId: string, muted: boolean): void;
+  setCompositionTrackSoloed(trackId: string, soloed: boolean): void;
+  setCompositionMasterVolumeDb(masterVolumeDb: number): void;
 
   // Collections (nested folders). Returned id is the new/affected collection id;
   // returns null when a create is refused (e.g. max depth).
@@ -1189,6 +1209,32 @@ export const usePatternsStore = create<PatternsStoreState>()(
       },
       selectPlacement(id) {
         set({ selectedPlacementId: id });
+      },
+
+      // ─── Multi-track composition actions ────────────────────────────────
+      addCompositionTrack(name, instrumentId) {
+        applyComposition(set, get, (comp) => opsAddTrack(comp, name, instrumentId));
+      },
+      removeCompositionTrack(trackId) {
+        applyComposition(set, get, (comp) => opsRemoveTrack(comp, trackId));
+      },
+      setCompositionTrackName(trackId, name) {
+        applyComposition(set, get, (comp) => opsSetTrackName(comp, trackId, name));
+      },
+      setCompositionTrackInstrument(trackId, instrumentId) {
+        applyComposition(set, get, (comp) => opsSetTrackInstrument(comp, trackId, instrumentId));
+      },
+      setCompositionTrackVolumeDb(trackId, volumeDb) {
+        applyComposition(set, get, (comp) => opsSetTrackVolumeDb(comp, trackId, volumeDb));
+      },
+      setCompositionTrackMuted(trackId, muted) {
+        applyComposition(set, get, (comp) => opsSetTrackMuted(comp, trackId, muted));
+      },
+      setCompositionTrackSoloed(trackId, soloed) {
+        applyComposition(set, get, (comp) => opsSetTrackSoloed(comp, trackId, soloed));
+      },
+      setCompositionMasterVolumeDb(masterVolumeDb) {
+        applyComposition(set, get, (comp) => opsSetMasterVolumeDb(comp, masterVolumeDb));
       },
     }),
     persistOptions,
