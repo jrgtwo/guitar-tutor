@@ -1,46 +1,43 @@
 /**
- * Sample-accurate scheduling of a Composition's `tempoTrack` onto the
- * Tone.Transport BPM signal. Called once at the start of composition
- * playback; the returned `cancel` clears all scheduled automations on
- * stop so a fresh play doesn't replay stale changes.
+ * Sample-accurate scheduling of a `TempoEvent[]` onto the Tone.Transport BPM
+ * signal. Called once at the start of playback; the returned `cancel` clears
+ * all scheduled automations on stop so a fresh play doesn't replay stale
+ * changes.
  *
  * Strategy: align Tone.Transport.PPQ to the project's PPQ (480) so the
  * `'<n>i'` tick-time syntax maps 1:1 with our authoring ticks. Each
- * tempoTrack event past index 0 schedules a `setValueAtTime` (step) or
+ * event past index 0 schedules a `setValueAtTime` (step) or
  * `linearRampToValueAtTime` (linear) on Tone.Transport.bpm. The first
  * event is applied immediately (via metronome.setBpm) before scheduling
  * because Tone.Transport doesn't accept a setValueAtTime at the current
  * cursor reliably.
  *
- * Limitations:
- *   - Pattern-level `tempoTrack` is not yet honored — only the
- *     composition's tempoTrack drives playback (consistent with where
- *     the data lives in the multi-track model).
- *   - `inherit` tempoMode compositions don't have a stable composition
- *     tempoTrack; this helper skips them (per-placement tempo follows
- *     the existing placement-change logic).
+ * Source-agnostic: callers pass an event array directly. Composition
+ * playback feeds in `composition.tempoTrack`; pattern editor playback
+ * feeds in `pattern.tempoTrack`; composition `inherit` mode feeds in a
+ * pre-merged track built from `tracks[0]`'s placements.
  */
 
 import * as Tone from 'tone';
-import type { Composition } from '../types';
+import type { Composition, TempoEvent } from '../types';
 import type { Metronome } from '../../metronome';
 import { PPQ } from '../timebase';
 
-export function applyCompositionTempoAutomation(
-  composition: Composition,
+/**
+ * Schedule a series of `TempoEvent`s on Tone.Transport.bpm. When the array is
+ * empty the metronome is set to `fallbackBpm` and no schedule is registered.
+ */
+export function applyTempoAutomation(
+  events: TempoEvent[],
+  fallbackBpm: number,
   metronome: Metronome,
 ): () => void {
-  const tempos = composition.tempoTrack ?? [];
-  if (tempos.length === 0) {
-    // No automation — apply the composition's static bpm as before.
-    metronome.setBpm(composition.bpm);
+  if (events.length === 0) {
+    metronome.setBpm(fallbackBpm);
     return () => {};
   }
 
-  // Align Tone's transport tick resolution with the project's. This is
-  // idempotent (setting to the same value is a no-op for Tone) and lets
-  // us reference our project ticks directly in Tone's time syntax via
-  // `'${n}i'`.
+  // Align Tone's transport tick resolution with the project's. Idempotent.
   const transport = Tone.getTransport();
   try {
     if (transport.PPQ !== PPQ) transport.PPQ = PPQ;
@@ -56,11 +53,10 @@ export function applyCompositionTempoAutomation(
 
   // Apply the first event immediately so the transport starts at the
   // right tempo from tick 0.
-  metronome.setBpm(tempos[0].bpm);
+  metronome.setBpm(events[0].bpm);
 
-  // Schedule each subsequent event.
-  for (let i = 1; i < tempos.length; i++) {
-    const event = tempos[i];
+  for (let i = 1; i < events.length; i++) {
+    const event = events[i];
     const tickTime = `${Math.max(0, Math.round(event.atTick))}i`;
     try {
       if (event.interpolation === 'linear') {
@@ -75,7 +71,6 @@ export function applyCompositionTempoAutomation(
     }
   }
 
-  // Return a cancel function that clears the schedule.
   return () => {
     try {
       transport.bpm.cancelScheduledValues(0);
@@ -83,4 +78,12 @@ export function applyCompositionTempoAutomation(
       // ignore
     }
   };
+}
+
+/** Thin compatibility wrapper for the original composition-shaped call. */
+export function applyCompositionTempoAutomation(
+  composition: Composition,
+  metronome: Metronome,
+): () => void {
+  return applyTempoAutomation(composition.tempoTrack ?? [], composition.bpm, metronome);
 }

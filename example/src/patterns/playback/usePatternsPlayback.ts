@@ -19,6 +19,9 @@ import {
   PatternSource,
   applyCompositionTempoAutomation,
   applyCompositionTimeSignatureAutomation,
+  applyTempoAutomation,
+  applyTimeSignatureAutomation,
+  mergeTrackPlacementsAutomation,
   buildEffectiveVoice,
   getTuning,
   useFretworkStore,
@@ -223,17 +226,17 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
     });
   }, []);
 
-  // On placement change in inherit mode, resolve effective bpm/groove and push
-  // into the metronome. In global mode, this effect does nothing — the
-  // composition's bpm/groove was already applied at playEditingComposition()
-  // time and stays put for the whole stream.
+  // On placement change in inherit-groove mode, push the placement's
+  // groove (swing) into the metronome. Tempo / TS in inherit mode is
+  // covered by the merged automation scheduled at play start. In all-
+  // global mode this effect short-circuits.
   useEffect(() => {
     if (!scheduler || !metronome) return;
     if (!currentPlacementId) return;
     const state = usePatternsStore.getState();
     const comp = selectEditingComposition(state);
     if (!comp) return;
-    if (comp.tempoMode !== 'inherit' && comp.grooveMode !== 'inherit') return;
+    if (comp.grooveMode !== 'inherit') return;
     // Search every track's placements. After the multi-track migration,
     // placements live under `tracks[*].placements`; the legacy
     // `comp.placements` is always empty.
@@ -243,8 +246,12 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
       if (placement) break;
     }
     if (!placement) return;
-    const { bpm, groove } = resolveEffectivePlayback(comp, placement);
-    if (comp.tempoMode === 'inherit') metronome.setBpm(bpm);
+    const { groove } = resolveEffectivePlayback(comp, placement);
+    // Tempo in inherit mode is now handled by the merged automation
+    // scheduled at play start (sample-accurate boundary events + mid-
+    // pattern changes). Setting bpm again here would race the scheduled
+    // events. Groove automation isn't merged today, so still push that
+    // per-placement.
     if (comp.grooveMode === 'inherit') metronome.setSwing(groove?.swing ?? 0.5);
   }, [scheduler, metronome, currentPlacementId]);
 
@@ -270,7 +277,24 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
         scheduler.setInstrument(new PluckSynthInstrument());
       }
     }
-    if (pattern.suggestedBpm !== null) metronome.setBpm(pattern.suggestedBpm);
+    // Tempo + TS automation from the pattern itself. Imported patterns
+    // carry mid-section tempo / meter changes in their tracks; without
+    // this the editor would only honor `suggestedBpm` once and ignore
+    // every change after tick 0. Falls back to suggestedBpm /
+    // pattern.timeSignature for un-automated patterns (matches prior
+    // behavior).
+    cancelTempoAutomation?.();
+    cancelTempoAutomation = applyTempoAutomation(
+      pattern.tempoTrack ?? [],
+      pattern.suggestedBpm ?? metronome.bpm,
+      metronome,
+    );
+    cancelTimeSignatureAutomation?.();
+    cancelTimeSignatureAutomation = applyTimeSignatureAutomation(
+      pattern.timeSignatureTrack ?? [],
+      pattern.timeSignature,
+      metronome,
+    );
     metronome.setSwing(pattern.groove?.swing ?? 0.5);
     if (pattern.subdivision) metronome.setSubdivision(pattern.subdivision);
     scheduler.setStream(new PatternSource(pattern));
@@ -284,19 +308,24 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
     const composition = selectEditingComposition(state);
     if (!composition) return;
     if (metronome.isRunning) metronome.stop();
-    // Apply tempo automation if the composition carries a multi-event
-    // tempoTrack — schedules sample-accurate bpm changes on
-    // Tone.Transport.bpm. Otherwise falls back to the static composition
-    // bpm. Helper internally calls metronome.setBpm with the initial
-    // value so the transport starts at the right tempo.
+    // Apply tempo + TS automation. In 'global' mode the composition's own
+    // `tempoTrack` / `timeSignatureTrack` drives the metronome. In
+    // 'inherit' mode we instead synthesize a merged track from track[0]'s
+    // placements — each placement contributes a boundary event plus any
+    // mid-pattern automation it carries. The "tempo lead" lane is
+    // tracks[0] by convention; conflicts from other lanes are ignored
+    // (tempo is global per Tone.Transport).
+    const leadTrack = composition.tracks[0];
+    const useInherit = composition.tempoMode === 'inherit' && leadTrack !== undefined;
+    const merged = useInherit ? mergeTrackPlacementsAutomation(leadTrack) : null;
     cancelTempoAutomation?.();
-    cancelTempoAutomation = applyCompositionTempoAutomation(composition, metronome);
-    // TS automation — schedules `metronome.setTimeSignature` at each
-    // event's tick. For single-TS compositions this just sets the initial
-    // signature; for multi-TS files (rare but valid) it switches the
-    // metronome's accent pattern + tick subdivision live at each boundary.
+    cancelTempoAutomation = merged
+      ? applyTempoAutomation(merged.tempoEvents, composition.bpm, metronome)
+      : applyCompositionTempoAutomation(composition, metronome);
     cancelTimeSignatureAutomation?.();
-    cancelTimeSignatureAutomation = applyCompositionTimeSignatureAutomation(composition, metronome);
+    cancelTimeSignatureAutomation = merged
+      ? applyTimeSignatureAutomation(merged.tsEvents, composition.timeSignature, metronome)
+      : applyCompositionTimeSignatureAutomation(composition, metronome);
     // Static fallbacks (groove / subdivision) still come from the comp.
     metronome.setSwing(composition.groove?.swing ?? 0.5);
     if (composition.subdivision) metronome.setSubdivision(composition.subdivision);

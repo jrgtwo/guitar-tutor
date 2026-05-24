@@ -1,11 +1,17 @@
 /**
  * Mid-song time-signature automation playback.
  *
- * For each event in `composition.timeSignatureTrack` past index 0, schedule
- * a `Tone.Transport.scheduleOnce` callback that updates the metronome's
- * time signature. The metronome's own `setTimeSignature` reschedules its
- * tick generator + recomputes accent pattern, so the click-and-feel
- * smoothly switches over.
+ * For each event past index 0, schedule a `Tone.Transport.scheduleOnce`
+ * callback that updates the metronome's time signature. The metronome's
+ * own `setTimeSignature` reschedules its tick generator + recomputes
+ * accent pattern, so the click-and-feel smoothly switches over.
+ *
+ * Source-agnostic: callers pass an event array + the fallback static TS
+ * directly. Composition playback feeds in `composition.timeSignatureTrack`
+ * + `composition.timeSignature`; pattern editor playback feeds in
+ * `pattern.timeSignatureTrack` + `pattern.timeSignature`; composition
+ * `inherit` mode feeds in a pre-merged track built from `tracks[0]`'s
+ * placements.
  *
  * Limitations:
  *   - Falls back to a synthesized `TimeSignature` (downbeat-only accents)
@@ -16,29 +22,26 @@
  */
 
 import * as Tone from 'tone';
-import type { Composition } from '../types';
+import type { Composition, PatternTimeSignature, TimeSignatureEvent } from '../types';
 import type { Metronome } from '../../metronome';
 import type { TimeSignature } from '../../metronome/types';
 import { getTimeSignature } from '../../metronome/time-signatures';
 import { PPQ } from '../timebase';
 
-export function applyCompositionTimeSignatureAutomation(
-  composition: Composition,
+export function applyTimeSignatureAutomation(
+  events: TimeSignatureEvent[],
+  fallback: PatternTimeSignature,
   metronome: Metronome,
 ): () => void {
-  const tsEvents = composition.timeSignatureTrack ?? [];
   // Always apply the initial TS up front: either the first event in the
-  // automation track, or the composition's static `timeSignature`.
+  // automation track, or the caller-supplied static signature.
   const initial: TimeSignature =
-    tsEvents.length > 0
-      ? resolveOrSynthesize(tsEvents[0].numerator, tsEvents[0].denominator)
-      : resolveOrSynthesize(
-          composition.timeSignature.numerator,
-          composition.timeSignature.denominator,
-        );
+    events.length > 0
+      ? resolveOrSynthesize(events[0].numerator, events[0].denominator)
+      : resolveOrSynthesize(fallback.numerator, fallback.denominator);
   metronome.setTimeSignature(initial);
 
-  if (tsEvents.length <= 1) return () => {};
+  if (events.length <= 1) return () => {};
 
   // PPQ alignment — same as tempo automation. Idempotent.
   const transport = Tone.getTransport();
@@ -49,14 +52,11 @@ export function applyCompositionTimeSignatureAutomation(
   }
 
   const scheduleIds: number[] = [];
-  for (let i = 1; i < tsEvents.length; i++) {
-    const event = tsEvents[i];
+  for (let i = 1; i < events.length; i++) {
+    const event = events[i];
     const ts = resolveOrSynthesize(event.numerator, event.denominator);
     const tickTime = `${Math.max(0, Math.round(event.atTick))}i`;
     try {
-      // scheduleOnce returns an id we can clear on stop. The callback
-      // ignores the `time` argument — metronome.setTimeSignature reads
-      // the current transport position internally for its re-scheduling.
       const id = transport.scheduleOnce(() => {
         metronome.setTimeSignature(ts);
       }, tickTime);
@@ -75,6 +75,18 @@ export function applyCompositionTimeSignatureAutomation(
       }
     }
   };
+}
+
+/** Thin compatibility wrapper for the original composition-shaped call. */
+export function applyCompositionTimeSignatureAutomation(
+  composition: Composition,
+  metronome: Metronome,
+): () => void {
+  return applyTimeSignatureAutomation(
+    composition.timeSignatureTrack ?? [],
+    composition.timeSignature,
+    metronome,
+  );
 }
 
 /**

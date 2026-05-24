@@ -130,8 +130,15 @@ export type { EffectivePlayback } from './scheduler/resolvePlayback';
 
 export { MultiTrackPlayback } from './scheduler/MultiTrackPlayback';
 export { CompositionTrackSource } from './scheduler/CompositionTrackSource';
-export { applyCompositionTempoAutomation } from './scheduler/tempoAutomation';
-export { applyCompositionTimeSignatureAutomation } from './scheduler/timeSignatureAutomation';
+export {
+  applyTempoAutomation,
+  applyCompositionTempoAutomation,
+} from './scheduler/tempoAutomation';
+export {
+  applyTimeSignatureAutomation,
+  applyCompositionTimeSignatureAutomation,
+} from './scheduler/timeSignatureAutomation';
+export { mergeTrackPlacementsAutomation } from './scheduler/mergeTrackPlacementsAutomation';
 
 export { selectCompositionsUsingPattern } from './store/usePatternsStore';
 
