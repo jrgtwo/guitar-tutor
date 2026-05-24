@@ -24,6 +24,7 @@ import { DEFAULT_REVERB_SETTINGS, type ReverbSettings } from './types';
 class MasterBusImpl {
   private _input: Tone.Gain | null = null;
   private _reverb: Tone.Reverb | null = null;
+  private _meter: Tone.Meter | null = null;
   private _settings: ReverbSettings = DEFAULT_REVERB_SETTINGS;
   /** Cached resolved promise so callers can await reverb readiness if they care. */
   private _generatePromise: Promise<void> | null = null;
@@ -49,9 +50,41 @@ class MasterBusImpl {
     input.connect(reverb);
     reverb.toDestination();
 
+    // Diagnostic meter on the output. Taps the reverb output (post-mix, pre-
+    // destination). Used by audio-debug.ts to detect clipping (peak > 0 dBFS).
+    // Cheap when not polled — Tone.Meter does its work lazily on getValue().
+    const meter = new Tone.Meter({ smoothing: 0 });
+    reverb.connect(meter);
+
     this._input = input;
     this._reverb = reverb;
+    this._meter = meter;
     return { input, reverb };
+  }
+
+  /** Current peak output level in dBFS. > 0 = clipping. Returns -Infinity
+   *  when the bus hasn't been built yet. Used by audio-debug.ts. */
+  getOutputPeakDb(): number {
+    if (!this._meter) return -Infinity;
+    const v = this._meter.getValue();
+    return typeof v === 'number' ? v : Array.isArray(v) ? Math.max(...v) : -Infinity;
+  }
+
+  /** Diagnostic: bypass the reverb at runtime. Useful for A/B testing whether
+   *  the reverb convolver is the source of audio artifacts. Implemented by
+   *  setting reverb.wet to 0 (dry-only). Call via the browser console:
+   *
+   *      window.__fretworkMasterBus.setReverbBypassed(true)
+   *
+   *  Restore with `false`. Doesn't disconnect/reconnect nodes so the audio
+   *  graph stays stable; just routes the wet leg to silence. */
+  setReverbBypassed(bypassed: boolean): void {
+    if (!this._reverb) return;
+    try {
+      this._reverb.wet.rampTo(bypassed ? 0 : (this._settings.enabled ? this._settings.wet : 0), 0.05);
+    } catch {
+      // No-op.
+    }
   }
 
   /** Proactively build the master bus. Useful as a "first user gesture" warm-up

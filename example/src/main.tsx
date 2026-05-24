@@ -1,3 +1,9 @@
+// MUST be the very first import — sets the Tone.js AudioContext sample rate
+// before any other module triggers Tone's lazy context creation. Eliminates
+// 4x CPU overhead on systems with 192kHz output devices (some Windows / pro
+// audio setups). See audio-context-init.ts for details.
+import './audio-context-init';
+
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';

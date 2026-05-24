@@ -39,6 +39,7 @@ import type {
   VoiceSource,
 } from './types';
 import { MasterBus } from './MasterBus';
+import { noteTriggered } from '../audio-debug';
 import type { GuitarInstrument } from '../types';
 
 export const DEFAULT_VOICE_LEVEL: VoiceLevel = { volumeDb: 0, pan: 0 };
@@ -183,6 +184,12 @@ export class Voice implements GuitarInstrument {
     this._ensureBuilt();
     const synth = this._synth!;
     const velocity = options?.velocity;
+    // Audio-thread instrumentation (no-op when window.__FRETWORK_AUDIO_DEBUG
+    // is falsy). Track active note count + release-tail estimate so the
+    // debug logger can correlate polyphony with audio buffer underruns.
+    const durSecForDebug = options?.durationSec ?? (typeof duration === 'number' ? duration : 1);
+    const releaseEstimate = this._preset.source.kind === 'sampler' ? (this._preset.source.release ?? 1) : 1;
+    noteTriggered(durSecForDebug + releaseEstimate);
     try {
       synth.triggerAttackRelease(noteName, duration, audioTime, velocity);
       // Trigger the body-filter envelope on each note so the cutoff sweeps in

@@ -118,7 +118,6 @@ export type ActiveListener = (active: readonly ScheduledEvent[]) => void;
 export type CompleteListener = () => void;
 export type PlacementChangeListener = (placementId: string | null) => void;
 
-const TICKS_PER_INTERVAL = PPQ / 4; // 120 ticks = a 16th note
 
 export class EventScheduler {
   private _stream: EventStream | null = null;
@@ -126,6 +125,17 @@ export class EventScheduler {
   private _headTick = 0;
   private _activeNow = new Map<string, ScheduledEvent>();
   private _scheduledId: number | null = null;
+  /** Tone.Transport.scheduleOnce IDs for events pre-scheduled at play start.
+   *  Each callback self-removes its own id when it fires. On stop / setStream
+   *  / dispose, all remaining ids are transport.clear-cancelled. */
+  private _scheduledIds: number[] = [];
+  /** rAF handle for the active-events tracking loop (primary scheduler only).
+   *  Reads transport.ticks each frame, computes which events should be
+   *  highlighted, and emits onActive when the set changes. Replaces the old
+   *  per-slice _onTick + _releaseExpired pair. */
+  private _activeRafId: number | null = null;
+  /** Comparison key for the last emitted active set. Used to dedupe emits. */
+  private _activeKey = '';
   private _unsubStart: (() => void) | null = null;
   private _unsubStop: (() => void) | null = null;
   private _tuning: TuningDef;
@@ -166,14 +176,32 @@ export class EventScheduler {
     this._unsubStart = this._metronome.on('start', () => {
       this._headTick = 0;
       this._activeNow.clear();
+      this._activeKey = '';
       this._emitActive();
       this._emitHead(0);
+      // Pre-schedule all events for iteration 0. Subsequent loop iterations
+      // re-schedule themselves via a boundary callback inside _scheduleAllEvents.
+      this._scheduleAllEvents(0);
+      // Start the active-tracking rAF loop on the primary scheduler only.
+      // Followers don't drive UI; their active set has no consumers.
+      if (this._role === 'primary') {
+        this._startActiveLoop();
+      }
     });
 
     // Clear active state when transport stops.
     this._unsubStop = this._metronome.on('stop', () => {
       this._stopVisualLoop();
+      this._stopActiveLoop();
+      // Cancel any pre-scheduled events that haven't fired yet. Sample-accurate
+      // — eliminates the "previous pattern bleeds into next" symptom.
+      const cleanupTransport = Tone.getTransport();
+      for (const id of this._scheduledIds) {
+        try { cleanupTransport.clear(id); } catch { /* noop */ }
+      }
+      this._scheduledIds = [];
       this._activeNow.clear();
+      this._activeKey = '';
       this._emitActive();
       this._emitHead(0);
       try {
@@ -206,28 +234,20 @@ export class EventScheduler {
       }
     });
 
-    // Register the 16th-note tick callback on Tone.Transport. Wrapped in try/catch
-    // so the scheduler can still be constructed in environments where Tone's
-    // transport isn't fully wired (e.g. jsdom-based tests). In production this is
-    // always available because Tone is initialized before this code path runs.
+    // Align Tone.Transport's PPQ with our project PPQ so `transport.ticks`
+    // and any tick-time scheduling (`${n}i`) maps 1:1 with our authoring
+    // ticks. Without this, transport.ticks-based math is wrong whenever
+    // Tone's default PPQ (often 192) differs from ours. Safe to set here:
+    // transport is always stopped at scheduler-construction time.
     try {
       const transport = Tone.getTransport();
-      // Align Tone.Transport's PPQ with our project PPQ so `transport.ticks`
-      // and any tick-time scheduling (`${n}i`) maps 1:1 with our authoring
-      // ticks. Without this, the visual playhead's transport.ticks-based
-      // position math is wrong whenever Tone's default PPQ (often 192)
-      // differs from ours. Safe to set here: transport is always stopped
-      // at scheduler-construction time. Idempotent on the global transport.
       if (transport.PPQ !== PPQ) transport.PPQ = PPQ;
-      if (typeof transport.scheduleRepeat === 'function') {
-        this._scheduledId = transport.scheduleRepeat((audioTime) => {
-          this._onTick(audioTime);
-        }, '16n', 0);
-      }
     } catch {
-      // No-op: audio scheduling is disabled, but the scheduler's slicing logic
-      // remains exercisable for tests via `_tickForTest`.
+      // No-op.
     }
+    // NOTE: we no longer register a per-slice scheduleRepeat callback. All
+    // events are pre-scheduled at play start via _scheduleAllEvents().
+    // Active-events tracking happens via _startActiveLoop()'s rAF.
   }
 
   // ─── Configuration ─────────────────────────────────────────────────────────
@@ -236,8 +256,17 @@ export class EventScheduler {
     this._stream = stream;
     this._headTick = 0;
     this._activeNow.clear();
+    this._activeKey = '';
     this._emitActive();
     this._currentPlacementId = null;
+    // Cancel any pre-scheduled events from the previous stream. Important
+    // because the new stream will pre-schedule its own events on the next
+    // metronome.start, and we don't want stale audio firing in the meantime.
+    const transport = Tone.getTransport();
+    for (const id of this._scheduledIds) {
+      try { transport.clear(id); } catch { /* noop */ }
+    }
+    this._scheduledIds = [];
   }
 
   setLoop(loop: boolean): void {
@@ -328,9 +357,15 @@ export class EventScheduler {
 
   dispose(): void {
     this._stopVisualLoop();
+    this._stopActiveLoop();
+    const disposeTransport = Tone.getTransport();
+    for (const id of this._scheduledIds) {
+      try { disposeTransport.clear(id); } catch { /* noop */ }
+    }
+    this._scheduledIds = [];
     if (this._scheduledId !== null) {
       try {
-        Tone.getTransport().clear(this._scheduledId);
+        disposeTransport.clear(this._scheduledId);
       } catch {
         // No-op: transport may have been disposed externally.
       }
@@ -354,93 +389,58 @@ export class EventScheduler {
 
   // ─── Test seam ─────────────────────────────────────────────────────────────
 
-  /** Drive one slice synchronously. Used by tests; production callers should not
-   *  invoke this — the Tone.Transport callback owns it. */
-  _tickForTest(audioTime: number): void {
-    this._onTick(audioTime);
+  /** Drive one slice synchronously. Legacy test seam from the slice-based
+   *  architecture. Now a no-op — audio scheduling happens via
+   *  _scheduleAllEvents at play start, not per-slice. Kept so existing tests
+   *  still compile; rewrite those tests to assert on _scheduledIds + the
+   *  scheduled callbacks instead. */
+  _tickForTest(_audioTime: number): void {
+    // no-op
   }
 
   // ─── Internal ──────────────────────────────────────────────────────────────
 
-  private _onTick(audioTime: number): void {
+  /** Pre-schedule every event in the active stream at its absolute transport
+   *  tick. Called from the metronome 'start' handler at play start, and from
+   *  the loop-boundary callback at each loop iteration.
+   *
+   *  `loopOffset` is the absolute transport tick at which the iteration
+   *  begins. Iteration 0 has offset 0 (relative ticks == absolute ticks).
+   *  Iteration N has offset N * durationTicks. Using ABSOLUTE ticks (not
+   *  loop-relative) is the critical fix from the Phase 1B attempt — Tone's
+   *  transport.ticks is monotonically increasing and never wraps, so
+   *  scheduleOnce('${X}i') only fires correctly if X is in the future
+   *  relative to the current transport position.
+   *
+   *  Each scheduled callback fires `instrument.play(note, dur, audioTime)`
+   *  exactly once at its event time. Tone handles the audio scheduling via
+   *  AudioContext.currentTime — no per-slice JS work needed during playback. */
+  private _scheduleAllEvents(loopOffset: number): void {
     const stream = this._stream;
-    if (!stream) return;
-    if (stream.durationTicks <= 0) return;
+    if (!stream || stream.durationTicks <= 0) return;
 
-    const fromTick = this._headTick;
-    const toTick = fromTick + TICKS_PER_INTERVAL;
-
-    if (!this._loop && fromTick >= stream.durationTicks) {
-      // Stream completed; emit one onComplete and stop pulling events.
-      this._emitComplete();
-      return;
-    }
-
-    if (this._loop && toTick > stream.durationTicks) {
-      // Slice straddles the loop boundary. Play the tail of the current loop and
-      // the head of the next, with a translated audio time for the wrap.
-      this._processSlice(fromTick, stream.durationTicks, audioTime);
-      const wrapAudioOffsetSec =
-        (stream.durationTicks - fromTick) * secondsPerTick(this._metronome.bpm);
-      const remainder = toTick - stream.durationTicks;
-      this._processSlice(0, remainder, audioTime + wrapAudioOffsetSec);
-      this._headTick = remainder;
-    } else {
-      this._processSlice(fromTick, toTick, audioTime);
-      this._headTick = toTick;
-    }
-
-    this._releaseExpired(this._headTick);
-    this._emitPlacementChange(this._placementAtTick(this._headTick));
-    // NOTE: head position is emitted by the visual rAF loop (which reads the real
-    // Tone.Transport.seconds), NOT here. Emitting from `_onTick` would put the
-    // playhead at the END of the just-scheduled slice — visually a quarter-beat
-    // ahead of where audio is actually sounding.
-  }
-
-  private _processSlice(fromTick: number, toTick: number, audioTime: number): void {
-    const stream = this._stream!;
-    const events = stream.eventsInRange(fromTick, toTick);
-    if (events.length === 0) return;
-
+    const transport = Tone.getTransport();
     const sec = secondsPerTick(this._metronome.bpm);
-    const openStrings = effectiveOpenStrings(this._tuning, this._capo);
-    // Pattern notes apply the same swing the metronome applies to its sub-ticks
-    // so a "swing 8ths at 67%" setting feels consistent across the click and the
-    // pattern audio. Pairs anchor at tick 0; quarter-note (PPQ) is the beat unit.
     const subdivision = this._metronome.subdivision;
     const swing = this._metronome.swing;
+    const openStrings = effectiveOpenStrings(this._tuning, this._capo);
 
+    const events = stream.eventsInRange(0, stream.durationTicks);
     for (const e of events) {
       const openString = openStrings[e.stringIndex];
       if (!openString) continue;
-      // Natural / artificial harmonics sound one octave above the played
-      // fret in our approximation. Apply at note-resolution time so the
-      // sampler / synth gets the right pitch directly — no need for a
-      // PitchShift envelope.
+
       const harmonicSemitones = e.harmonic ? 12 : 0;
       const note = noteAt(openString, e.fret + harmonicSemitones);
       const swungStart = applySwingToTick(e.startTick, subdivision, swing, PPQ);
       const swungEnd = applySwingToTick(e.startTick + e.durationTicks, subdivision, swing, PPQ);
-      const playAudioTime = audioTime + (swungStart - fromTick) * sec;
       const rawDurationSec = Math.max(0, swungEnd - swungStart) * sec;
-      // Duration shortening for muted/percussive articulations:
-      //   - palm-mute: ~30% of the authored duration (chunky chug)
-      //   - dead/muted (X): ~12% (percussive tick, very short)
-      // Otherwise full duration. The Sampler's natural envelope handles
-      // the remaining release tail.
       const durationSec = e.dead
         ? Math.max(0.04, rawDurationSec * 0.12)
         : e.palmMute
           ? Math.max(0.05, rawDurationSec * 0.3)
           : rawDurationSec;
-      // Velocity composition:
-      //   - `event.velocity` is the authored / imported loudness in [0, 1].
-      //   - hammer-on / pull-off / tap destinations × 0.4 (suppressed attack).
-      //   - ghost notes × 0.5 (rhythmic articulation, not melodic).
-      //   - dead notes × 0.3 (percussive tick).
-      //   Multipliers compose multiplicatively — a forte ghost hammer-on
-      //   ends up around 0.16, recognizably present but distinctly soft.
+
       const isLegato = e.hammerOn || e.pullOff || e.tap;
       let velocityMultiplier = 1.0;
       if (isLegato) velocityMultiplier *= 0.4;
@@ -449,54 +449,129 @@ export class EventScheduler {
       const baseVelocity = e.velocity ?? 1.0;
       const finalVelocity = baseVelocity * velocityMultiplier;
       const velocity = finalVelocity < 1.0 ? finalVelocity : undefined;
-      // Temporary debug log (gated on a global flag so it's silent by
-      // default). Enable with `window.__FRETWORK_DEBUG_PLAYBACK = true` in
-      // the console to verify articulation flags reach the engine.
-      if (
-        (isLegato || e.velocity != null) &&
-        typeof globalThis !== 'undefined' &&
-        (globalThis as unknown as { __FRETWORK_DEBUG_PLAYBACK?: boolean }).__FRETWORK_DEBUG_PLAYBACK
-      ) {
-        const tags: string[] = [];
-        if (e.hammerOn) tags.push('hammerOn');
-        if (e.pullOff) tags.push('pullOff');
-        if (e.velocity != null) tags.push(`base=${e.velocity.toFixed(2)}`);
-        // eslint-disable-next-line no-console
-        console.log(
-          `[playback] ${note} dur=${durationSec.toFixed(3)}s vel=${finalVelocity.toFixed(2)} ` +
-            `(${tags.join(', ')})`,
-        );
-      }
+
       const pitchCurve = resolvePitchCurve(e);
+      const playOpts = {
+        velocity,
+        vibrato: e.vibrato,
+        durationSec,
+        pitchCurve,
+        palmMute: e.palmMute,
+      };
+
+      // Absolute transport tick at which this event should fire. Tone's
+      // tick-time syntax ('${N}i') uses transport.PPQ which we aligned to
+      // our PPQ in the constructor.
+      const absoluteTick = loopOffset + Math.max(0, Math.round(swungStart));
       try {
-        this._instrument.play(note, durationSec, playAudioTime, {
-          velocity,
-          vibrato: e.vibrato,
-          durationSec,
-          pitchCurve,
-          palmMute: e.palmMute,
-        });
+        const id = transport.scheduleOnce((audioTime) => {
+          // Self-remove our id from the tracking array so stop()'s cleanup
+          // doesn't waste time clearing already-fired schedules.
+          const idx = this._scheduledIds.indexOf(id);
+          if (idx >= 0) this._scheduledIds.splice(idx, 1);
+          try {
+            this._instrument.play(note, durationSec, audioTime, playOpts);
+          } catch {
+            // One bad note shouldn't kill anything else.
+          }
+        }, `${absoluteTick}i`);
+        this._scheduledIds.push(id);
       } catch {
-        // One bad note shouldn't kill the loop. Silently swallow.
+        // One bad schedule shouldn't break the rest.
       }
-      this._activeNow.set(e.id, e);
     }
 
-    this._emitActive();
+    // Loop boundary: when transport reaches the end of this iteration,
+    // schedule the next iteration's events. Tone fires this callback with
+    // its standard lookahead so the next iteration's events have time to be
+    // registered before they need to play.
+    if (this._loop) {
+      const boundary = loopOffset + stream.durationTicks;
+      try {
+        const id = transport.scheduleOnce(() => {
+          const idx = this._scheduledIds.indexOf(id);
+          if (idx >= 0) this._scheduledIds.splice(idx, 1);
+          this._scheduleAllEvents(boundary);
+        }, `${boundary}i`);
+        this._scheduledIds.push(id);
+      } catch {
+        // No-op.
+      }
+    } else {
+      // Non-looping: notify completion at the end of the iteration.
+      const end = loopOffset + stream.durationTicks;
+      try {
+        const id = transport.scheduleOnce(() => {
+          const idx = this._scheduledIds.indexOf(id);
+          if (idx >= 0) this._scheduledIds.splice(idx, 1);
+          this._emitComplete();
+        }, `${end}i`);
+        this._scheduledIds.push(id);
+      } catch {
+        // No-op.
+      }
+    }
   }
 
-  private _releaseExpired(currentTick: number): void {
-    let changed = false;
-    for (const [id, e] of this._activeNow) {
-      const wrappedDur = e.durationTicks;
-      const releaseTick = e.startTick + wrappedDur;
-      if (releaseTick <= currentTick) {
-        this._activeNow.delete(id);
-        changed = true;
+  /** Per-frame active-events tracking. Runs on the primary scheduler only
+   *  (followers in MultiTrackPlayback have no UI subscribers). Reads
+   *  transport.ticks each frame and computes the set of events that are
+   *  currently within their (startTick, startTick+duration) window. Emits
+   *  onActive whenever the set actually changes (deduped via _activeKey).
+   *  Also drives onPlacementChange notifications.
+   *
+   *  Cost is O(events) per frame — for typical stream sizes (<500 events)
+   *  this is sub-millisecond. */
+  private _startActiveLoop(): void {
+    if (this._activeRafId !== null) return;
+    if (typeof requestAnimationFrame === 'undefined') return;
+    const loop = () => {
+      if (!this._metronome.isRunning) {
+        this._activeRafId = null;
+        return;
       }
-    }
-    if (changed) {
-      this._emitActive();
+      const stream = this._stream;
+      if (!stream || stream.durationTicks <= 0) {
+        this._activeRafId = requestAnimationFrame(loop);
+        return;
+      }
+      const transport = Tone.getTransport();
+      const transportPpq = transport.PPQ || PPQ;
+      let tickPos = (transport.ticks * PPQ) / transportPpq;
+      if (this._loop) {
+        tickPos = ((tickPos % stream.durationTicks) + stream.durationTicks) % stream.durationTicks;
+      }
+
+      // Compute active set + a comparison key in one pass.
+      let newKey = '';
+      const newActive = new Map<string, ScheduledEvent>();
+      const events = stream.eventsInRange(0, stream.durationTicks);
+      for (const e of events) {
+        const end = e.startTick + e.durationTicks;
+        if (e.startTick <= tickPos && tickPos < end) {
+          newActive.set(e.id, e);
+          newKey += e.id + ',';
+        }
+      }
+
+      if (newKey !== this._activeKey) {
+        this._activeKey = newKey;
+        this._activeNow = newActive;
+        this._emitActive();
+      }
+
+      // Placement-change tracking (cheap; _emitPlacementChange dedupes).
+      this._emitPlacementChange(this._placementAtTick(tickPos));
+
+      this._activeRafId = requestAnimationFrame(loop);
+    };
+    this._activeRafId = requestAnimationFrame(loop);
+  }
+
+  private _stopActiveLoop(): void {
+    if (this._activeRafId !== null) {
+      cancelAnimationFrame(this._activeRafId);
+      this._activeRafId = null;
     }
   }
 

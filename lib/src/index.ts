@@ -351,6 +351,7 @@ export {
   startAudio,
   audioNow,
   getTransportTicks,
+  forceSampleRate,
   Voice,
   MasterBus,
   VOICE_PRESETS,
