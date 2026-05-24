@@ -187,8 +187,10 @@ describe('mapImportToLibrary — composition mode', () => {
       ],
     });
     const result = mapImportToLibrary({ ir, selectedTrackId: 't0', topology: 'composition' });
-    expect(result.warnings.some((w) => w.includes('Tempo automation preserved'))).toBe(true);
-    expect(result.warnings.some((w) => w.includes('Time signature automation preserved'))).toBe(true);
+    // Tempo automation now plays back via Tone.Transport scheduling; the
+    // warning text confirms it's scheduled. TS automation is still data-only.
+    expect(result.warnings.some((w) => w.includes('Tempo automation'))).toBe(true);
+    expect(result.warnings.some((w) => w.includes('Time signature automation'))).toBe(true);
   });
 });
 

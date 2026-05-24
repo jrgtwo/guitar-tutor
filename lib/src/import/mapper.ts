@@ -100,16 +100,19 @@ export function mapImportToLibrary(input: MapInput): MapperResult {
 
   const warnings: string[] = [];
 
-  // Tempo / TS automation: phase-1 plays the initial value only. Count and
-  // warn if there's more (applies regardless of topology).
+  // Tempo automation: tempoTrack on the composition is fully scheduled
+  // onto Tone.Transport.bpm at playback time, so multi-tempo files now
+  // play with correct BPM changes. TS automation is still data-only —
+  // changing meter mid-song requires per-bar accent updates that are not
+  // yet wired into the metronome.
   if (ir.tempos.length > 1) {
     warnings.push(
-      `Tempo automation preserved (${ir.tempos.length} changes); only the initial tempo is played until automation playback ships`,
+      `Tempo automation (${ir.tempos.length} changes) — scheduled on the transport, audible during composition playback`,
     );
   }
   if (ir.timeSignatures.length > 1) {
     warnings.push(
-      `Time signature automation preserved (${ir.timeSignatures.length} changes); only the initial signature is played until automation playback ships`,
+      `Time signature automation preserved (${ir.timeSignatures.length} changes); only the initial signature is played until TS automation playback ships`,
     );
   }
 

@@ -220,6 +220,7 @@ export {
   resolveEffectivePlayback,
   MultiTrackPlayback,
   CompositionTrackSource,
+  applyCompositionTempoAutomation,
   MAX_COMPOSITION_TRACKS,
   createEmptyTrack,
   migrateCompositionToTracks,

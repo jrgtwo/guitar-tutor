@@ -3,6 +3,7 @@ import { PlayStopButton } from '../../components/playback/controls/PlayStopButto
 import { BpmStepper } from '../../components/playback/controls/BpmStepper';
 import { TimeSignatureSelect } from '../../components/playback/controls/TimeSignatureSelect';
 import { MasterVolumeSlider } from '../../components/playback/controls/MasterVolumeSlider';
+import { VolumeSlider } from '../../components/playback/controls/VolumeSlider';
 import { LoopToggle } from '../../components/playback/controls/LoopToggle';
 import { TempoModeToggle } from '../../components/playback/controls/TempoModeToggle';
 import { GrooveModeToggle } from '../../components/playback/controls/GrooveModeToggle';
@@ -82,10 +83,13 @@ export function usePatternsArrangeRibbonSections(): readonly PlaybackRibbonSecti
   feelControls.push(<GrooveModeToggle key="groove-mode" />);
 
   const outputControls: ReactNode[] = [
-    // Composition arranger uses the composition's master volume, not the
-    // metronome click volume. Per-track volumes live in each lane's
-    // sidebar and ride below this master fader.
+    // Two distinct concepts on the arrange ribbon:
+    //   - MasterVolumeSlider: the composition's master fader (per-track
+    //     volumes ride beneath it). Affects the music output only.
+    //   - VolumeSlider: metronome click volume (the tick-tock). Still
+    //     useful during arrangement for keeping the user on the beat.
     <MasterVolumeSlider key="master-vol" />,
+    <VolumeSlider key="click-vol" />,
   ];
 
   return [

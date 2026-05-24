@@ -128,6 +128,7 @@ export type { EffectivePlayback } from './scheduler/resolvePlayback';
 
 export { MultiTrackPlayback } from './scheduler/MultiTrackPlayback';
 export { CompositionTrackSource } from './scheduler/CompositionTrackSource';
+export { applyCompositionTempoAutomation } from './scheduler/tempoAutomation';
 
 export { selectCompositionsUsingPattern } from './store/usePatternsStore';
 

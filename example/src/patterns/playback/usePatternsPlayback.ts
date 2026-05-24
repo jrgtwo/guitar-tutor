@@ -17,6 +17,7 @@ import {
   EventScheduler,
   MultiTrackPlayback,
   PatternSource,
+  applyCompositionTempoAutomation,
   buildEffectiveVoice,
   getTuning,
   useFretworkStore,
@@ -60,6 +61,9 @@ interface UsePatternsPlaybackReturn {
 // short-lived MultiTrackPlayback that owns its own schedulers + voices.
 let sharedScheduler: EventScheduler | null = null;
 let currentMultiTrack: MultiTrackPlayback | null = null;
+/** Cancel-handle returned by `applyCompositionTempoAutomation`. Cleared on
+ *  stop / restart so a fresh play doesn't replay stale tempo curves. */
+let cancelTempoAutomation: (() => void) | null = null;
 
 function ensureScheduler(metronome: ReturnType<typeof useMetronome>['metronome']): EventScheduler | null {
   if (typeof window === 'undefined') return null;
@@ -278,7 +282,14 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
     const composition = selectEditingComposition(state);
     if (!composition) return;
     if (metronome.isRunning) metronome.stop();
-    metronome.setBpm(composition.bpm);
+    // Apply tempo automation if the composition carries a multi-event
+    // tempoTrack — schedules sample-accurate bpm changes on
+    // Tone.Transport.bpm. Otherwise falls back to the static composition
+    // bpm. Helper internally calls metronome.setBpm with the initial
+    // value so the transport starts at the right tempo.
+    cancelTempoAutomation?.();
+    cancelTempoAutomation = applyCompositionTempoAutomation(composition, metronome);
+    // Static fallbacks (groove / subdivision) still come from the comp.
     metronome.setSwing(composition.groove?.swing ?? 0.5);
     if (composition.subdivision) metronome.setSubdivision(composition.subdivision);
 
@@ -329,6 +340,9 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
       currentMultiTrack.dispose();
       currentMultiTrack = null;
     }
+    // Clear any scheduled tempo automations so they don't replay next time.
+    cancelTempoAutomation?.();
+    cancelTempoAutomation = null;
   }, [metronome]);
 
   const previewCell = useCallback(
