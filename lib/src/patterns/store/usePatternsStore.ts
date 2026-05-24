@@ -55,6 +55,7 @@ import {
   migrateCompositionToTracks,
   removePlacement as opsRemovePlacement,
   reorderPlacement as opsReorderPlacement,
+  movePlacementToTrack as opsMovePlacementToTrack,
   setCompositionBpm,
   setCompositionGroove,
   setCompositionGrooveMode,
@@ -233,6 +234,7 @@ export interface PatternsActions {
   // Arrange mutations
   addPlacement(patternId: string, atTick?: Tick): string | null;
   reorderPlacement(placementId: string, newIndex: number): void;
+  movePlacementToTrack(placementId: string, destTrackId: string, destIndex: number): void;
   setPlacementRepeat(placementId: string, repeat: number): void;
   setPlacementTranspose(placementId: string, semitones: number): void;
   resizePlacement(placementId: string, lengthTicks: Tick): void;
@@ -1177,6 +1179,11 @@ export const usePatternsStore = create<PatternsStoreState>()(
       },
       reorderPlacement(placementId, newIndex) {
         applyComposition(set, get, (comp) => opsReorderPlacement(comp, placementId, newIndex));
+      },
+      movePlacementToTrack(placementId, destTrackId, destIndex) {
+        applyComposition(set, get, (comp) =>
+          opsMovePlacementToTrack(comp, placementId, destTrackId, destIndex),
+        );
       },
       setPlacementRepeat(placementId, repeat) {
         applyComposition(set, get, (comp) => opsSetPlacementRepeat(comp, placementId, repeat));

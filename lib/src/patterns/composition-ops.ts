@@ -352,6 +352,41 @@ export function reorderPlacement(
   });
 }
 
+/**
+ * Move a placement to a different track at a specific index. No-op if source
+ * and destination tracks are the same (caller should use `reorderPlacement`
+ * for within-lane reordering) or if `destTrackId` doesn't exist. Reflows
+ * startTicks on BOTH the source and destination tracks so each lane stays
+ * gap-less.
+ */
+export function movePlacementToTrack(
+  comp: Composition,
+  placementId: string,
+  destTrackId: string,
+  destIndex: number,
+): Composition {
+  const found = findPlacement(comp, placementId);
+  if (!found) return comp;
+  if (found.track.id === destTrackId) return comp;
+  const destTrack = comp.tracks.find((t) => t.id === destTrackId);
+  if (!destTrack) return comp;
+
+  const srcPlacements = found.track.placements.filter((p) => p.id !== placementId);
+  const clamped = Math.max(0, Math.min(destIndex, destTrack.placements.length));
+  const destPlacements = [...destTrack.placements];
+  destPlacements.splice(clamped, 0, found.placement);
+
+  return {
+    ...comp,
+    tracks: comp.tracks.map((t) => {
+      if (t.id === found.track.id) return { ...t, placements: reflowTrackPlacements(srcPlacements) };
+      if (t.id === destTrackId) return { ...t, placements: reflowTrackPlacements(destPlacements) };
+      return t;
+    }),
+    updatedAt: Date.now(),
+  };
+}
+
 export function setPlacementRepeat(
   comp: Composition,
   placementId: string,

@@ -5,9 +5,12 @@ import {
   createEmptyComposition,
   stampEvent,
   addPlacement,
+  addPlacementToTrack,
+  addTrack,
   setPlacementRepeat,
   removePlacement,
   reorderPlacement,
+  movePlacementToTrack,
   totalDurationTicks,
   flattenComposition,
   placementEffectiveLength,
@@ -131,6 +134,104 @@ describe('composition-ops', () => {
       expect(placementsOf(comp)[0].startTick).toBe(0);
       expect(placementsOf(comp)[1].startTick).toBe(p.durationTicks);
       expect(placementsOf(comp)[2].startTick).toBe(p.durationTicks * 2);
+    });
+  });
+
+  describe('movePlacementToTrack', () => {
+    /** Helper: spin up a composition with two tracks; track[0] holds
+     *  `aCount` placements, track[1] holds `bCount`. Returns the ids of
+     *  every placement in flat (track0, then track1) order. */
+    function buildTwoTrackComp(aCount: number, bCount: number) {
+      const p = createEmptyPattern();
+      let comp = createEmptyComposition();
+      comp = addTrack(comp, 'Track 2');
+      const trackAId = comp.tracks[0].id;
+      const trackBId = comp.tracks[1].id;
+      const aIds: string[] = [];
+      const bIds: string[] = [];
+      for (let i = 0; i < aCount; i++) {
+        const r = addPlacementToTrack(comp, trackAId, p);
+        comp = r.composition;
+        aIds.push(r.placement!.id);
+      }
+      for (let i = 0; i < bCount; i++) {
+        const r = addPlacementToTrack(comp, trackBId, p);
+        comp = r.composition;
+        bIds.push(r.placement!.id);
+      }
+      return { comp, trackAId, trackBId, aIds, bIds, patternDur: p.durationTicks };
+    }
+
+    it('moves a placement from a populated track into an empty track', () => {
+      let { comp, trackBId, aIds, patternDur } = buildTwoTrackComp(2, 0);
+      comp = movePlacementToTrack(comp, aIds[0], trackBId, 0);
+      // Source lane reflows: just one placement at startTick 0.
+      expect(comp.tracks[0].placements).toHaveLength(1);
+      expect(comp.tracks[0].placements[0].id).toBe(aIds[1]);
+      expect(comp.tracks[0].placements[0].startTick).toBe(0);
+      // Destination lane has the moved placement at startTick 0.
+      expect(comp.tracks[1].placements).toHaveLength(1);
+      expect(comp.tracks[1].placements[0].id).toBe(aIds[0]);
+      expect(comp.tracks[1].placements[0].startTick).toBe(0);
+      // Pattern dur should make sense (sanity).
+      expect(patternDur).toBeGreaterThan(0);
+    });
+
+    it('inserts at the requested destination index and reflows the dest lane', () => {
+      let { comp, trackBId, aIds, bIds, patternDur } = buildTwoTrackComp(1, 2);
+      comp = movePlacementToTrack(comp, aIds[0], trackBId, 1);
+      // Dest order: [b0, moved, b1]
+      const destIds = comp.tracks[1].placements.map((p) => p.id);
+      expect(destIds).toEqual([bIds[0], aIds[0], bIds[1]]);
+      // Dest lane reflowed contiguously.
+      expect(comp.tracks[1].placements[0].startTick).toBe(0);
+      expect(comp.tracks[1].placements[1].startTick).toBe(patternDur);
+      expect(comp.tracks[1].placements[2].startTick).toBe(patternDur * 2);
+      // Source lane now empty.
+      expect(comp.tracks[0].placements).toHaveLength(0);
+    });
+
+    it('clamps destIndex past the end to append', () => {
+      let { comp, trackBId, aIds, bIds } = buildTwoTrackComp(1, 2);
+      comp = movePlacementToTrack(comp, aIds[0], trackBId, 999);
+      const destIds = comp.tracks[1].placements.map((p) => p.id);
+      expect(destIds).toEqual([bIds[0], bIds[1], aIds[0]]);
+    });
+
+    it('clamps negative destIndex to 0', () => {
+      let { comp, trackBId, aIds, bIds } = buildTwoTrackComp(1, 2);
+      comp = movePlacementToTrack(comp, aIds[0], trackBId, -5);
+      const destIds = comp.tracks[1].placements.map((p) => p.id);
+      expect(destIds).toEqual([aIds[0], bIds[0], bIds[1]]);
+    });
+
+    it('is a no-op when source and destination tracks are the same', () => {
+      const built = buildTwoTrackComp(2, 1);
+      const next = movePlacementToTrack(built.comp, built.aIds[0], built.trackAId, 0);
+      // Same reference back when no work to do.
+      expect(next).toBe(built.comp);
+    });
+
+    it('is a no-op when destTrackId does not exist', () => {
+      const built = buildTwoTrackComp(2, 0);
+      const next = movePlacementToTrack(built.comp, built.aIds[0], 'trk_bogus', 0);
+      expect(next).toBe(built.comp);
+    });
+
+    it('is a no-op when placementId does not exist', () => {
+      const built = buildTwoTrackComp(2, 1);
+      const next = movePlacementToTrack(built.comp, 'pl_bogus', built.trackBId, 0);
+      expect(next).toBe(built.comp);
+    });
+
+    it('preserves source-lane order and re-flows the remaining placements', () => {
+      let { comp, trackBId, aIds, patternDur } = buildTwoTrackComp(3, 0);
+      // Move the middle placement out.
+      comp = movePlacementToTrack(comp, aIds[1], trackBId, 0);
+      const srcIds = comp.tracks[0].placements.map((p) => p.id);
+      expect(srcIds).toEqual([aIds[0], aIds[2]]);
+      expect(comp.tracks[0].placements[0].startTick).toBe(0);
+      expect(comp.tracks[0].placements[1].startTick).toBe(patternDur);
     });
   });
 

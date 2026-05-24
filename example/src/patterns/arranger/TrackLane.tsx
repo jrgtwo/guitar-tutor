@@ -4,13 +4,17 @@
  * Left sidebar: track-level controls (name, instrument, volume slider,
  *   mute / solo / delete).
  * Right area: the track's placements as horizontal blocks (BlockCard
- *   instances). Drag-drop reordering works within the lane; cross-lane
- *   drop is a future iteration.
+ *   instances). Drag-drop reordering works within a lane *and* across
+ *   lanes — same gesture, the drop handler routes to `reorderPlacement`
+ *   (within-lane) or `movePlacementToTrack` (cross-lane). Shared drag
+ *   state lives in ArrangerDragContext so every lane reacts to the
+ *   active gesture.
  *
  * Layout uses fixed pixel widths so multiple lanes align horizontally.
  */
 
 import { useMemo, useState, useRef } from 'react';
+import { useArrangerDrag } from './ArrangerDragContext';
 import { Trash2, Volume2, VolumeX } from 'lucide-react';
 import type { Track, Composition, VariantRef, FretInstrumentId, SlotId } from '@fretwork/lib';
 import {
@@ -44,6 +48,7 @@ export function TrackLane({ composition, track, pxPerBeat, sidebarWidth, anySolo
   const removePlacement = usePatternsStore((s) => s.removePlacement);
   const openPlacementForEditing = usePatternsStore((s) => s.openPlacementForEditing);
   const reorderPlacement = usePatternsStore((s) => s.reorderPlacement);
+  const movePlacementToTrack = usePatternsStore((s) => s.movePlacementToTrack);
   const resizePlacement = usePatternsStore((s) => s.resizePlacement);
   const setTrackName = usePatternsStore((s) => s.setCompositionTrackName);
   const setTrackInstrument = usePatternsStore((s) => s.setCompositionTrackInstrument);
@@ -94,11 +99,18 @@ export function TrackLane({ composition, track, pxPerBeat, sidebarWidth, anySolo
     }
   }
 
-  // Local drag state, scoped to this lane (cross-lane drag deferred).
-  const [draggingId, setDraggingId] = useState<string | null>(null);
+  // Shared drag state lives in the arranger context — every lane needs to
+  // know what's being dragged so it can render drop hints and accept the
+  // gesture. The `before/after` hint indicator is still local: it's
+  // inherently target-side and resets on dragleave / drop.
+  const { draggingId, fromTrackId, beginDrag, endDrag } = useArrangerDrag();
   const [dropTarget, setDropTarget] = useState<{ id: string; side: 'before' | 'after' } | null>(
     null,
   );
+  // `laneAppendHover` is the drop hint on lane whitespace (empty lane or
+  // trailing area after the last block). When set, a drop here appends
+  // the dragged placement to the end of this track.
+  const [laneAppendHover, setLaneAppendHover] = useState(false);
   const dragOverCleanup = useRef<number | null>(null);
 
   // Audible-state cue: a track gets dimmed if (a) it's muted directly, or
@@ -127,16 +139,28 @@ export function TrackLane({ composition, track, pxPerBeat, sidebarWidth, anySolo
     return null;
   })();
 
-  // ─── Drag handlers (within-lane only for now) ─────────────────────────
+  // ─── Drag handlers ────────────────────────────────────────────────────
+  // Same gesture handles both within-lane reorder and cross-lane move —
+  // the drop handler picks the right store action based on whether the
+  // source lane equals this lane.
+  const isCrossLaneDrag = draggingId !== null && fromTrackId !== null && fromTrackId !== track.id;
+
   function handleDragStart(e: React.DragEvent, id: string) {
-    setDraggingId(id);
+    beginDrag(id, track.id);
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', id);
   }
   function handleDragOver(e: React.DragEvent, targetId: string) {
-    if (!draggingId || draggingId === targetId) return;
+    if (!draggingId) return;
+    // Within-lane: ignore hover on the source block itself (you can't drop
+    // a block onto its own position). Cross-lane: always accept.
+    if (!isCrossLaneDrag && draggingId === targetId) return;
     e.preventDefault();
+    // Stop the lane-level dragover handler from also firing — otherwise it
+    // would clobber the block-level dropTarget hint with `laneAppendHover`.
+    e.stopPropagation();
     e.dataTransfer.dropEffect = 'move';
+    setLaneAppendHover(false);
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const side: 'before' | 'after' =
       e.clientX < rect.left + rect.width / 2 ? 'before' : 'after';
@@ -148,15 +172,25 @@ export function TrackLane({ composition, track, pxPerBeat, sidebarWidth, anySolo
   }
   function handleDrop(e: React.DragEvent, targetId: string) {
     e.preventDefault();
-    if (!draggingId || draggingId === targetId) {
-      setDraggingId(null);
+    // Same reasoning as handleDragOver — keep the lane-level drop from
+    // firing as well, otherwise we'd double-handle the drop.
+    e.stopPropagation();
+    if (!draggingId) {
+      endDrag();
       setDropTarget(null);
       return;
     }
-    const srcIdx = track.placements.findIndex((p) => p.id === draggingId);
+    // Block dropped onto its own position within its own lane — nothing
+    // to do. (Cross-lane onto a block with the same id is impossible —
+    // placement ids are unique.)
+    if (!isCrossLaneDrag && draggingId === targetId) {
+      endDrag();
+      setDropTarget(null);
+      return;
+    }
     const tgtIdx = track.placements.findIndex((p) => p.id === targetId);
-    if (srcIdx < 0 || tgtIdx < 0) {
-      setDraggingId(null);
+    if (tgtIdx < 0) {
+      endDrag();
       setDropTarget(null);
       return;
     }
@@ -167,14 +201,52 @@ export function TrackLane({ composition, track, pxPerBeat, sidebarWidth, anySolo
         ? 'before'
         : 'after');
     let insertIdx = side === 'before' ? tgtIdx : tgtIdx + 1;
-    if (srcIdx < insertIdx) insertIdx -= 1;
-    reorderPlacement(draggingId, insertIdx);
-    setDraggingId(null);
+
+    if (isCrossLaneDrag) {
+      movePlacementToTrack(draggingId, track.id, insertIdx);
+    } else {
+      // Within-lane: account for the source's own slot disappearing before
+      // the target when we splice.
+      const srcIdx = track.placements.findIndex((p) => p.id === draggingId);
+      if (srcIdx >= 0 && srcIdx < insertIdx) insertIdx -= 1;
+      reorderPlacement(draggingId, insertIdx);
+    }
+    endDrag();
     setDropTarget(null);
   }
   function handleDragEnd() {
-    setDraggingId(null);
+    endDrag();
     setDropTarget(null);
+    setLaneAppendHover(false);
+  }
+
+  // Lane-area drop (empty lane or trailing whitespace) → append to this
+  // track. Only meaningful while a drag is in flight.
+  function handleLaneDragOver(e: React.DragEvent) {
+    if (!draggingId) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setLaneAppendHover(true);
+    setDropTarget(null);
+  }
+  function handleLaneDragLeave() {
+    setLaneAppendHover(false);
+  }
+  function handleLaneDrop(e: React.DragEvent) {
+    e.preventDefault();
+    if (!draggingId) {
+      endDrag();
+      return;
+    }
+    if (isCrossLaneDrag) {
+      movePlacementToTrack(draggingId, track.id, track.placements.length);
+    } else {
+      // Within-lane append: send to the last index.
+      reorderPlacement(draggingId, track.placements.length - 1);
+    }
+    endDrag();
+    setDropTarget(null);
+    setLaneAppendHover(false);
   }
 
   return (
@@ -311,14 +383,31 @@ export function TrackLane({ composition, track, pxPerBeat, sidebarWidth, anySolo
         </div>
       </div>
 
-      {/* Lane — placements packed left-to-right */}
+      {/* Lane — placements packed left-to-right. The lane container is itself
+          a drop target: empty lanes accept a drop (cross-lane move into a
+          fresh track), and dropping on the trailing whitespace appends to
+          the end. Block-level handlers stopPropagation so they don't
+          collide with this lane-level handler. */}
       <div
-        className="relative flex items-stretch py-1 min-h-[64px]"
+        className={
+          'relative flex items-stretch py-1 min-h-[64px] transition-colors ' +
+          (laneAppendHover ? 'bg-degree-root/10 outline outline-1 outline-degree-root/40' : '')
+        }
         style={{ minWidth: totalLanePx + 12 }}
+        onDragOver={handleLaneDragOver}
+        onDragLeave={handleLaneDragLeave}
+        onDrop={handleLaneDrop}
       >
         {track.placements.length === 0 ? (
-          <div className="flex items-center text-[10px] font-mono italic text-muted-foreground/50 px-4">
-            empty lane
+          <div
+            className={
+              'flex items-center text-[10px] font-mono italic px-4 ' +
+              (draggingId
+                ? 'text-degree-root/80'
+                : 'text-muted-foreground/50')
+            }
+          >
+            {draggingId ? 'drop here to move into this track' : 'empty lane'}
           </div>
         ) : (
           track.placements.map((p) => {

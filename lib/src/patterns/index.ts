@@ -76,6 +76,7 @@ export {
   addPlacementToTrack,
   findPlacement,
   reorderPlacement,
+  movePlacementToTrack,
   setPlacementRepeat,
   removePlacement,
   setCompositionName,

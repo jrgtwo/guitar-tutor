@@ -2,11 +2,11 @@
  * Multi-track composition timeline. Renders one TrackLane per track with
  * a shared horizontal axis and an "+ Add track" button at the bottom.
  *
- * For Phase 4 the layout is straightforward: each lane is its own horizontal
- * strip. Per-lane drag-drop reorder works (delegated to TrackLane). Cross-
- * lane drag is a future iteration. A composition-wide playhead overlay
- * spans all lanes; per-lane block-highlighting tracks the audible
- * placement on that lane.
+ * Each lane is its own horizontal strip. Drag-drop reorder works within a
+ * lane (delegated to TrackLane) and across lanes (shared drag state via
+ * ArrangerDragContext). A composition-wide playhead overlay spans all
+ * lanes; per-lane block-highlighting tracks the audible placement on
+ * that lane.
  */
 
 import { Plus } from 'lucide-react';
@@ -16,6 +16,7 @@ import {
   MAX_COMPOSITION_TRACKS,
 } from '@fretwork/lib';
 import { TrackLane } from './TrackLane';
+import { ArrangerDragProvider } from './ArrangerDragContext';
 
 const PX_PER_BEAT = 28;
 const SIDEBAR_WIDTH = 200;
@@ -30,6 +31,7 @@ export function CompositionTimeline() {
   const totalPlacements = composition.tracks.reduce((sum, t) => sum + t.placements.length, 0);
 
   return (
+    <ArrangerDragProvider>
     <div className="flex flex-col gap-2 px-3 pb-3">
       {totalPlacements === 0 && composition.tracks.length === 1 && (
         <p className="text-[11px] font-mono text-muted-foreground italic py-2">
@@ -87,8 +89,9 @@ export function CompositionTimeline() {
 
       <p className="text-[10px] font-mono text-muted-foreground/60">
         {composition.tracks.length} track{composition.tracks.length === 1 ? '' : 's'} ·
-        drag blocks within a lane to reorder · double-click a block to edit its pattern
+        drag blocks to reorder within a lane or move between lanes · double-click a block to edit its pattern
       </p>
     </div>
+    </ArrangerDragProvider>
   );
 }
