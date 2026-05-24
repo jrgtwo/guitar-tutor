@@ -54,8 +54,9 @@ import {
   createEmptyComposition,
   migrateCompositionToTracks,
   removePlacement as opsRemovePlacement,
-  reorderPlacement as opsReorderPlacement,
-  movePlacementToTrack as opsMovePlacementToTrack,
+  movePlacement as opsMovePlacement,
+  splitPlacement as opsSplitPlacement,
+  duplicatePlacements as opsDuplicatePlacements,
   setCompositionBpm,
   setCompositionGroove,
   setCompositionGrooveMode,
@@ -233,8 +234,9 @@ export interface PatternsActions {
 
   // Arrange mutations
   addPlacement(patternId: string, atTick?: Tick): string | null;
-  reorderPlacement(placementId: string, newIndex: number): void;
-  movePlacementToTrack(placementId: string, destTrackId: string, destIndex: number): void;
+  movePlacement(placementId: string, destTrackId: string, destStartTick: Tick): void;
+  splitPlacement(placementId: string, atTick: Tick): void;
+  duplicatePlacements(ids: string[], deltaTicks: Tick, destTrackId?: string): void;
   setPlacementRepeat(placementId: string, repeat: number): void;
   setPlacementTranspose(placementId: string, semitones: number): void;
   resizePlacement(placementId: string, lengthTicks: Tick): void;
@@ -1177,12 +1179,17 @@ export const usePatternsStore = create<PatternsStoreState>()(
         });
         return placement.id;
       },
-      reorderPlacement(placementId, newIndex) {
-        applyComposition(set, get, (comp) => opsReorderPlacement(comp, placementId, newIndex));
-      },
-      movePlacementToTrack(placementId, destTrackId, destIndex) {
+      movePlacement(placementId, destTrackId, destStartTick) {
         applyComposition(set, get, (comp) =>
-          opsMovePlacementToTrack(comp, placementId, destTrackId, destIndex),
+          opsMovePlacement(comp, placementId, destTrackId, destStartTick),
+        );
+      },
+      splitPlacement(placementId, atTick) {
+        applyComposition(set, get, (comp) => opsSplitPlacement(comp, placementId, atTick));
+      },
+      duplicatePlacements(ids, deltaTicks, destTrackId) {
+        applyComposition(set, get, (comp) =>
+          opsDuplicatePlacements(comp, ids, deltaTicks, destTrackId),
         );
       },
       setPlacementRepeat(placementId, repeat) {

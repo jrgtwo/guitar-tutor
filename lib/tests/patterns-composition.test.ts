@@ -9,8 +9,7 @@ import {
   addTrack,
   setPlacementRepeat,
   removePlacement,
-  reorderPlacement,
-  movePlacementToTrack,
+  movePlacement,
   totalDurationTicks,
   flattenComposition,
   placementEffectiveLength,
@@ -83,10 +82,28 @@ describe('composition-ops', () => {
       expect(placementsOf(comp)[0].startTick).toBe(0);
       expect(placementsOf(comp)[1].startTick).toBe(p1.durationTicks);
     });
+
+    it('preserves authoritative startTick across subsequent edits', async () => {
+      // Regression: in the new free-placement model, adding a placement at
+      // an explicit atTick must not get re-derived on the next mutation.
+      const p = createEmptyPattern();
+      let comp = createEmptyComposition();
+      const trackId = comp.tracks[0].id;
+      const r1 = addPlacementToTrack(comp, trackId, p, p.durationTicks * 3);
+      comp = r1.composition;
+      const id1 = r1.placement!.id;
+      expect(comp.tracks[0].placements[0].startTick).toBe(p.durationTicks * 3);
+      // A second placement appended via the default (no atTick) shouldn't
+      // alter the first one's startTick.
+      const r2 = addPlacementToTrack(comp, trackId, p);
+      comp = r2.composition;
+      const first = comp.tracks[0].placements.find((pl) => pl.id === id1)!;
+      expect(first.startTick).toBe(p.durationTicks * 3);
+    });
   });
 
   describe('setPlacementRepeat', () => {
-    it('reflows downstream placements when repeat changes', () => {
+    it('pushes downstream placements when increasing repeat overlaps the neighbor', () => {
       let p = createEmptyPattern();
       let comp = createEmptyComposition();
       let placementAId = '';
@@ -96,51 +113,50 @@ describe('composition-ops', () => {
       const beforeB = placementsOf(comp).find((pl) => pl.id === placementBId)!;
       expect(beforeB.startTick).toBe(p.durationTicks);
       comp = setPlacementRepeat(comp, placementAId, 3);
+      // A now spans [0, 3 * durationTicks). B must be at >= 3 * durationTicks.
+      const afterB = placementsOf(comp).find((pl) => pl.id === placementBId)!;
+      expect(afterB.startTick).toBe(p.durationTicks * 3);
+    });
+
+    it('leaves the gap when decreasing repeat', () => {
+      let p = createEmptyPattern();
+      let comp = createEmptyComposition();
+      let placementAId = '';
+      let placementBId = '';
+      ({ composition: comp, placement: { id: placementAId } } = addPlacement(comp, p));
+      ({ composition: comp, placement: { id: placementBId } } = addPlacement(comp, p));
+      // Set A's repeat to 3 → B pushes out to 3 * durationTicks.
+      comp = setPlacementRepeat(comp, placementAId, 3);
+      // Drop A back to repeat 1 → A spans [0, durationTicks). B stays at
+      // 3 * durationTicks (gap is the user's, not auto-closed).
+      comp = setPlacementRepeat(comp, placementAId, 1);
       const afterB = placementsOf(comp).find((pl) => pl.id === placementBId)!;
       expect(afterB.startTick).toBe(p.durationTicks * 3);
     });
   });
 
   describe('removePlacement', () => {
-    it('reflows remaining placements', () => {
+    it('leaves the gap behind (no reflow)', () => {
       let p = createEmptyPattern();
       let comp = createEmptyComposition();
-      let ids: string[] = [];
+      const ids: string[] = [];
       for (let i = 0; i < 3; i++) {
         const { composition: c2, placement } = addPlacement(comp, p);
         comp = c2;
         ids.push(placement.id);
       }
+      // Three placements at 0, durationTicks, 2*durationTicks.
       comp = removePlacement(comp, ids[1]);
       expect(placementsOf(comp)).toHaveLength(2);
-      expect(placementsOf(comp)[0].startTick).toBe(0);
-      expect(placementsOf(comp)[1].startTick).toBe(p.durationTicks);
+      // First placement still at 0; third (now second in array) still at
+      // 2*durationTicks — a gap exists at [durationTicks, 2*durationTicks).
+      const sorted = [...placementsOf(comp)].sort((a, b) => a.startTick - b.startTick);
+      expect(sorted[0].startTick).toBe(0);
+      expect(sorted[1].startTick).toBe(p.durationTicks * 2);
     });
   });
 
-  describe('reorderPlacement', () => {
-    it('moves a placement to a new index and reflows startTicks', () => {
-      let p = createEmptyPattern();
-      let comp = createEmptyComposition();
-      let ids: string[] = [];
-      for (let i = 0; i < 3; i++) {
-        const { composition: c2, placement } = addPlacement(comp, p);
-        comp = c2;
-        ids.push(placement.id);
-      }
-      comp = reorderPlacement(comp, ids[0], 2);
-      expect(placementsOf(comp)[2].id).toBe(ids[0]);
-      // After reorder, startTicks should be contiguous from 0.
-      expect(placementsOf(comp)[0].startTick).toBe(0);
-      expect(placementsOf(comp)[1].startTick).toBe(p.durationTicks);
-      expect(placementsOf(comp)[2].startTick).toBe(p.durationTicks * 2);
-    });
-  });
-
-  describe('movePlacementToTrack', () => {
-    /** Helper: spin up a composition with two tracks; track[0] holds
-     *  `aCount` placements, track[1] holds `bCount`. Returns the ids of
-     *  every placement in flat (track0, then track1) order. */
+  describe('movePlacement (cross-lane scenarios)', () => {
     function buildTwoTrackComp(aCount: number, bCount: number) {
       const p = createEmptyPattern();
       let comp = createEmptyComposition();
@@ -162,76 +178,384 @@ describe('composition-ops', () => {
       return { comp, trackAId, trackBId, aIds, bIds, patternDur: p.durationTicks };
     }
 
-    it('moves a placement from a populated track into an empty track', () => {
-      let { comp, trackBId, aIds, patternDur } = buildTwoTrackComp(2, 0);
-      comp = movePlacementToTrack(comp, aIds[0], trackBId, 0);
-      // Source lane reflows: just one placement at startTick 0.
+    it('moves a placement from a populated track to an empty track', () => {
+      let { comp, trackBId, aIds } = buildTwoTrackComp(2, 0);
+      comp = movePlacement(comp, aIds[0], trackBId, 0);
       expect(comp.tracks[0].placements).toHaveLength(1);
-      expect(comp.tracks[0].placements[0].id).toBe(aIds[1]);
-      expect(comp.tracks[0].placements[0].startTick).toBe(0);
-      // Destination lane has the moved placement at startTick 0.
       expect(comp.tracks[1].placements).toHaveLength(1);
-      expect(comp.tracks[1].placements[0].id).toBe(aIds[0]);
       expect(comp.tracks[1].placements[0].startTick).toBe(0);
-      // Pattern dur should make sense (sanity).
-      expect(patternDur).toBeGreaterThan(0);
     });
 
-    it('inserts at the requested destination index and reflows the dest lane', () => {
+    it('inserts at the requested tick on the destination lane', () => {
       let { comp, trackBId, aIds, bIds, patternDur } = buildTwoTrackComp(1, 2);
-      comp = movePlacementToTrack(comp, aIds[0], trackBId, 1);
-      // Dest order: [b0, moved, b1]
-      const destIds = comp.tracks[1].placements.map((p) => p.id);
-      expect(destIds).toEqual([bIds[0], aIds[0], bIds[1]]);
-      // Dest lane reflowed contiguously.
-      expect(comp.tracks[1].placements[0].startTick).toBe(0);
-      expect(comp.tracks[1].placements[1].startTick).toBe(patternDur);
-      expect(comp.tracks[1].placements[2].startTick).toBe(patternDur * 2);
-      // Source lane now empty.
+      // Drop A at the midpoint of B's first placement → should snap past it.
+      const dropTick = Math.floor(patternDur / 2);
+      comp = movePlacement(comp, aIds[0], trackBId, dropTick);
+      // Source empty.
       expect(comp.tracks[0].placements).toHaveLength(0);
-    });
-
-    it('clamps destIndex past the end to append', () => {
-      let { comp, trackBId, aIds, bIds } = buildTwoTrackComp(1, 2);
-      comp = movePlacementToTrack(comp, aIds[0], trackBId, 999);
-      const destIds = comp.tracks[1].placements.map((p) => p.id);
-      expect(destIds).toEqual([bIds[0], bIds[1], aIds[0]]);
-    });
-
-    it('clamps negative destIndex to 0', () => {
-      let { comp, trackBId, aIds, bIds } = buildTwoTrackComp(1, 2);
-      comp = movePlacementToTrack(comp, aIds[0], trackBId, -5);
-      const destIds = comp.tracks[1].placements.map((p) => p.id);
-      expect(destIds).toEqual([aIds[0], bIds[0], bIds[1]]);
-    });
-
-    it('is a no-op when source and destination tracks are the same', () => {
-      const built = buildTwoTrackComp(2, 1);
-      const next = movePlacementToTrack(built.comp, built.aIds[0], built.trackAId, 0);
-      // Same reference back when no work to do.
-      expect(next).toBe(built.comp);
+      // Destination has three: original B's two + the moved A in middle/end.
+      expect(comp.tracks[1].placements).toHaveLength(3);
+      // Sort invariant
+      const sorted = comp.tracks[1].placements;
+      for (let i = 1; i < sorted.length; i++) {
+        expect(sorted[i].startTick).toBeGreaterThanOrEqual(sorted[i - 1].startTick);
+      }
     });
 
     it('is a no-op when destTrackId does not exist', () => {
       const built = buildTwoTrackComp(2, 0);
-      const next = movePlacementToTrack(built.comp, built.aIds[0], 'trk_bogus', 0);
+      const next = movePlacement(built.comp, built.aIds[0], 'trk_bogus', 0);
       expect(next).toBe(built.comp);
     });
+  });
 
-    it('is a no-op when placementId does not exist', () => {
-      const built = buildTwoTrackComp(2, 1);
-      const next = movePlacementToTrack(built.comp, 'pl_bogus', built.trackBId, 0);
-      expect(next).toBe(built.comp);
+  describe('placementEndTick', () => {
+    it('returns startTick + effective length × repeat', async () => {
+      const { placementEndTick } = await import('../src/patterns');
+      const p = createEmptyPattern();
+      let comp = createEmptyComposition();
+      const r = addPlacement(comp, p);
+      const placement = placementsOf(r.composition)[0];
+      // Default: repeat=1, lengthTicks=null → endTick = startTick + snapshot.durationTicks
+      expect(placementEndTick(placement)).toBe(placement.startTick + p.durationTicks);
+      // Mutate to repeat=2 and lengthTicks halved: endTick = startTick + (durationTicks/2 * 2)
+      const half = Math.floor(p.durationTicks / 2);
+      const repeated = { ...placement, repeat: 2, lengthTicks: half };
+      expect(placementEndTick(repeated)).toBe(placement.startTick + half * 2);
+    });
+  });
+
+  describe('movePlacement', () => {
+    it('places at the requested tick when there are no conflicts', async () => {
+      const { movePlacement } = await import('../src/patterns');
+      const p = createEmptyPattern();
+      let comp = createEmptyComposition();
+      const trackAId = comp.tracks[0].id;
+      const r = addPlacementToTrack(comp, trackAId, p);
+      comp = r.composition;
+      const id = r.placement!.id;
+      // Move to a far-future tick on the same track; no other blocks → no conflict.
+      const targetTick = p.durationTicks * 5;
+      comp = movePlacement(comp, id, trackAId, targetTick);
+      const placed = placementsOf(comp).find((pl) => pl.id === id)!;
+      expect(placed.startTick).toBe(targetTick);
     });
 
-    it('preserves source-lane order and re-flows the remaining placements', () => {
-      let { comp, trackBId, aIds, patternDur } = buildTwoTrackComp(3, 0);
-      // Move the middle placement out.
-      comp = movePlacementToTrack(comp, aIds[1], trackBId, 0);
-      const srcIds = comp.tracks[0].placements.map((p) => p.id);
-      expect(srcIds).toEqual([aIds[0], aIds[2]]);
-      expect(comp.tracks[0].placements[0].startTick).toBe(0);
-      expect(comp.tracks[0].placements[1].startTick).toBe(patternDur);
+    it('clamps a negative destStartTick to 0', async () => {
+      const { movePlacement } = await import('../src/patterns');
+      const p = createEmptyPattern();
+      let comp = createEmptyComposition();
+      const trackAId = comp.tracks[0].id;
+      const r = addPlacementToTrack(comp, trackAId, p);
+      comp = r.composition;
+      comp = movePlacement(comp, r.placement!.id, trackAId, -500);
+      const placed = placementsOf(comp).find((pl) => pl.id === r.placement!.id)!;
+      expect(placed.startTick).toBe(0);
+    });
+
+    it('snaps forward past a block whose body the drop lands inside', async () => {
+      const { movePlacement } = await import('../src/patterns');
+      const p = createEmptyPattern();
+      let comp = createEmptyComposition();
+      const trackAId = comp.tracks[0].id;
+      // Block A at 0, length = p.durationTicks (so it occupies [0, p.durationTicks)).
+      const aR = addPlacementToTrack(comp, trackAId, p);
+      comp = aR.composition;
+      // Block B (the one we'll move) added at end; will move into A's body.
+      const bR = addPlacementToTrack(comp, trackAId, p);
+      comp = bR.composition;
+      // Drop B inside A's body (e.g., at the midpoint of A).
+      const midA = Math.floor(p.durationTicks / 2);
+      comp = movePlacement(comp, bR.placement!.id, trackAId, midA);
+      const placed = placementsOf(comp).find((pl) => pl.id === bR.placement!.id)!;
+      // Should snap to the end of A (i.e., to p.durationTicks).
+      expect(placed.startTick).toBe(p.durationTicks);
+    });
+
+    it('pushes downstream blocks when the moving block extends into them', async () => {
+      const { movePlacement } = await import('../src/patterns');
+      const p = createEmptyPattern();
+      let comp = createEmptyComposition();
+      const trackAId = comp.tracks[0].id;
+      // Three sequential blocks A, B, C, each at consecutive ticks.
+      const aR = addPlacementToTrack(comp, trackAId, p);
+      comp = aR.composition;
+      const bR = addPlacementToTrack(comp, trackAId, p);
+      comp = bR.composition;
+      const cR = addPlacementToTrack(comp, trackAId, p);
+      comp = cR.composition;
+      // Move A to where B currently sits (tick p.durationTicks). This should
+      // snap or push so result is non-overlapping.
+      comp = movePlacement(comp, aR.placement!.id, trackAId, p.durationTicks);
+      const placements = comp.tracks[0].placements;
+      const findBy = (id: string) => placements.find((pl) => pl.id === id)!;
+      // All three original ids still present — push didn't drop anyone.
+      const placementIds = comp.tracks[0].placements.map((pl) => pl.id);
+      expect(new Set(placementIds)).toEqual(
+        new Set([aR.placement!.id, bR.placement!.id, cR.placement!.id]),
+      );
+      expect(comp.tracks[0].placements).toHaveLength(3);
+      // Result: all three are non-overlapping, sorted by startTick.
+      const sorted = [...placements].sort((a, b) => a.startTick - b.startTick);
+      for (let i = 1; i < sorted.length; i++) {
+        expect(sorted[i].startTick).toBeGreaterThanOrEqual(
+          sorted[i - 1].startTick + p.durationTicks,
+        );
+      }
+      // The moved block (A) is now at or after p.durationTicks
+      expect(findBy(aR.placement!.id).startTick).toBeGreaterThanOrEqual(p.durationTicks);
+    });
+
+    it('moves a placement to a different track at the given tick', async () => {
+      const { movePlacement, addTrack } = await import('../src/patterns');
+      const p = createEmptyPattern();
+      let comp = createEmptyComposition();
+      comp = addTrack(comp, 'Track 2');
+      const trackAId = comp.tracks[0].id;
+      const trackBId = comp.tracks[1].id;
+      const aR = addPlacementToTrack(comp, trackAId, p);
+      comp = aR.composition;
+      // Move to track B at tick 0.
+      comp = movePlacement(comp, aR.placement!.id, trackBId, 0);
+      expect(comp.tracks[0].placements).toHaveLength(0); // gone from source
+      expect(comp.tracks[1].placements).toHaveLength(1);
+      expect(comp.tracks[1].placements[0].startTick).toBe(0);
+    });
+
+    it('keeps the destination track sorted by startTick', async () => {
+      const { movePlacement } = await import('../src/patterns');
+      const p = createEmptyPattern();
+      let comp = createEmptyComposition();
+      const trackAId = comp.tracks[0].id;
+      const ids: string[] = [];
+      for (let i = 0; i < 3; i++) {
+        const r = addPlacementToTrack(comp, trackAId, p);
+        comp = r.composition;
+        ids.push(r.placement!.id);
+      }
+      // Move the last block to tick 0.
+      comp = movePlacement(comp, ids[2], trackAId, 0);
+      const placements = comp.tracks[0].placements;
+      for (let i = 1; i < placements.length; i++) {
+        expect(placements[i].startTick).toBeGreaterThanOrEqual(placements[i - 1].startTick);
+      }
+    });
+
+    it('is a no-op when placementId does not exist', async () => {
+      const { movePlacement } = await import('../src/patterns');
+      const p = createEmptyPattern();
+      let comp = createEmptyComposition();
+      const r = addPlacementToTrack(comp, comp.tracks[0].id, p);
+      comp = r.composition;
+      const before = comp;
+      const after = movePlacement(comp, 'pl_bogus', comp.tracks[0].id, 1000);
+      expect(after).toBe(before);
+    });
+
+    it('is a no-op when destTrackId does not exist', async () => {
+      const { movePlacement } = await import('../src/patterns');
+      const p = createEmptyPattern();
+      let comp = createEmptyComposition();
+      const r = addPlacementToTrack(comp, comp.tracks[0].id, p);
+      comp = r.composition;
+      const before = comp;
+      const after = movePlacement(comp, r.placement!.id, 'trk_bogus', 0);
+      expect(after).toBe(before);
+    });
+  });
+
+  describe('splitPlacement', () => {
+    it('splits a placement into two halves at the given tick', async () => {
+      const { splitPlacement } = await import('../src/patterns');
+      const p = createEmptyPattern();
+      let comp = createEmptyComposition();
+      const trackId = comp.tracks[0].id;
+      const r = addPlacementToTrack(comp, trackId, p);
+      comp = r.composition;
+      const id = r.placement!.id;
+      const splitAt = Math.floor(p.durationTicks / 2);
+      // Split at midpoint of the placement (which starts at tick 0)
+      comp = splitPlacement(comp, id, splitAt);
+      const placements = comp.tracks[0].placements;
+      expect(placements).toHaveLength(2);
+      // Left half: startTick 0, length = splitAt
+      expect(placements[0].startTick).toBe(0);
+      expect(placements[0].lengthTicks).toBe(splitAt);
+      // Right half: startTick = splitAt, length = (durationTicks - splitAt)
+      expect(placements[1].startTick).toBe(splitAt);
+      expect(placements[1].lengthTicks).toBe(p.durationTicks - splitAt);
+      // Both share the same snapshot reference (non-destructive)
+      expect(placements[0].patternSnapshot).toBe(placements[1].patternSnapshot);
+      // Different ids
+      expect(placements[0].id).not.toBe(placements[1].id);
+    });
+
+    it('collapses repeat to 1 on split', async () => {
+      const { splitPlacement } = await import('../src/patterns');
+      const p = createEmptyPattern();
+      let comp = createEmptyComposition();
+      const trackId = comp.tracks[0].id;
+      const r = addPlacementToTrack(comp, trackId, p);
+      comp = r.composition;
+      const id = r.placement!.id;
+      comp = setPlacementRepeat(comp, id, 3);
+      // Now block plays 3x; splitting still collapses to repeat=1.
+      const splitAt = Math.floor(p.durationTicks / 2);
+      comp = splitPlacement(comp, id, splitAt);
+      const placements = comp.tracks[0].placements;
+      expect(placements).toHaveLength(2);
+      expect(placements[0].repeat).toBe(1);
+      expect(placements[1].repeat).toBe(1);
+    });
+
+    it('is a no-op when atTick is outside the placement range', async () => {
+      const { splitPlacement } = await import('../src/patterns');
+      const p = createEmptyPattern();
+      let comp = createEmptyComposition();
+      const trackId = comp.tracks[0].id;
+      const r = addPlacementToTrack(comp, trackId, p);
+      comp = r.composition;
+      const before = comp;
+      // atTick equal to startTick (left boundary) — no split.
+      let after = splitPlacement(comp, r.placement!.id, 0);
+      expect(after).toBe(before);
+      // atTick past the end — no split.
+      after = splitPlacement(comp, r.placement!.id, p.durationTicks + 100);
+      expect(after).toBe(before);
+    });
+
+    it('is a no-op when placementId does not exist', async () => {
+      const { splitPlacement } = await import('../src/patterns');
+      let comp = createEmptyComposition();
+      const before = comp;
+      const after = splitPlacement(comp, 'pl_bogus', 100);
+      expect(after).toBe(before);
+    });
+  });
+
+  describe('duplicatePlacements', () => {
+    it('clones a single placement with a tick offset', async () => {
+      const { duplicatePlacements } = await import('../src/patterns');
+      const p = createEmptyPattern();
+      let comp = createEmptyComposition();
+      const trackId = comp.tracks[0].id;
+      const r = addPlacementToTrack(comp, trackId, p);
+      comp = r.composition;
+      const id = r.placement!.id;
+      // Duplicate at +durationTicks (lands at end of original).
+      comp = duplicatePlacements(comp, [id], p.durationTicks);
+      expect(comp.tracks[0].placements).toHaveLength(2);
+      const ids = comp.tracks[0].placements.map((pl) => pl.id);
+      expect(new Set(ids).size).toBe(2); // unique ids
+      // Both share the same snapshot reference
+      expect(comp.tracks[0].placements[0].patternSnapshot).toBe(
+        comp.tracks[0].placements[1].patternSnapshot,
+      );
+    });
+
+    it('preserves relative offsets when duplicating multiple placements', async () => {
+      const { duplicatePlacements } = await import('../src/patterns');
+      const p = createEmptyPattern();
+      let comp = createEmptyComposition();
+      const trackId = comp.tracks[0].id;
+      const a = addPlacementToTrack(comp, trackId, p);
+      comp = a.composition;
+      const b = addPlacementToTrack(comp, trackId, p);
+      comp = b.composition;
+      // Duplicate both by 4 × durationTicks (large enough to be past the
+      // current pair so no conflict)
+      const delta = p.durationTicks * 4;
+      comp = duplicatePlacements(comp, [a.placement!.id, b.placement!.id], delta);
+      expect(comp.tracks[0].placements).toHaveLength(4);
+      // The duplicates' startTicks preserve the original spacing:
+      const sorted = [...comp.tracks[0].placements].sort(
+        (x, y) => x.startTick - y.startTick,
+      );
+      // First two are originals at 0 and durationTicks.
+      expect(sorted[0].startTick).toBe(0);
+      expect(sorted[1].startTick).toBe(p.durationTicks);
+      // Duplicates at delta and delta + durationTicks
+      expect(sorted[2].startTick).toBe(delta);
+      expect(sorted[3].startTick).toBe(delta + p.durationTicks);
+    });
+
+    it('routes duplicates to destTrackId when provided', async () => {
+      const { duplicatePlacements, addTrack } = await import('../src/patterns');
+      const p = createEmptyPattern();
+      let comp = createEmptyComposition();
+      comp = addTrack(comp, 'Track 2');
+      const trackAId = comp.tracks[0].id;
+      const trackBId = comp.tracks[1].id;
+      const r = addPlacementToTrack(comp, trackAId, p);
+      comp = r.composition;
+      comp = duplicatePlacements(comp, [r.placement!.id], 0, trackBId);
+      expect(comp.tracks[0].placements).toHaveLength(1); // original stays on A
+      expect(comp.tracks[1].placements).toHaveLength(1); // clone on B
+      expect(comp.tracks[1].placements[0].startTick).toBe(0);
+    });
+
+    it('is a no-op when ids is empty', async () => {
+      const { duplicatePlacements } = await import('../src/patterns');
+      let comp = createEmptyComposition();
+      const before = comp;
+      const after = duplicatePlacements(comp, [], 100);
+      expect(after).toBe(before);
+    });
+
+    it('skips ids that do not exist', async () => {
+      const { duplicatePlacements } = await import('../src/patterns');
+      const p = createEmptyPattern();
+      let comp = createEmptyComposition();
+      const r = addPlacementToTrack(comp, comp.tracks[0].id, p);
+      comp = r.composition;
+      const before = comp.tracks[0].placements.length;
+      comp = duplicatePlacements(comp, ['pl_bogus', r.placement!.id], p.durationTicks * 4);
+      // Only the valid id produced a clone
+      expect(comp.tracks[0].placements.length).toBe(before + 1);
+    });
+  });
+
+  describe('pushPlacementsForward', () => {
+    it('returns the input array unchanged when byTicks <= 0', async () => {
+      const { pushPlacementsForward } = await import('../src/patterns');
+      const placements: Placement[] = [];
+      expect(pushPlacementsForward(placements, 0, 0)).toBe(placements);
+      expect(pushPlacementsForward(placements, 100, -50)).toBe(placements);
+    });
+
+    it('shifts every placement with startTick >= fromTick by byTicks', async () => {
+      const { pushPlacementsForward, placementEndTick } = await import('../src/patterns');
+      const p = createEmptyPattern();
+      let comp = createEmptyComposition();
+      const trackId = comp.tracks[0].id;
+      const r1 = addPlacementToTrack(comp, trackId, p);
+      comp = r1.composition;
+      const r2 = addPlacementToTrack(comp, trackId, p);
+      comp = r2.composition;
+      const r3 = addPlacementToTrack(comp, trackId, p);
+      comp = r3.composition;
+      const placements = comp.tracks[0].placements;
+      // First placement at 0, second at p.durationTicks, third at 2*p.durationTicks
+      const fromTick = p.durationTicks; // includes second + third
+      const byTicks = 200;
+      const pushed = pushPlacementsForward(placements, fromTick, byTicks);
+      expect(pushed[0].startTick).toBe(0); // untouched (before fromTick)
+      expect(pushed[1].startTick).toBe(p.durationTicks + byTicks);
+      expect(pushed[2].startTick).toBe(2 * p.durationTicks + byTicks);
+      // End ticks also shift correctly
+      expect(placementEndTick(pushed[1])).toBe(p.durationTicks + byTicks + p.durationTicks);
+    });
+
+    it('returns a new array (does not mutate input)', async () => {
+      const { pushPlacementsForward } = await import('../src/patterns');
+      const p = createEmptyPattern();
+      let comp = createEmptyComposition();
+      const r = addPlacementToTrack(comp, comp.tracks[0].id, p);
+      comp = r.composition;
+      const placements = comp.tracks[0].placements;
+      const pushed = pushPlacementsForward(placements, 0, 100);
+      expect(pushed).not.toBe(placements);
+      expect(placements[0].startTick).toBe(0); // input untouched
     });
   });
 
@@ -465,6 +789,84 @@ describe('Placement + Composition new fields', () => {
       lengthTicks: null,
     };
     expect(placementEffectiveLength(placement)).toBe(pattern.durationTicks);
+  });
+});
+
+describe('resizePlacement', () => {
+  it('truncates lengthTicks without affecting neighbors when no overlap', () => {
+    let p = createEmptyPattern();
+    let comp = createEmptyComposition();
+    const r1 = addPlacement(comp, p);
+    comp = r1.composition;
+    const r2 = addPlacement(comp, p);
+    comp = r2.composition;
+    // Two placements: r1 at 0, r2 at p.durationTicks.
+    // Truncate r1 to half its length (no overlap risk; r2 stays put).
+    const half = Math.floor(p.durationTicks / 2);
+    comp = resizePlacement(comp, r1.placement.id, half);
+    const placements = comp.tracks[0].placements;
+    const r1After = placements.find((pl) => pl.id === r1.placement.id)!;
+    const r2After = placements.find((pl) => pl.id === r2.placement.id)!;
+    expect(r1After.lengthTicks).toBe(half);
+    expect(r2After.startTick).toBe(p.durationTicks); // unchanged
+  });
+
+  it('extending back to full length leaves r2 in place when there\'s no overlap', () => {
+    let p = createEmptyPattern();
+    let comp = createEmptyComposition();
+    const r1 = addPlacement(comp, p);
+    comp = r1.composition;
+    const r2 = addPlacement(comp, p);
+    comp = r2.composition;
+    // Truncate r1 to half, then restore to full. r2 starts at p.durationTicks
+    // so when r1 returns to full length [0, durationTicks), no overlap.
+    const half = Math.floor(p.durationTicks / 2);
+    comp = resizePlacement(comp, r1.placement.id, half);
+    comp = resizePlacement(comp, r1.placement.id, p.durationTicks);
+    const r2NoOverlap = comp.tracks[0].placements.find((pl) => pl.id === r2.placement.id)!;
+    expect(r2NoOverlap.startTick).toBe(p.durationTicks);
+  });
+
+  it('collapses repeat to 1 on resize', () => {
+    let p = createEmptyPattern();
+    let comp = createEmptyComposition();
+    const r = addPlacement(comp, p);
+    comp = r.composition;
+    comp = setPlacementRepeat(comp, r.placement.id, 3);
+    // Truncate; repeat should collapse to 1.
+    comp = resizePlacement(comp, r.placement.id, Math.floor(p.durationTicks / 2));
+    const after = comp.tracks[0].placements[0];
+    expect(after.repeat).toBe(1);
+  });
+
+  it('pushes a downstream block when the resize would overlap it', () => {
+    let p = createEmptyPattern();
+    let comp = createEmptyComposition();
+    const trackId = comp.tracks[0].id;
+    // Place A at 0, length p.durationTicks (default).
+    const a = addPlacementToTrack(comp, trackId, p);
+    comp = a.composition;
+    // Truncate A so a gap exists past its tail.
+    const half = Math.floor(p.durationTicks / 2);
+    comp = resizePlacement(comp, a.placement!.id, half);
+    // Add B; addPlacementToTrack defaults to per-track endTick (= half).
+    const b = addPlacementToTrack(comp, trackId, p);
+    comp = b.composition;
+    const bStartBefore = comp.tracks[0].placements.find((pl) => pl.id === b.placement!.id)!.startTick;
+    expect(bStartBefore).toBe(half);
+    // Now restore A to full length. A now spans [0, p.durationTicks);
+    // B is currently at `half` (inside A's new range) → push fires.
+    comp = resizePlacement(comp, a.placement!.id, p.durationTicks);
+    const placements = comp.tracks[0].placements;
+    const aAfter = placements.find((pl) => pl.id === a.placement!.id)!;
+    const bAfter = placements.find((pl) => pl.id === b.placement!.id)!;
+    // A is back to full length.
+    expect(aAfter.lengthTicks).toBe(p.durationTicks);
+    // B got pushed to at least A's end (p.durationTicks).
+    expect(bAfter.startTick).toBeGreaterThanOrEqual(p.durationTicks);
+    // No overlap.
+    const aEnd = aAfter.startTick + p.durationTicks;
+    expect(bAfter.startTick).toBeGreaterThanOrEqual(aEnd);
   });
 });
 

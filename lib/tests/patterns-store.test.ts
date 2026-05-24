@@ -142,21 +142,6 @@ describe('usePatternsStore', () => {
     expect(usePatternsStore.getState().cursorTick).toBe(PPQ);
   });
 
-  it('reorderPlacement reflows startTicks contiguously', () => {
-    const { createPattern, createComposition, addPlacement, reorderPlacement } = usePatternsStore.getState();
-    const a = createPattern('A');
-    const b = createPattern('B');
-    createComposition();
-    const aPlacement = addPlacement(a)!;
-    addPlacement(b)!;
-    reorderPlacement(aPlacement, 1);
-    const s = usePatternsStore.getState();
-    const comp = s.library.compositions[0];
-    expect(comp.tracks[0].placements[0].patternSnapshot.name).toBe('B');
-    expect(comp.tracks[0].placements[0].startTick).toBe(0);
-    expect(comp.tracks[0].placements[1].patternSnapshot.name).toBe('A');
-  });
-
   describe('groove/bpm editing actions', () => {
     it('setEditingPatternSuggestedBpm writes through to the library entry', () => {
       const store = usePatternsStore.getState();

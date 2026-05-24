@@ -5,8 +5,9 @@
  *   mute / solo / delete).
  * Right area: the track's placements as horizontal blocks (BlockCard
  *   instances). Drag-drop reordering works within a lane *and* across
- *   lanes — same gesture, the drop handler routes to `reorderPlacement`
- *   (within-lane) or `movePlacementToTrack` (cross-lane). Shared drag
+ *   lanes — same gesture; both within-lane and cross-lane paths are stubbed
+ *   pending Task 14 (which will use `movePlacement` with destStartTick from clientX).
+ *   Shared drag
  *   state lives in ArrangerDragContext so every lane reacts to the
  *   active gesture.
  *
@@ -32,6 +33,23 @@ import { usePatternsPlayback } from '../playback/usePatternsPlayback';
 
 const MIN_BLOCK_WIDTH = 80;
 
+/**
+ * Convert an event's clientX coordinate to a composition-tick within the
+ * lane's canvas. The lane canvas's left edge is the sidebar's right edge.
+ * Phase 1A: no snap; the raw tick from cursor position is what the drop
+ * uses. Phase 1B adds snap on top.
+ */
+function clientXToTick(
+  clientX: number,
+  laneCanvasEl: HTMLElement,
+  pxPerBeat: number,
+): number {
+  const rect = laneCanvasEl.getBoundingClientRect();
+  const x = clientX - rect.left;
+  const beats = x / pxPerBeat;
+  return Math.max(0, Math.round(beats * PPQ));
+}
+
 interface Props {
   composition: Composition;
   track: Track;
@@ -47,8 +65,6 @@ export function TrackLane({ composition, track, pxPerBeat, sidebarWidth, anySolo
   const selectPlacement = usePatternsStore((s) => s.selectPlacement);
   const removePlacement = usePatternsStore((s) => s.removePlacement);
   const openPlacementForEditing = usePatternsStore((s) => s.openPlacementForEditing);
-  const reorderPlacement = usePatternsStore((s) => s.reorderPlacement);
-  const movePlacementToTrack = usePatternsStore((s) => s.movePlacementToTrack);
   const resizePlacement = usePatternsStore((s) => s.resizePlacement);
   const setTrackName = usePatternsStore((s) => s.setCompositionTrackName);
   const setTrackInstrument = usePatternsStore((s) => s.setCompositionTrackInstrument);
@@ -57,6 +73,7 @@ export function TrackLane({ composition, track, pxPerBeat, sidebarWidth, anySolo
   const setTrackMuted = usePatternsStore((s) => s.setCompositionTrackMuted);
   const setTrackSoloed = usePatternsStore((s) => s.setCompositionTrackSoloed);
   const removeTrack = usePatternsStore((s) => s.removeCompositionTrack);
+  const movePlacement = usePatternsStore((s) => s.movePlacement);
   const trackCount = composition.tracks.length;
   const canDelete = trackCount > 1;
   const playback = usePatternsPlayback();
@@ -180,37 +197,29 @@ export function TrackLane({ composition, track, pxPerBeat, sidebarWidth, anySolo
       setDropTarget(null);
       return;
     }
-    // Block dropped onto its own position within its own lane — nothing
-    // to do. (Cross-lane onto a block with the same id is impossible —
-    // placement ids are unique.)
+    // Same-block-onto-itself drop within a lane → no-op. (Cross-lane onto
+    // a block with the same id is impossible — placement ids are unique.)
     if (!isCrossLaneDrag && draggingId === targetId) {
       endDrag();
       setDropTarget(null);
       return;
     }
-    const tgtIdx = track.placements.findIndex((p) => p.id === targetId);
-    if (tgtIdx < 0) {
+    // Phase 1A: tick-based drop. clientX → composition tick on the
+    // destination lane's canvas. The data-lane-canvas attribute on the
+    // lane container locates the right element regardless of which child
+    // we're dropping on. Hard-coded pxPerBeat matches
+    // CompositionTimeline's PX_PER_BEAT until Phase 1B promotes it to
+    // view state.
+    const laneCanvas = (e.currentTarget as HTMLElement).closest(
+      '[data-lane-canvas]',
+    ) as HTMLElement | null;
+    if (!laneCanvas) {
       endDrag();
       setDropTarget(null);
       return;
     }
-    const side =
-      dropTarget?.side ??
-      (e.clientX < (e.currentTarget as HTMLElement).getBoundingClientRect().left +
-        (e.currentTarget as HTMLElement).getBoundingClientRect().width / 2
-        ? 'before'
-        : 'after');
-    let insertIdx = side === 'before' ? tgtIdx : tgtIdx + 1;
-
-    if (isCrossLaneDrag) {
-      movePlacementToTrack(draggingId, track.id, insertIdx);
-    } else {
-      // Within-lane: account for the source's own slot disappearing before
-      // the target when we splice.
-      const srcIdx = track.placements.findIndex((p) => p.id === draggingId);
-      if (srcIdx >= 0 && srcIdx < insertIdx) insertIdx -= 1;
-      reorderPlacement(draggingId, insertIdx);
-    }
+    const destStartTick = clientXToTick(e.clientX, laneCanvas, 28);
+    movePlacement(draggingId, track.id, destStartTick);
     endDrag();
     setDropTarget(null);
   }
@@ -236,14 +245,20 @@ export function TrackLane({ composition, track, pxPerBeat, sidebarWidth, anySolo
     e.preventDefault();
     if (!draggingId) {
       endDrag();
+      setDropTarget(null);
+      setLaneAppendHover(false);
       return;
     }
-    if (isCrossLaneDrag) {
-      movePlacementToTrack(draggingId, track.id, track.placements.length);
-    } else {
-      // Within-lane append: send to the last index.
-      reorderPlacement(draggingId, track.placements.length - 1);
+    const laneCanvas = (e.currentTarget as HTMLElement).closest(
+      '[data-lane-canvas]',
+    ) as HTMLElement | null;
+    if (!laneCanvas) {
+      endDrag();
+      setLaneAppendHover(false);
+      return;
     }
+    const destStartTick = clientXToTick(e.clientX, laneCanvas, 28);
+    movePlacement(draggingId, track.id, destStartTick);
     endDrag();
     setDropTarget(null);
     setLaneAppendHover(false);
@@ -389,6 +404,7 @@ export function TrackLane({ composition, track, pxPerBeat, sidebarWidth, anySolo
           the end. Block-level handlers stopPropagation so they don't
           collide with this lane-level handler. */}
       <div
+        data-lane-canvas
         className={
           'relative flex items-stretch py-1 min-h-[64px] transition-colors ' +
           (laneAppendHover ? 'bg-degree-root/10 outline outline-1 outline-degree-root/40' : '')

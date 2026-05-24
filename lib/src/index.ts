@@ -198,7 +198,6 @@ export {
   createEmptyComposition,
   totalDurationTicks,
   addPlacement,
-  reorderPlacement,
   setPlacementRepeat,
   removePlacement,
   setCompositionName,

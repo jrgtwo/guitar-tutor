@@ -117,7 +117,7 @@ export function totalDurationTicks(comp: Composition): Tick {
 /**
  * Locate which track owns a placement. Returns `{ trackIndex, placementIndex }`
  * or null if the id isn't present. Used by the legacy single-arg
- * placement ops (`removePlacement`, `reorderPlacement`, etc.) so existing
+ * placement ops (`removePlacement`, etc.) so existing
  * callers don't have to know which track a placement lives in.
  */
 export function findPlacement(
@@ -155,7 +155,10 @@ export function addPlacementToTrack(
   const placement: Placement = {
     id: generateId('pl'),
     patternSnapshot: snapshotPatternForPlacement(sourcePattern),
-    startTick: atTick ?? totalDurationTicks(comp),
+    startTick: atTick ?? (() => {
+      const lastOnTrack = track.placements[track.placements.length - 1];
+      return lastOnTrack ? placementEndTick(lastOnTrack) : 0;
+    })(),
     repeat: 1,
     transposeSemitones: 0,
     lengthTicks: null,
@@ -165,7 +168,7 @@ export function addPlacementToTrack(
       ...comp,
       tracks: replaceTrack(comp.tracks, trackId, (t) => ({
         ...t,
-        placements: [...t.placements, placement],
+        placements: sortTrackPlacements([...t.placements, placement]),
       })),
       updatedAt: Date.now(),
     },
@@ -299,92 +302,14 @@ export function setMasterVolumeDb(comp: Composition, masterVolumeDb: number): Co
 }
 
 /**
- * Helper: re-flow startTicks on a track's placements so they sit end-to-end
- * with no gaps. Preserves the order of the input list.
+ * Sort a track's placements by ascending startTick. Stable; cheap on
+ * already-sorted input. Called by every op that mutates a track's
+ * placements array, so the in-array order always matches the playback
+ * order. Iteration code (UI, scheduler) can rely on this without
+ * re-sorting at call sites.
  */
-function reflowTrackPlacements(list: Placement[]): Placement[] {
-  let cursor = 0;
-  return list.map((p) => {
-    const next = { ...p, startTick: cursor };
-    cursor += p.patternSnapshot.durationTicks * p.repeat;
-    return next;
-  });
-}
-
-/**
- * Update the track that owns the named placement. The updater receives the
- * track's current placements and returns the new placement list; the helper
- * re-flows startTicks afterward to keep the lane contiguous.
- */
-function updateTrackForPlacement(
-  comp: Composition,
-  placementId: string,
-  updater: (placements: Placement[]) => Placement[] | null,
-): Composition {
-  const found = findPlacement(comp, placementId);
-  if (!found) return comp;
-  const nextPlacements = updater(found.track.placements);
-  if (nextPlacements === null) return comp;
-  const flowed = reflowTrackPlacements(nextPlacements);
-  return {
-    ...comp,
-    tracks: replaceTrack(comp.tracks, found.track.id, (t) => ({ ...t, placements: flowed })),
-    updatedAt: Date.now(),
-  };
-}
-
-/** Re-order a placement within its track. The `newIndex` is the desired
- *  position within the track's placement array. */
-export function reorderPlacement(
-  comp: Composition,
-  placementId: string,
-  newIndex: number,
-): Composition {
-  return updateTrackForPlacement(comp, placementId, (list) => {
-    const idx = list.findIndex((p) => p.id === placementId);
-    if (idx < 0) return null;
-    const clamped = Math.max(0, Math.min(newIndex, list.length - 1));
-    if (clamped === idx) return null;
-    const next = [...list];
-    const [moved] = next.splice(idx, 1);
-    next.splice(clamped, 0, moved);
-    return next;
-  });
-}
-
-/**
- * Move a placement to a different track at a specific index. No-op if source
- * and destination tracks are the same (caller should use `reorderPlacement`
- * for within-lane reordering) or if `destTrackId` doesn't exist. Reflows
- * startTicks on BOTH the source and destination tracks so each lane stays
- * gap-less.
- */
-export function movePlacementToTrack(
-  comp: Composition,
-  placementId: string,
-  destTrackId: string,
-  destIndex: number,
-): Composition {
-  const found = findPlacement(comp, placementId);
-  if (!found) return comp;
-  if (found.track.id === destTrackId) return comp;
-  const destTrack = comp.tracks.find((t) => t.id === destTrackId);
-  if (!destTrack) return comp;
-
-  const srcPlacements = found.track.placements.filter((p) => p.id !== placementId);
-  const clamped = Math.max(0, Math.min(destIndex, destTrack.placements.length));
-  const destPlacements = [...destTrack.placements];
-  destPlacements.splice(clamped, 0, found.placement);
-
-  return {
-    ...comp,
-    tracks: comp.tracks.map((t) => {
-      if (t.id === found.track.id) return { ...t, placements: reflowTrackPlacements(srcPlacements) };
-      if (t.id === destTrackId) return { ...t, placements: reflowTrackPlacements(destPlacements) };
-      return t;
-    }),
-    updatedAt: Date.now(),
-  };
+function sortTrackPlacements(placements: Placement[]): Placement[] {
+  return [...placements].sort((a, b) => a.startTick - b.startTick);
 }
 
 export function setPlacementRepeat(
@@ -393,16 +318,52 @@ export function setPlacementRepeat(
   repeat: number,
 ): Composition {
   const clamped = Math.max(1, Math.floor(repeat));
-  return updateTrackForPlacement(comp, placementId, (list) =>
-    list.map((p) => (p.id === placementId ? { ...p, repeat: clamped } : p)),
+  const found = findPlacement(comp, placementId);
+  if (!found) return comp;
+  if (found.placement.repeat === clamped) return comp;
+
+  const updatedPlacement: Placement = { ...found.placement, repeat: clamped };
+  const updatedEnd = placementEndTick(updatedPlacement);
+
+  const others = found.track.placements.filter((p) => p.id !== placementId);
+  const firstRightConflict = others.find(
+    (p) => p.startTick >= updatedPlacement.startTick && p.startTick < updatedEnd,
   );
+  let pushedOthers = others;
+  if (firstRightConflict) {
+    const byTicks = updatedEnd - firstRightConflict.startTick;
+    pushedOthers = pushPlacementsForward(others, updatedPlacement.startTick, byTicks);
+  }
+
+  return {
+    ...comp,
+    tracks: comp.tracks.map((t) =>
+      t.id === found.track.id
+        ? {
+            ...t,
+            placements: sortTrackPlacements([...pushedOthers, updatedPlacement]),
+          }
+        : t,
+    ),
+    updatedAt: Date.now(),
+  };
 }
 
 export function removePlacement(comp: Composition, placementId: string): Composition {
-  return updateTrackForPlacement(comp, placementId, (list) => {
-    const filtered = list.filter((p) => p.id !== placementId);
-    return filtered.length === list.length ? null : filtered;
-  });
+  const found = findPlacement(comp, placementId);
+  if (!found) return comp;
+  return {
+    ...comp,
+    tracks: comp.tracks.map((t) =>
+      t.id === found.track.id
+        ? {
+            ...t,
+            placements: sortTrackPlacements(t.placements.filter((p) => p.id !== placementId)),
+          }
+        : t,
+    ),
+    updatedAt: Date.now(),
+  };
 }
 
 export function setCompositionName(comp: Composition, name: string): Composition {
@@ -450,15 +411,30 @@ export function setCompositionBpm(comp: Composition, bpm: number): Composition {
 }
 
 /** Update the placement's snapshot (used when editing the placement's own pattern
- *  via the editor tab). Re-flow startTicks if duration changed. */
+ *  via the editor tab). */
 export function setPlacementSnapshot(
   comp: Composition,
   placementId: string,
   next: Pattern,
 ): Composition {
-  return updateTrackForPlacement(comp, placementId, (list) =>
-    list.map((p) => (p.id === placementId ? { ...p, patternSnapshot: next } : p)),
-  );
+  const found = findPlacement(comp, placementId);
+  if (!found) return comp;
+  return {
+    ...comp,
+    tracks: comp.tracks.map((t) =>
+      t.id === found.track.id
+        ? {
+            ...t,
+            placements: sortTrackPlacements(
+              t.placements.map((p) =>
+                p.id === placementId ? { ...p, patternSnapshot: next } : p,
+              ),
+            ),
+          }
+        : t,
+    ),
+    updatedAt: Date.now(),
+  };
 }
 
 /** Effective length of one repetition of a placement, in ticks. Honors the
@@ -467,6 +443,248 @@ export function setPlacementSnapshot(
  *  mapping, flatten) all agree. */
 export function placementEffectiveLength(p: Placement): Tick {
   return p.lengthTicks ?? p.patternSnapshot.durationTicks;
+}
+
+/** Absolute tick at which a placement ends (exclusive). Centralizes the
+ *  `startTick + effectiveLength * repeat` math used by overlap detection,
+ *  ruler extent, and the push cascade. */
+export function placementEndTick(p: Placement): Tick {
+  return p.startTick + placementEffectiveLength(p) * p.repeat;
+}
+
+/** Primitive: shift every placement whose `startTick >= fromTick` by
+ *  `byTicks`. One-way (rightward only). No-op when `byTicks <= 0`. Used
+ *  by every op that may cause overlap (`movePlacement`,
+ *  `resizePlacement`, `setPlacementRepeat`) as its conflict-resolution
+ *  step. Returns the input array reference when byTicks <= 0 (so callers
+ *  can short-circuit cheaply) or a new array otherwise.
+ *
+ *  Cascade strategy: by uniformly shifting *every* placement past
+ *  `fromTick`, any chain of would-be downstream conflicts is resolved in
+ *  one pass — provided the caller computes `byTicks` as the maximum
+ *  needed shift (typically `movingEnd - firstConflict.startTick`). This
+ *  trades minimum-shift granularity for simplicity; the visible result is
+ *  that blocks past the moving block all move as a coherent group, which
+ *  is also a predictable UX. */
+export function pushPlacementsForward(
+  placements: Placement[],
+  fromTick: Tick,
+  byTicks: Tick,
+): Placement[] {
+  if (byTicks <= 0) return placements;
+  return placements.map((p) =>
+    p.startTick >= fromTick ? { ...p, startTick: p.startTick + byTicks } : p,
+  );
+}
+
+/**
+ * Move a placement to a specific tick on a specific track. Handles three
+ * gestures with one op: within-lane drag (destTrackId === sourceTrackId),
+ * cross-lane drag (different destTrackId), and free-tick repositioning.
+ *
+ * Conflict resolution:
+ *   1. If the requested `destStartTick` lands *inside* an existing
+ *      placement's range, snap forward to that placement's end. Iterate in
+ *      case the snap lands inside yet another placement.
+ *   2. If the moving placement's effective end overlaps subsequent
+ *      placements on the destination track, call `pushPlacementsForward`
+ *      with `byTicks = movingEnd - firstRightConflict.startTick`. All
+ *      affected placements shift by the same amount; the cascade is
+ *      resolved in one pass.
+ *
+ * Returns the same composition reference on no-op (unknown id, unknown
+ * destTrackId).
+ */
+export function movePlacement(
+  comp: Composition,
+  placementId: string,
+  destTrackId: string,
+  destStartTick: Tick,
+): Composition {
+  const found = findPlacement(comp, placementId);
+  if (!found) return comp;
+  const destTrack = comp.tracks.find((t) => t.id === destTrackId);
+  if (!destTrack) return comp;
+
+  // Source-side: remove the moving placement from its source track.
+  const sourceWithout = found.track.placements.filter((p) => p.id !== placementId);
+
+  // Destination-side: which list of placements does the moving block
+  // need to coexist with?
+  const destExisting = found.track.id === destTrackId ? sourceWithout : destTrack.placements;
+
+  // Step 1: snap forward past any block whose body the destStartTick
+  // lands inside. Loop to catch the rare case where the first snap lands
+  // inside another block.
+  let adjustedStart = Math.max(0, Math.round(destStartTick));
+  const destSorted = [...destExisting].sort((a, b) => a.startTick - b.startTick);
+  // Each iteration advances past at least one blocker, so the worst case
+  // is `destSorted.length` passes before the loop converges.
+  for (let guard = 0; guard < destSorted.length; guard++) {
+    let advanced = false;
+    for (const blocker of destSorted) {
+      const blockerEnd = placementEndTick(blocker);
+      if (blocker.startTick <= adjustedStart && blockerEnd > adjustedStart) {
+        adjustedStart = blockerEnd;
+        advanced = true;
+        break;
+      }
+    }
+    if (!advanced) break;
+  }
+
+  const movingSpan = placementEffectiveLength(found.placement) * found.placement.repeat;
+  const adjustedEnd = adjustedStart + movingSpan;
+
+  // Step 2: find the first right-conflict.
+  const firstRightConflict = destSorted.find(
+    (p) => p.startTick >= adjustedStart && p.startTick < adjustedEnd,
+  );
+
+  let pushedDest = destExisting;
+  if (firstRightConflict) {
+    const byTicks = adjustedEnd - firstRightConflict.startTick;
+    pushedDest = pushPlacementsForward(destExisting, adjustedStart, byTicks);
+  }
+
+  const movedPlacement: Placement = { ...found.placement, startTick: adjustedStart };
+  const sameTrack = found.track.id === destTrackId;
+
+  return {
+    ...comp,
+    tracks: comp.tracks.map((t) => {
+      if (sameTrack && t.id === destTrackId) {
+        return {
+          ...t,
+          placements: sortTrackPlacements([...pushedDest, movedPlacement]),
+        };
+      }
+      if (t.id === found.track.id) {
+        return { ...t, placements: sortTrackPlacements(sourceWithout) };
+      }
+      if (t.id === destTrackId) {
+        return {
+          ...t,
+          placements: sortTrackPlacements([...pushedDest, movedPlacement]),
+        };
+      }
+      return t;
+    }),
+    updatedAt: Date.now(),
+  };
+}
+
+/**
+ * Split a placement into two adjacent placements at `atTick`. Both
+ * halves share the same `patternSnapshot` reference (non-destructive);
+ * the boundary is expressed via each half's `lengthTicks`. Collapses
+ * `repeat` to 1 (mirrors `resizePlacement` semantics). Silent no-op if
+ * `atTick` is at or outside the placement's range.
+ */
+export function splitPlacement(
+  comp: Composition,
+  placementId: string,
+  atTick: Tick,
+): Composition {
+  const found = findPlacement(comp, placementId);
+  if (!found) return comp;
+  const original = found.placement;
+  // The effective length we're splitting is one cycle (lengthTicks or
+  // snapshot.durationTicks). Repeat is collapsed to 1 on split.
+  const effLen = placementEffectiveLength(original);
+  const localTick = atTick - original.startTick;
+  if (localTick <= 0 || localTick >= effLen) return comp;
+
+  const leftHalf: Placement = {
+    ...original,
+    id: generateId('pl'),
+    startTick: original.startTick,
+    lengthTicks: localTick,
+    repeat: 1,
+  };
+  const rightHalf: Placement = {
+    ...original,
+    id: generateId('pl'),
+    startTick: original.startTick + localTick,
+    lengthTicks: effLen - localTick,
+    repeat: 1,
+  };
+
+  return {
+    ...comp,
+    tracks: comp.tracks.map((t) => {
+      if (t.id !== found.track.id) return t;
+      const filtered = t.placements.filter((p) => p.id !== placementId);
+      return {
+        ...t,
+        placements: sortTrackPlacements([...filtered, leftHalf, rightHalf]),
+      };
+    }),
+    updatedAt: Date.now(),
+  };
+}
+
+/**
+ * Clone a set of placements with their startTicks offset by `deltaTicks`.
+ * If `destTrackId` is provided, every clone lands in that track;
+ * otherwise each clone lands in its source's track. Conflicts on landing
+ * are resolved by the push primitive — applied once per clone in the
+ * order they're inserted (sorted by destStartTick so earlier clones land
+ * first and don't get pushed by their own siblings).
+ *
+ * Unknown ids in the input are silently skipped; an empty list is a
+ * no-op (returns the same reference). Backbone for clipboard paste,
+ * `⌘D`, and any future alt-drag-duplicate.
+ */
+export function duplicatePlacements(
+  comp: Composition,
+  ids: string[],
+  deltaTicks: Tick,
+  destTrackId?: string,
+): Composition {
+  if (ids.length === 0) return comp;
+
+  type Cloneable = {
+    sourcePlacement: Placement;
+    targetTrackId: string;
+    targetStartTick: Tick;
+  };
+  const cloneables: Cloneable[] = [];
+  for (const id of ids) {
+    const found = findPlacement(comp, id);
+    if (!found) continue;
+    cloneables.push({
+      sourcePlacement: found.placement,
+      targetTrackId: destTrackId ?? found.track.id,
+      targetStartTick: Math.max(0, found.placement.startTick + deltaTicks),
+    });
+  }
+  if (cloneables.length === 0) return comp;
+
+  // Insert clones in destStartTick order so cascade pushes don't ricochet
+  // sibling clones backwards.
+  cloneables.sort((a, b) => a.targetStartTick - b.targetStartTick);
+
+  let next = comp;
+  for (const c of cloneables) {
+    const cloneId = generateId('pl');
+    const clone: Placement = { ...c.sourcePlacement, id: cloneId };
+    // Add the clone (initially at sourcePlacement's startTick) to the
+    // destination track…
+    next = {
+      ...next,
+      tracks: next.tracks.map((t) =>
+        t.id === c.targetTrackId
+          ? { ...t, placements: sortTrackPlacements([...t.placements, clone]) }
+          : t,
+      ),
+    };
+    // …then move it to its target tick, which fires the push primitive
+    // if needed.
+    next = movePlacement(next, cloneId, c.targetTrackId, c.targetStartTick);
+  }
+
+  return { ...next, updatedAt: Date.now() };
 }
 
 /** A single flattened event in absolute-composition-tick space. */
@@ -645,7 +863,9 @@ export function setPlacementTranspose(
  *  [PPQ, snapshot.durationTicks] — i.e., minimum one beat. If the placement
  *  previously had `repeat > 1`, collapses to `repeat = 1` as part of the same
  *  update (the user accepts losing the repeat grouping the moment they
- *  truncate). Returns same reference when no change. */
+ *  truncate). Returns same reference when no change. If the resized placement
+ *  extends into a downstream neighbour, that neighbour (and any chain) is
+ *  pushed forward via `pushPlacementsForward`. */
 export function resizePlacement(
   comp: Composition,
   placementId: string,
@@ -656,14 +876,37 @@ export function resizePlacement(
   const snapshotDur = found.placement.patternSnapshot.durationTicks;
   const clamped = Math.max(PPQ, Math.min(lengthTicks, snapshotDur));
   if (clamped === found.placement.lengthTicks && found.placement.repeat === 1) return comp;
+
+  const updatedPlacement: Placement = {
+    ...found.placement,
+    lengthTicks: clamped,
+    repeat: 1,
+  };
+  const updatedEnd = placementEndTick(updatedPlacement);
+
+  // Build the track's placement list with the updated placement, then
+  // resolve overlap by pushing any downstream block whose start falls
+  // inside the new range.
+  const others = found.track.placements.filter((p) => p.id !== placementId);
+  const firstRightConflict = others.find(
+    (p) => p.startTick >= updatedPlacement.startTick && p.startTick < updatedEnd,
+  );
+  let pushedOthers = others;
+  if (firstRightConflict) {
+    const byTicks = updatedEnd - firstRightConflict.startTick;
+    pushedOthers = pushPlacementsForward(others, updatedPlacement.startTick, byTicks);
+  }
+
   return {
     ...comp,
-    tracks: replaceTrack(comp.tracks, found.track.id, (t) => ({
-      ...t,
-      placements: t.placements.map((p) =>
-        p.id === placementId ? { ...p, lengthTicks: clamped, repeat: 1 } : p,
-      ),
-    })),
+    tracks: comp.tracks.map((t) =>
+      t.id === found.track.id
+        ? {
+            ...t,
+            placements: sortTrackPlacements([...pushedOthers, updatedPlacement]),
+          }
+        : t,
+    ),
     updatedAt: Date.now(),
   };
 }
