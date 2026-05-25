@@ -22,6 +22,10 @@ interface SimplePopoverProps {
   children: ReactNode;
   /** Where the panel anchors relative to the trigger. */
   align?: 'start' | 'end';
+  /** Which side of the trigger the panel sits on. Use 'top' when the trigger
+   *  is near the bottom of the viewport (e.g. a transport ribbon sticky at
+   *  the bottom) so the panel opens upward instead of clipping off-screen. */
+  side?: 'top' | 'bottom';
   /** Distance in px between trigger and panel. */
   offset?: number;
   /** Additional Tailwind classes for the panel. */
@@ -37,6 +41,7 @@ export function SimplePopover({
   trigger,
   children,
   align = 'start',
+  side = 'bottom',
   offset = 8,
   panelClassName = '',
   rootClassName = 'relative inline-block',
@@ -103,9 +108,10 @@ export function SimplePopover({
         <div
           id={panelId}
           role="dialog"
-          style={{ marginTop: offset }}
+          style={side === 'top' ? { marginBottom: offset } : { marginTop: offset }}
           className={
-            'absolute z-50 top-full ' +
+            'absolute z-50 ' +
+            (side === 'top' ? 'bottom-full ' : 'top-full ') +
             (align === 'end' ? 'right-0' : 'left-0') +
             ' rounded-lg border border-border/60 bg-card shadow-2xl shadow-black/40 ' +
             panelClassName

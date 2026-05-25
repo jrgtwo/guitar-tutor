@@ -31,6 +31,7 @@ import {
   type NormalizedClickVoices,
 } from './click-sounds';
 import { MasterBus } from '../playback/voices/MasterBus';
+import { getEffectiveLatencySec } from '../playback/audio-context';
 
 const MIN_BPM = 40;
 const MAX_BPM = 240;
@@ -391,19 +392,35 @@ export class Metronome {
       audioTime,
     };
 
-    // Fire UI events synchronously inside the transport callback. Tone.Draw was tempting
-    // here for sample-accurate visual sync, but its animation-frame loop has a known
-    // initialization race on first AudioContext unlock — events scheduled in the very
-    // first ticks after Tone.start() can be dropped, which manifests as "metronome plays
-    // sound but the UI doesn't animate until I stop and start again". Synchronous dispatch
-    // is ~5–10ms ahead of the actual click, which is imperceptible visually and avoids
-    // the race entirely.
-    this._fire('tick', event);
-    if (isAccent) this._fire('accent', event);
-    if (beat === 0) this._fire('measure', event);
+    // Defer UI dispatch to when the audio is actually audible.
+    // Tone fires the scheduler callback up to ~lookAhead seconds AHEAD of
+    // audioTime, and the audio itself isn't heard until audioTime + the
+    // AudioContext's outputLatency (which on Bluetooth can be 100-200ms).
+    // setTimeout aligned to (audioTime + outputLatency − Tone.now()) makes
+    // beat dots flash with the audible click instead of with the scheduling
+    // callback. Standard Web Audio sync pattern — see audio-context.ts and
+    // https://web.dev/articles/audio-output-latency.
+    const visualDelayMs = this._visualDelayMs(audioTime);
+    const tickHandle = setTimeout(() => {
+      this._pendingSubTimeouts.delete(tickHandle);
+      if (!this._isRunning) return;
+      this._fire('tick', event);
+      if (isAccent) this._fire('accent', event);
+      if (beat === 0) this._fire('measure', event);
+    }, visualDelayMs);
+    this._pendingSubTimeouts.add(tickHandle);
 
     // Schedule sub-ticks for this beat (no-op when subdivision is 'off').
     this._scheduleSubTicks(beat, measure, audioTime);
+  }
+
+  /** Milliseconds to wait before firing a UI event so it lines up with the
+   *  audible output. Uses `AudioContext.outputLatency` as the compensation —
+   *  the single source of truth shared with the playhead's tick read in
+   *  `getTransportTicks`. Clamped at 0 (never schedule visuals in the past). */
+  private _visualDelayMs(audioTime: number): number {
+    const latencyMs = getEffectiveLatencySec() * 1000;
+    return Math.max(0, (audioTime - Tone.now()) * 1000 + latencyMs);
   }
 
   /**
@@ -469,9 +486,10 @@ export class Metronome {
         }
       }
 
-      // Visual/event: fire roughly when the audio hits, via setTimeout. Guarded so a
-      // metronome stopped before the timer fires doesn't emit a stale event.
-      const delayMs = Math.max(0, offset * 1000);
+      // Visual/event: fire when the audio actually hits the user. Uses the
+      // same outputLatency-anchored math as the main tick so sub-dots and
+      // main dots stay in lockstep with the audible click.
+      const delayMs = this._visualDelayMs(subAudioTime);
       const handle = setTimeout(() => {
         this._pendingSubTimeouts.delete(handle);
         if (!this._isRunning) return;

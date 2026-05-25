@@ -6,6 +6,7 @@ import { VolumeSlider } from '../../components/playback/controls/VolumeSlider';
 import { FeelPicker } from '../../components/playback/controls/FeelPicker';
 import { PreRollToggle } from '../../components/playback/controls/PreRollToggle';
 import { BeatDots } from '../../components/metronome/BeatDots';
+import { BluetoothCalibration } from '../../components/playback/BluetoothCalibration';
 import type { PlaybackRibbonSection } from '../../components/playback/PlaybackRibbon';
 import {
   deriveFeel,
@@ -39,6 +40,7 @@ export function usePatternsEditRibbonSections(): readonly PlaybackRibbonSection[
   const feel = deriveFeel(liveSubdivision, liveSwing);
 
   const transportControls: ReactNode[] = [
+    <BluetoothCalibration key="bt-cal" />,
     <PlayStopButton
       key="play"
       isRunning={playback.isPlaying}

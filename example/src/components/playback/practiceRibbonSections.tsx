@@ -17,6 +17,7 @@ import {
 } from '../playback/PlaybackControls';
 import { SoundControls } from '../playback/SoundControls';
 import { BeatDots } from '../metronome/BeatDots';
+import { BluetoothCalibration } from './BluetoothCalibration';
 
 /** Sections factory for the Practice page's PlaybackRibbon.
  *  Play/Stop drive the global metronome singleton (same as the old
@@ -27,6 +28,7 @@ export function usePracticeRibbonSections(): readonly PlaybackRibbonSection[] {
   const m = useMetronome();
 
   const transportControls: ReactNode[] = [
+    <BluetoothCalibration key="bt-cal" />,
     <PlayStopButton
       key="play"
       onPlay={() => void m.toggle()}
