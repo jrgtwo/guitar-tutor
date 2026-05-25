@@ -429,6 +429,17 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
     try {
       const fretState = useFretworkStore.getState();
       const { voice } = buildEffectiveVoice(asFretInstrumentId(fretState.instrumentId));
+      // Build the voice's synth + chain eagerly so any async-loading nodes
+      // (notably the cabinet IR Tone.Convolver, which outputs silence until
+      // its IR buffer fetches + decodes) begin loading NOW rather than on
+      // the first triggerAttackRelease. Without this, the first slice of
+      // pattern audio routes through a not-yet-loaded Convolver and is
+      // silent for the ~200-500ms it takes to fetch the IR — manifesting
+      // as the first note never playing on cab-IR voices like the Karoryfer
+      // presets. Tone.loaded() inside metronome.start() then waits for the
+      // IR before transport begins. Mirrors the equivalent eager build in
+      // MultiTrackPlayback for composition playback.
+      voice.ensureBuilt();
       scheduler.setInstrument(voice);
     } catch {
       scheduler.setInstrument(new PluckSynthInstrument());
