@@ -35,7 +35,7 @@ export function TimelineRuler({ timeSignature, totalTicks }: Props) {
   return (
     <div className="flex items-stretch h-7 bg-charcoal-raised/30 border-b border-border/40 sticky top-0 z-10">
       <div
-        className="shrink-0 border-r border-border/30 flex items-center px-3 text-[9px] uppercase tracking-wider text-muted-foreground/70"
+        className="shrink-0 sticky left-0 z-10 border-r border-border/30 flex items-center px-3 text-[9px] uppercase tracking-wider text-muted-foreground/70 bg-charcoal-raised"
         style={{ width: TRACK_SIDEBAR_WIDTH }}
       >
         Bar

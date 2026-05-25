@@ -358,9 +358,10 @@ export function TrackLane({ composition, track, anySoloed }: Props) {
         (dimmed ? 'opacity-50' : '')
       }
     >
-      {/* Sidebar — track-level controls */}
+      {/* Sidebar — track-level controls. Sticky-left so it stays anchored while
+          the lane scrolls horizontally. Opaque bg occludes scrolling content. */}
       <div
-        className="shrink-0 flex flex-col gap-1 px-2 py-2 border-r border-border/30 bg-charcoal-deep/30"
+        className="shrink-0 sticky left-0 z-10 flex flex-col gap-1 px-2 py-2 border-r border-border/30 bg-charcoal-deep"
         style={{ width: TRACK_SIDEBAR_WIDTH }}
       >
         <input

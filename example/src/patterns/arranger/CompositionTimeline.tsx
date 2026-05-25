@@ -99,7 +99,7 @@ export function CompositionTimeline() {
         {/* Footer row: + Add track */}
         <div className="flex items-stretch border-t border-border/40">
           <div
-            className="shrink-0 flex items-center px-2 py-1"
+            className="shrink-0 sticky left-0 z-10 flex items-center px-2 py-1 bg-charcoal-deep"
             style={{ width: TRACK_SIDEBAR_WIDTH }}
           >
             <button
