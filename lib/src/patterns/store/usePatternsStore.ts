@@ -329,7 +329,9 @@ export const DEFAULT_PATTERNS_STATE: PatternsState = {
 const persistOptions: PersistOptions<PatternsStoreState, Pick<PatternsStoreState, 'library' | 'fretboardCollapsed' | 'stepLength' | 'unpersistedDraftId' | 'preRollEnabled'>> = {
   name: PERSIST_KEY,
   version: 2,
-  storage: createJSONStorage(() => (typeof sessionStorage !== 'undefined' ? sessionStorage : memoryStorage())),
+  storage: createJSONStorage(() =>
+    quotaTolerant(typeof sessionStorage !== 'undefined' ? sessionStorage : memoryStorage()),
+  ),
   partialize: (state) => ({
     library: state.library,
     fretboardCollapsed: state.fretboardCollapsed,
@@ -384,6 +386,45 @@ const persistOptions: PersistOptions<PatternsStoreState, Pick<PatternsStoreState
     return state;
   },
 };
+
+/** Wrap a Storage so that setItem swallows QuotaExceededError. Without this
+ *  the persist middleware throws synchronously during cloud-sync hydration if
+ *  the cloud dataset is larger than sessionStorage's ~5MB quota, breaking the
+ *  whole app at boot. Warning is logged once per session so we don't lose the
+ *  signal. The in-memory store remains correct; only the redundant
+ *  sessionStorage cache is skipped.
+ *
+ *  Long-term: signed-in users should bypass sessionStorage entirely (cloud is
+ *  the source of truth). This wrapper is the band-aid until that refactor. */
+function quotaTolerant(inner: Storage): Storage {
+  let warned = false;
+  return {
+    getItem: (k) => inner.getItem(k),
+    setItem: (k, v) => {
+      try {
+        inner.setItem(k, v);
+      } catch (e) {
+        const isQuota =
+          e instanceof DOMException &&
+          (e.name === 'QuotaExceededError' || e.code === 22 || e.code === 1014);
+        if (!isQuota) throw e;
+        if (!warned) {
+          warned = true;
+          // eslint-disable-next-line no-console
+          console.warn(
+            '[patterns persist] sessionStorage quota exceeded; in-memory state is correct, sessionStorage cache is partial.',
+          );
+        }
+      }
+    },
+    removeItem: (k) => inner.removeItem(k),
+    clear: () => inner.clear(),
+    key: (i) => inner.key(i),
+    get length() {
+      return inner.length;
+    },
+  } as Storage;
+}
 
 /** In-memory localStorage shim for SSR / non-DOM environments. Persistence still
  *  "works" inside the process; nothing leaks to disk. */

@@ -17,6 +17,13 @@ import type {
   VoicePreset,
 } from './types';
 import { PHILHARMONIA_CLASSICAL, KARORYFER_GREEN, KARORYFER_BLACK } from './sample-packs';
+import { getCabinetIR } from './cabinet-irs';
+
+// Sentinel — if the IR id isn't found we ship `undefined` (no cab) rather
+// than crash. Should never happen in production, but lets the registry
+// move under us without breaking presets.
+const KARORYFER_GREEN_CAB = getCabinetIR('gods-warm-421')?.url;
+const KARORYFER_BLACK_CAB = getCabinetIR('catharsis-balanced')?.url;
 
 const NEUTRAL_LEVEL: VoiceLevel = { volumeDb: 0, pan: 0 };
 
@@ -85,6 +92,9 @@ export const KARORYFER_GREEN_GUITAR_PRESET: VoicePreset = {
     release: 2.5,
   },
   level: { volumeDb: 0, pan: 0 },
+  effects: KARORYFER_GREEN_CAB
+    ? { cabIR: { url: KARORYFER_GREEN_CAB } }
+    : undefined,
 };
 
 export const KARORYFER_BLACK_GUITAR_PRESET: VoicePreset = {
@@ -98,6 +108,9 @@ export const KARORYFER_BLACK_GUITAR_PRESET: VoicePreset = {
     release: 2.5,
   },
   level: { volumeDb: -2, pan: 0 },
+  effects: KARORYFER_BLACK_CAB
+    ? { cabIR: { url: KARORYFER_BLACK_CAB } }
+    : undefined,
 };
 
 // Acoustic bass — round upright body, soft attack, long sustain.

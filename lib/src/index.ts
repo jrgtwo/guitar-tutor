@@ -398,8 +398,11 @@ export {
   SAMPLE_PACKS,
   getSamplePack,
   detectSamplePack,
+  CABINET_IRS,
+  getCabinetIR,
+  detectCabinetIR,
 } from './playback';
-export type { AbsoluteCell, CagedShape, CagedShapeId, CagedLetter, SamplePack } from './playback';
+export type { AbsoluteCell, CagedShape, CagedShapeId, CagedLetter, SamplePack, CabinetIR } from './playback';
 export type {
   PlaybackPattern,
   PlaybackOptions,

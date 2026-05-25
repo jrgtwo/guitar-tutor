@@ -21,6 +21,12 @@ export {
   clearTransportSchedule,
 } from './audio-context';
 export {
+  CABINET_IRS,
+  getCabinetIR,
+  detectCabinetIR,
+  type CabinetIR,
+} from './voices/cabinet-irs';
+export {
   Voice,
   MasterBus,
   VOICE_PRESETS,

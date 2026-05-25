@@ -34,12 +34,25 @@ export function AuthCallbackHandler() {
   useCloudSync();
   const isSignedIn = useAuthStore(selectIsSignedIn);
   const needsProfile = useAuthStore(selectNeedsProfile);
+  const status = useAuthStore((s) => s.status);
 
   // Track whether the migration prompt has already been resolved this session.
   // We only show it on the first signed-in transition with non-empty session
   // content. Subsequent re-renders (or other tabs signing in) don't re-trigger.
   const [migrationOpen, setMigrationOpen] = useState(false);
   const handledRef = useRef(false);
+  // True once we've observed `signed-out` in this tab. Without this gate, a
+  // fresh tab opened by an already-signed-in user goes `idle → loading →
+  // signed-in` — the final transition looks identical to a real anon→signup
+  // and would mis-fire the migration prompt against the user's own cloud
+  // content that cloud-sync just mirrored into sessionStorage.
+  const wasSignedOutRef = useRef(false);
+
+  useEffect(() => {
+    if (status === 'signed-out') {
+      wasSignedOutRef.current = true;
+    }
+  }, [status]);
 
   useEffect(() => {
     if (!isSignedIn) {
@@ -51,6 +64,14 @@ export function AuthCallbackHandler() {
     // Cloud-sync writes session content back to sessionStorage, so checking
     // countSessionContent alone would re-trigger after Add/Discard on reload.
     if (hasMigrationBeenResolved()) {
+      handledRef.current = true;
+      return;
+    }
+    // Require a real signed-out → signed-in transition in this tab. On a
+    // fresh tab where the user was already authenticated, sessionStorage
+    // content (mirrored by cloud-sync) belongs to that same user and must
+    // not be treated as anonymous content to migrate.
+    if (!wasSignedOutRef.current) {
       handledRef.current = true;
       return;
     }

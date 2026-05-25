@@ -200,12 +200,28 @@ export interface AutoWahParams {
   readonly wet: number;
 }
 
+/** Cabinet impulse-response convolution. Models the speaker cabinet + mic +
+ *  room — the single biggest contributor to "amp sound" for an electric guitar.
+ *  The IR is fetched from a URL and convolved with the dry signal. Wet is
+ *  always 1.0 — a cab is a transducer, not an effect you blend with dry.
+ *
+ *  `makeupDb` compensates for convolution-induced loudness changes. We run
+ *  the Tone.Convolver with `normalize:false` so the IR's natural level is
+ *  preserved; some IRs come out hotter than dry, some quieter, so an
+ *  explicit makeup knob lets each IR be balanced individually. Defaults to
+ *  0dB. Applied via a Gain node directly after the Convolver. */
+export interface CabIRParams {
+  readonly url: string;
+  readonly makeupDb?: number;
+}
+
 export interface EffectsConfig {
   readonly distortion?: DistortionParams;
   readonly chorus?: ChorusParams;
   readonly delay?: DelayParams;
   readonly eq?: EQParams;
   readonly autoWah?: AutoWahParams;
+  readonly cabIR?: CabIRParams;
 }
 
 // ─── Voice layer (sub-body / harmonic stacking) ──────────────────────────────

@@ -4,7 +4,8 @@
  * Signal chain (top of file):
  *
  *   synth ─► [bodyFilter] ─► [compressor] ─► [distortion] ─► [chorus] ─►
- *                                                  [delay] ─► [eq] ─► volume ─► pan ─► output
+ *                            [delay] ─► [eq] ─► [autoWah] ─► [cabIR] ─►
+ *                                                            volume ─► pan ─► output
  *
  * Bracketed nodes are optional — they are constructed only when their config is
  * present on the preset. `volume` and `pan` are always present so every voice
@@ -55,6 +56,14 @@ interface ChainNodes {
   delay?: Tone.FeedbackDelay;
   eq?: Tone.EQ3;
   autoWah?: Tone.AutoWah;
+  /** Cabinet IR convolution — last static stage before volume/pan, modelling
+   *  the speaker + mic. Loads its IR file asynchronously; passes audio
+   *  through (uncolored) until the IR is fetched and decoded. */
+  cabIR?: Tone.Convolver;
+  /** Makeup gain applied right after the convolver. Compensates for the
+   *  loudness shift convolution introduces (some IRs come out hotter than
+   *  dry, some quieter; depends on the IR's spectral shape). */
+  cabIRMakeup?: Tone.Gain;
   // Always present:
   volume?: Tone.Volume;
   panner?: Tone.Panner;
@@ -383,6 +392,9 @@ export class Voice implements GuitarInstrument {
     if (next?.delay && this._chain.delay) applyDelay(this._chain.delay, next.delay);
     if (next?.eq && this._chain.eq) applyEQ(this._chain.eq, next.eq);
     if (next?.autoWah && this._chain.autoWah) applyAutoWah(this._chain.autoWah, next.autoWah);
+    if (next?.cabIR && this._chain.cabIRMakeup) {
+      this._chain.cabIRMakeup.gain.rampTo(dbToGain(next.cabIR.makeupDb ?? 0), 0.02);
+    }
   }
 
   /** Replace the active preset entirely. Same source kind reuses the synth. */
@@ -644,6 +656,18 @@ function buildChain(preset: VoicePreset): ChainNodes {
       wet: preset.effects.autoWah.wet,
     });
   }
+  if (preset.effects?.cabIR) {
+    // `normalize: false` applies the IR at its native level. Tone's default
+    // normalize divides by the IR's RMS, which sounds drastically quieter
+    // for cab IRs (which attenuate high-end). The IR packs we ship are
+    // recorded for unnormalized use; per-IR variance is handled by the
+    // separate `makeupDb` gain immediately after.
+    nodes.cabIR = new Tone.Convolver({
+      url: preset.effects.cabIR.url,
+      normalize: false,
+    });
+    nodes.cabIRMakeup = new Tone.Gain(dbToGain(preset.effects.cabIR.makeupDb ?? 0));
+  }
   // Always present: volume + pan at the end of the chain.
   nodes.volume = new Tone.Volume(preset.level.volumeDb);
   nodes.panner = new Tone.Panner(preset.level.pan);
@@ -664,6 +688,8 @@ function wireChain(
   if (c.delay) order.push(c.delay);
   if (c.eq) order.push(c.eq);
   if (c.autoWah) order.push(c.autoWah);
+  if (c.cabIR) order.push(c.cabIR);
+  if (c.cabIRMakeup) order.push(c.cabIRMakeup);
   if (c.volume) order.push(c.volume);
   if (c.panner) order.push(c.panner);
   for (let i = 0; i < order.length - 1; i++) {
@@ -681,6 +707,8 @@ function disposeChain(c: ChainNodes): void {
   c.delay?.dispose();
   c.eq?.dispose();
   c.autoWah?.dispose();
+  c.cabIR?.dispose();
+  c.cabIRMakeup?.dispose();
   c.volume?.dispose();
   c.panner?.dispose();
 }
@@ -792,7 +820,12 @@ function sameEffectsShape(a: EffectsConfig | undefined, b: EffectsConfig | undef
     !!a?.chorus === !!b?.chorus &&
     !!a?.delay === !!b?.delay &&
     !!a?.eq === !!b?.eq &&
-    !!a?.autoWah === !!b?.autoWah
+    !!a?.autoWah === !!b?.autoWah &&
+    !!a?.cabIR === !!b?.cabIR &&
+    // URL change also requires a rebuild — Tone.Convolver loads its IR in
+    // the constructor and doesn't support swapping URLs in place. Makeup
+    // gain changes go through the in-place path below.
+    a?.cabIR?.url === b?.cabIR?.url
   );
 }
 

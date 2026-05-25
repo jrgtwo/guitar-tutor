@@ -41,6 +41,8 @@ import {
   type VoiceSource,
   SAMPLE_PACKS,
   detectSamplePack,
+  CABINET_IRS,
+  detectCabinetIR,
 } from '@fretwork/lib';
 import { ParameterSlider } from './ParameterSlider';
 import { AuditionDeck } from './AuditionDeck';
@@ -1128,8 +1130,83 @@ function EffectControls({
           />
         )}
       </EffectSection>
+
+      <EffectSection
+        title="Cabinet (speaker + mic IR)"
+        enabled={!!effects.cabIR}
+        onToggle={(on) =>
+          onChange({
+            ...effects,
+            // Default to the warmest registered IR — works for clean to
+            // mild-crunch hollowbody tones. User can swap in the picker.
+            cabIR: on ? { url: CABINET_IRS[0]!.url, makeupDb: 0 } : undefined,
+          })
+        }
+      >
+        {effects.cabIR && (
+          <CabinetControls
+            cabIR={effects.cabIR}
+            onChange={(cabIR) => onChange({ ...effects, cabIR })}
+          />
+        )}
+      </EffectSection>
     </>
   );
+}
+
+function CabinetControls({
+  cabIR,
+  onChange,
+}: {
+  cabIR: { url: string; makeupDb?: number };
+  onChange: (next: { url: string; makeupDb?: number }) => void;
+}) {
+  const activeIR = detectCabinetIR(cabIR.url);
+  const activeId = activeIR?.id ?? '';
+  return (
+    <div className="space-y-2 pt-1">
+      <label className="flex items-center gap-3 text-xs">
+        <span className="w-24 font-mono uppercase tracking-wider text-muted-foreground shrink-0">
+          IR
+        </span>
+        <select
+          value={activeId}
+          onChange={(e) => {
+            const next = CABINET_IRS.find((ir) => ir.id === e.target.value);
+            if (next) onChange({ ...cabIR, url: next.url });
+          }}
+          className="flex-1 h-8 px-2 rounded-md bg-card border border-input font-mono text-xs"
+        >
+          {!activeIR && <option value="">Custom URL ({truncateUrl(cabIR.url)})</option>}
+          {CABINET_IRS.map((ir) => (
+            <option key={ir.id} value={ir.id}>
+              {ir.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      {activeIR && (
+        <p className="text-[10px] font-mono leading-relaxed text-muted-foreground/80 px-1">
+          {activeIR.description}
+        </p>
+      )}
+      <ParameterSlider
+        label="Makeup"
+        value={cabIR.makeupDb ?? 0}
+        min={-24}
+        max={24}
+        step={0.5}
+        unit="dB"
+        precision={1}
+        onChange={(makeupDb) => onChange({ ...cabIR, makeupDb })}
+      />
+    </div>
+  );
+}
+
+function truncateUrl(url: string): string {
+  if (url.length <= 40) return url;
+  return url.slice(0, 20) + '…' + url.slice(-15);
 }
 
 function EffectSection({

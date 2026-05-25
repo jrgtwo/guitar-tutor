@@ -16,7 +16,11 @@ export interface TierLimits {
 }
 
 export const TIER_LIMITS: Record<Tier, TierLimits> = {
-  free: { patterns: 200, compositions: 100, voiceVariants: 20 },
+  // Bumped temporarily while a known cloud-sync-duplicates-sessionStorage
+  // bug exists — without headroom users hit cap + storage-quota issues
+  // simultaneously during testing. Walk these back when the storage layer
+  // for signed-in users is rewritten to bypass sessionStorage.
+  free: { patterns: 1000, compositions: 500, voiceVariants: 100 },
   pro: { patterns: Infinity, compositions: Infinity, voiceVariants: Infinity },
 };
 
