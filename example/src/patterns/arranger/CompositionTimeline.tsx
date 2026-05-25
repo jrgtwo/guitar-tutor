@@ -53,7 +53,11 @@ export function CompositionTimeline() {
       const visibleEnd = el.scrollLeft + el.clientWidth;
       const margin = 80; // keep some headroom on the right
       if (playheadX < visibleStart || playheadX > visibleEnd - margin) {
-        el.scrollTo({ left: Math.max(0, playheadX - el.clientWidth / 2), behavior: 'smooth' });
+        // Instant page-flip: smooth scroll takes ~300ms during which the
+        // playhead keeps moving, putting it past the new visible-end before
+        // the scroll lands. We snap so the playhead jumps to the center,
+        // giving ~half a page of right-hand headroom before the next snap.
+        el.scrollLeft = Math.max(0, playheadX - el.clientWidth / 2);
       }
     };
     rafId = requestAnimationFrame(tick);

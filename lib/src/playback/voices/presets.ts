@@ -16,7 +16,7 @@ import type {
   VoiceLevel,
   VoicePreset,
 } from './types';
-import { PHILHARMONIA_CLASSICAL } from './sample-packs';
+import { PHILHARMONIA_CLASSICAL, KARORYFER_GREEN, KARORYFER_BLACK } from './sample-packs';
 
 const NEUTRAL_LEVEL: VoiceLevel = { volumeDb: 0, pan: 0 };
 
@@ -68,6 +68,36 @@ export const ELECTRIC_GUITAR_PRESET: VoicePreset = {
     distortion: { drive: 0.18, wet: 0.35, oversample: '4x' },
     eq: { low: 1, mid: 3, high: 0, lowFrequency: 250, highFrequency: 1500 },
   },
+};
+
+// Karoryfer "Black And Green Guitars" — sampler-based hollowbody electrics.
+// Clean DI samples with no insert FX; users can tune in Sound Lab if they want
+// drive/EQ/cabinet IR. Karoryfer's own SFZ patches add +2dB to green to match
+// black's louder recording — we trim black by 2dB instead. v1: 2026-05-24.
+export const KARORYFER_GREEN_GUITAR_PRESET: VoicePreset = {
+  id: 'karoryfer-green-guitar',
+  name: 'Gretsch Hollowbody',
+  instrumentId: 'guitar',
+  family: 'electric',
+  source: {
+    kind: 'sampler',
+    samples: KARORYFER_GREEN,
+    release: 2.5,
+  },
+  level: { volumeDb: 0, pan: 0 },
+};
+
+export const KARORYFER_BLACK_GUITAR_PRESET: VoicePreset = {
+  id: 'karoryfer-black-guitar',
+  name: 'Hofner Hollowbody',
+  instrumentId: 'guitar',
+  family: 'electric',
+  source: {
+    kind: 'sampler',
+    samples: KARORYFER_BLACK,
+    release: 2.5,
+  },
+  level: { volumeDb: -2, pan: 0 },
 };
 
 // Acoustic bass — round upright body, soft attack, long sustain.
@@ -191,6 +221,8 @@ export const ACOUSTIC_UKULELE_PRESET: VoicePreset = {
 export const VOICE_PRESETS: readonly VoicePreset[] = [
   ACOUSTIC_GUITAR_PRESET,
   ELECTRIC_GUITAR_PRESET,
+  KARORYFER_GREEN_GUITAR_PRESET,
+  KARORYFER_BLACK_GUITAR_PRESET,
   ACOUSTIC_BASS_PRESET,
   ELECTRIC_BASS_PRESET,
   ACOUSTIC_UKULELE_PRESET,

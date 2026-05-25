@@ -120,6 +120,121 @@ export const PHILHARMONIA_CLASSICAL: Readonly<Record<string, string>> = {
   'G#5': philharmoniaUrl('Gs5'),
 };
 
+/** Karoryfer "Black And Green Guitars" — green Gretsch Anniversary hollowbody.
+ *  Clean DI samples, mf dynamic, RR1 only. Full chromatic E2 → D6 (47 notes —
+ *  every note in the guitar range is an exact match, no pitch-shifting).
+ *  Royalty-free (Karoryfer Lecolds). Self-hosted on Supabase. */
+const KARORYFER_GREEN_BASE = 'https://ssszubkbregwjgkrpqop.supabase.co/storage/v1/object/public/samples/karoryfer-green';
+function karoryferGreenUrl(noteFile: string): string {
+  return `${KARORYFER_GREEN_BASE}/${noteFile}.mp3`;
+}
+export const KARORYFER_GREEN: Readonly<Record<string, string>> = {
+  E2: karoryferGreenUrl('E2'),
+  F2: karoryferGreenUrl('F2'),
+  'F#2': karoryferGreenUrl('Fs2'),
+  G2: karoryferGreenUrl('G2'),
+  'G#2': karoryferGreenUrl('Gs2'),
+  A2: karoryferGreenUrl('A2'),
+  'A#2': karoryferGreenUrl('As2'),
+  B2: karoryferGreenUrl('B2'),
+  C3: karoryferGreenUrl('C3'),
+  'C#3': karoryferGreenUrl('Cs3'),
+  D3: karoryferGreenUrl('D3'),
+  'D#3': karoryferGreenUrl('Ds3'),
+  E3: karoryferGreenUrl('E3'),
+  F3: karoryferGreenUrl('F3'),
+  'F#3': karoryferGreenUrl('Fs3'),
+  G3: karoryferGreenUrl('G3'),
+  'G#3': karoryferGreenUrl('Gs3'),
+  A3: karoryferGreenUrl('A3'),
+  'A#3': karoryferGreenUrl('As3'),
+  B3: karoryferGreenUrl('B3'),
+  C4: karoryferGreenUrl('C4'),
+  'C#4': karoryferGreenUrl('Cs4'),
+  D4: karoryferGreenUrl('D4'),
+  'D#4': karoryferGreenUrl('Ds4'),
+  E4: karoryferGreenUrl('E4'),
+  F4: karoryferGreenUrl('F4'),
+  'F#4': karoryferGreenUrl('Fs4'),
+  G4: karoryferGreenUrl('G4'),
+  'G#4': karoryferGreenUrl('Gs4'),
+  A4: karoryferGreenUrl('A4'),
+  'A#4': karoryferGreenUrl('As4'),
+  B4: karoryferGreenUrl('B4'),
+  C5: karoryferGreenUrl('C5'),
+  'C#5': karoryferGreenUrl('Cs5'),
+  D5: karoryferGreenUrl('D5'),
+  'D#5': karoryferGreenUrl('Ds5'),
+  E5: karoryferGreenUrl('E5'),
+  F5: karoryferGreenUrl('F5'),
+  'F#5': karoryferGreenUrl('Fs5'),
+  G5: karoryferGreenUrl('G5'),
+  'G#5': karoryferGreenUrl('Gs5'),
+  A5: karoryferGreenUrl('A5'),
+  'A#5': karoryferGreenUrl('As5'),
+  B5: karoryferGreenUrl('B5'),
+  C6: karoryferGreenUrl('C6'),
+  'C#6': karoryferGreenUrl('Cs6'),
+  D6: karoryferGreenUrl('D6'),
+};
+
+/** Karoryfer "Black And Green Guitars" — black Hofner Club hollowbody.
+ *  Same coverage and conventions as the green pack — sibling tone (slightly
+ *  louder, darker). Royalty-free, self-hosted on Supabase. */
+const KARORYFER_BLACK_BASE = 'https://ssszubkbregwjgkrpqop.supabase.co/storage/v1/object/public/samples/karoryfer-black';
+function karoryferBlackUrl(noteFile: string): string {
+  return `${KARORYFER_BLACK_BASE}/${noteFile}.mp3`;
+}
+export const KARORYFER_BLACK: Readonly<Record<string, string>> = {
+  E2: karoryferBlackUrl('E2'),
+  F2: karoryferBlackUrl('F2'),
+  'F#2': karoryferBlackUrl('Fs2'),
+  G2: karoryferBlackUrl('G2'),
+  'G#2': karoryferBlackUrl('Gs2'),
+  A2: karoryferBlackUrl('A2'),
+  'A#2': karoryferBlackUrl('As2'),
+  B2: karoryferBlackUrl('B2'),
+  C3: karoryferBlackUrl('C3'),
+  'C#3': karoryferBlackUrl('Cs3'),
+  D3: karoryferBlackUrl('D3'),
+  'D#3': karoryferBlackUrl('Ds3'),
+  E3: karoryferBlackUrl('E3'),
+  F3: karoryferBlackUrl('F3'),
+  'F#3': karoryferBlackUrl('Fs3'),
+  G3: karoryferBlackUrl('G3'),
+  'G#3': karoryferBlackUrl('Gs3'),
+  A3: karoryferBlackUrl('A3'),
+  'A#3': karoryferBlackUrl('As3'),
+  B3: karoryferBlackUrl('B3'),
+  C4: karoryferBlackUrl('C4'),
+  'C#4': karoryferBlackUrl('Cs4'),
+  D4: karoryferBlackUrl('D4'),
+  'D#4': karoryferBlackUrl('Ds4'),
+  E4: karoryferBlackUrl('E4'),
+  F4: karoryferBlackUrl('F4'),
+  'F#4': karoryferBlackUrl('Fs4'),
+  G4: karoryferBlackUrl('G4'),
+  'G#4': karoryferBlackUrl('Gs4'),
+  A4: karoryferBlackUrl('A4'),
+  'A#4': karoryferBlackUrl('As4'),
+  B4: karoryferBlackUrl('B4'),
+  C5: karoryferBlackUrl('C5'),
+  'C#5': karoryferBlackUrl('Cs5'),
+  D5: karoryferBlackUrl('D5'),
+  'D#5': karoryferBlackUrl('Ds5'),
+  E5: karoryferBlackUrl('E5'),
+  F5: karoryferBlackUrl('F5'),
+  'F#5': karoryferBlackUrl('Fs5'),
+  G5: karoryferBlackUrl('G5'),
+  'G#5': karoryferBlackUrl('Gs5'),
+  A5: karoryferBlackUrl('A5'),
+  'A#5': karoryferBlackUrl('As5'),
+  B5: karoryferBlackUrl('B5'),
+  C6: karoryferBlackUrl('C6'),
+  'C#6': karoryferBlackUrl('Cs6'),
+  D6: karoryferBlackUrl('D6'),
+};
+
 const SALAMANDER_PIANO_DEMO: Readonly<Record<string, string>> = {
   A1: 'https://tonejs.github.io/audio/salamander/A1.mp3',
   A2: 'https://tonejs.github.io/audio/salamander/A2.mp3',
@@ -166,6 +281,20 @@ export const SAMPLE_PACKS: readonly SamplePack[] = [
     description:
       'Nylon-string classical guitar samples from the Philharmonia Orchestra (CC-BY-NC). Self-hosted on Supabase. Full chromatic E2 → C6 — no pitch-shifting needed for any note in the guitar range.',
     samples: PHILHARMONIA_CLASSICAL,
+  },
+  {
+    id: 'karoryfer-green',
+    label: 'Karoryfer — Green Gretsch (electric)',
+    description:
+      'Green Gretsch Anniversary hollowbody electric, clean DI. From Karoryfer Lecolds\' free "Black And Green Guitars" pack. Single-layer (mf dynamic). Full chromatic E2 → D6 — every guitar-range note is an exact sample, no pitch-shifting.',
+    samples: KARORYFER_GREEN,
+  },
+  {
+    id: 'karoryfer-black',
+    label: 'Karoryfer — Black Hofner (electric)',
+    description:
+      'Black Hofner Club hollowbody electric, clean DI. From Karoryfer Lecolds\' free "Black And Green Guitars" pack. Sibling to the green pack — slightly louder and darker. Same coverage and conventions.',
+    samples: KARORYFER_BLACK,
   },
 ];
 

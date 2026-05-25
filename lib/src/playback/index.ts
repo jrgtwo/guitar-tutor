@@ -12,13 +12,22 @@ export type { UsePlaybackReturn } from './usePlayback';
 export { usePlaybackStore, DEFAULT_PLAYBACK_STATE } from './usePlaybackStore';
 export type { PlaybackStoreState } from './usePlaybackStore';
 export { PluckSynthInstrument, SilentInstrument } from './instrument';
-export { startAudio, audioNow, getTransportTicks, forceSampleRate } from './audio-context';
+export {
+  startAudio,
+  audioNow,
+  getTransportTicks,
+  forceSampleRate,
+  scheduleAtTransportTick,
+  clearTransportSchedule,
+} from './audio-context';
 export {
   Voice,
   MasterBus,
   VOICE_PRESETS,
   ACOUSTIC_GUITAR_PRESET,
   ELECTRIC_GUITAR_PRESET,
+  KARORYFER_GREEN_GUITAR_PRESET,
+  KARORYFER_BLACK_GUITAR_PRESET,
   ACOUSTIC_BASS_PRESET,
   ELECTRIC_BASS_PRESET,
   ACOUSTIC_UKULELE_PRESET,

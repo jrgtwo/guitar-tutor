@@ -18,11 +18,15 @@ import {
   EventScheduler,
   MultiTrackPlayback,
   PatternSource,
+  PPQ,
   applyTempoAutomation,
   applyTimeSignatureAutomation,
   mergeTrackPlacementsAutomation,
   buildEffectiveVoice,
+  clearTransportSchedule,
   getTuning,
+  scheduleAtTransportTick,
+  totalDurationTicks,
   useFretworkStore,
   useMetronome,
   useMetronomeStore,
@@ -94,6 +98,10 @@ let currentMultiTrack: MultiTrackPlayback | null = null;
  *  restart so a fresh play doesn't replay stale tempo / TS curves. */
 let cancelTempoAutomation: (() => void) | null = null;
 let cancelTimeSignatureAutomation: (() => void) | null = null;
+/** Tone.Transport schedule id for the "auto-stop at composition boundary"
+ *  one-shot used when loop=false. Cleared on stop so a re-play doesn't fire
+ *  a stale boundary callback. */
+let endBoundaryScheduleId: number | null = null;
 /** True while the shared scheduler is parked with SilentInstrument because a
  *  composition is the active stream — real audio comes from per-track
  *  schedulers inside currentMultiTrack. The voice useEffect MUST NOT replace
@@ -158,6 +166,10 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
   // natural completion or explicit stop. The pre-roll module owns its own
   // interval; this ref just lets us call back to cancel it.
   const preRollCancelRef = useRef<(() => void) | null>(null);
+  // Forward-ref to the latest stop() so the boundary-scheduled callback in
+  // playEditingComposition (declared before stop) can reach it without a
+  // direct closure over a not-yet-declared const.
+  const stopRef = useRef<() => void>(() => {});
 
   // Track metronome running state.
   useEffect(() => {
@@ -574,6 +586,29 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
     // once the SilentInstrument is installed. Any voice useEffect that
     // fires next render will bail and leave the silent state intact.
     isCompositionMode = true;
+
+    // Auto-stop at boundary when not looping. Without this, the audio
+    // scheduler correctly stops firing events past the composition's end,
+    // but the transport itself keeps advancing — so the visual playhead
+    // walks past the timeline forever and auto-scroll drags the page with
+    // it. Schedule a one-shot on the transport so the stop is audio-clock
+    // accurate, then defer to rAF so any in-flight last-event tail has a
+    // moment to render before teardown.
+    clearTransportSchedule(endBoundaryScheduleId);
+    endBoundaryScheduleId = null;
+    if (!composition.loop) {
+      const endTicks = totalDurationTicks(composition);
+      if (endTicks > 0) {
+        endBoundaryScheduleId = scheduleAtTransportTick(
+          () => {
+            endBoundaryScheduleId = null;
+            requestAnimationFrame(() => stopRef.current());
+          },
+          endTicks,
+          PPQ,
+        );
+      }
+    }
     // ── End setup ──
 
     // Pre-roll: visual-only count-in (same shape as playEditingPattern).
@@ -604,6 +639,8 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
     setPreRollState(null);
     setIsStarting(false);
     usePatternsStore.getState().setHeadTick(null);
+    clearTransportSchedule(endBoundaryScheduleId);
+    endBoundaryScheduleId = null;
     metronome.stop();
     // Tear down the multi-track manager on explicit stop so the next play
     // builds a fresh routing (possibly with different tracks if the user
@@ -620,6 +657,9 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
     cancelTimeSignatureAutomation?.();
     cancelTimeSignatureAutomation = null;
   }, [metronome]);
+  // Keep the forward-ref in sync so the boundary-scheduled callback always
+  // calls the current stop closure.
+  stopRef.current = stop;
 
   const previewCell = useCallback(
     (cell: { stringIndex: number; fret: number }) => {

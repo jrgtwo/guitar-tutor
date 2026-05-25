@@ -27,6 +27,29 @@ export function getTransportTicks(projectPpq: number): number {
   return (transport.ticks * projectPpq) / transportPpq;
 }
 
+/** Schedule a callback at a specific tick on the Tone.Transport timeline.
+ *  Useful for composition-level "auto-stop at end" or other tick-aligned
+ *  one-shots. Ticks are interpreted in the transport's PPQ; we accept a
+ *  projectPpq for symmetry with getTransportTicks. Returns the schedule id
+ *  for later cancellation via clearTransportSchedule. */
+export function scheduleAtTransportTick(
+  callback: () => void,
+  ticks: number,
+  projectPpq: number,
+): number {
+  const transport = Tone.getTransport();
+  const transportPpq = transport.PPQ || projectPpq;
+  const transportTicks = Math.round((ticks * transportPpq) / projectPpq);
+  return transport.scheduleOnce(() => callback(), `${transportTicks}i`);
+}
+
+/** Cancel a previously-scheduled tick callback. Safe to call with a
+ *  null/undefined id. */
+export function clearTransportSchedule(id: number | null | undefined): void {
+  if (id == null) return;
+  Tone.getTransport().clear(id);
+}
+
 /** Force Tone.js's AudioContext to use a specific sample rate, ignoring
  *  whatever the OS audio device reports. Must be called BEFORE any other
  *  Tone audio code runs (i.e. as the very first import in the app entry
