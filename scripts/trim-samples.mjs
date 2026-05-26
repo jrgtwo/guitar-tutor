@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * trim-samples — strip leading silence from a folder of .mp3 sample files.
+ * trim-samples — strip leading and trailing silence from a folder of .mp3 sample files.
  *
  * Uses the static ffmpeg binary bundled with the `ffmpeg-static` npm package,
  * so it works on WSL2 without any system-library dependencies (the apt-installed
@@ -12,6 +12,7 @@
  * Behavior:
  *   - Reads every .mp3 in the given folder
  *   - Trims leading silence (anything below -30 dB at the start of the file)
+ *   - Trims trailing silence (anything below -30 dB at the end of the file)
  *   - Writes the trimmed copy to a `trimmed/` subfolder next to the originals
  *   - Originals are never modified
  *   - Re-encodes as mp3 at 128 kbps (same quality bracket as the source samples)
@@ -34,16 +35,41 @@ import ffmpegPath from 'ffmpeg-static';
 // `keepSilenceS` preserves a few ms of pre-attack quiet before the detected
 // onset so the file starts near zero amplitude — without it, the hard cut
 // lands mid-cycle and creates an audible click at the start of playback.
+//
+// Start vs stop thresholds are intentionally asymmetric:
+//   - Start: aggressive (-32dB), cuts the leading silence cleanly before the
+//     sharp pluck attack.
+//   - Stop: much more permissive (-55dB), so the natural decay tail (which
+//     can fall to -40..-50dB and still be musically valuable) isn't chopped.
+// And stop_duration is longer (250ms vs 30ms) to ride through the brief
+// sub-threshold dips inside a normal decay envelope; we only want to fire on
+// genuine post-note silence.
 const TRIM_ATTEMPTS = [
-  { thresholdDb: -32, durationS: 0.030, detection: 'rms', keepSilenceS: 0.100, label: 'rms (-32dB / 30ms)' },
-  { thresholdDb: -38, durationS: 0.020, detection: 'rms', keepSilenceS: 0.100, label: 'rms loose (-38dB / 20ms)' },
-  { thresholdDb: -45, durationS: 0.020, detection: 'rms', keepSilenceS: 0.100, label: 'rms gentle (-45dB / 20ms)' },
+  {
+    startThresholdDb: -32, startDurationS: 0.030,
+    stopThresholdDb:  -55, stopDurationS:  0.250,
+    detection: 'rms', keepSilenceS: 0.100,
+    label: 'rms (start -32dB / stop -55dB)',
+  },
+  {
+    startThresholdDb: -38, startDurationS: 0.020,
+    stopThresholdDb:  -60, stopDurationS:  0.250,
+    detection: 'rms', keepSilenceS: 0.100,
+    label: 'rms loose (start -38dB / stop -60dB)',
+  },
+  {
+    startThresholdDb: -45, startDurationS: 0.020,
+    stopThresholdDb:  -65, stopDurationS:  0.250,
+    detection: 'rms', keepSilenceS: 0.100,
+    label: 'rms gentle (start -45dB / stop -65dB)',
+  },
 ];
-// Linear fade-in applied AFTER trim. Pairs with `keepSilenceS` for robustness
-// against click artifacts — even if the trim cut lands at a non-zero amplitude
-// sample, the fade absorbs the discontinuity. Short enough (~25ms) that the
-// attack still feels sharp.
-const FADE_IN_S = 0.025;
+// Linear fade applied AFTER trim, at both ends. Pairs with `keepSilenceS` for
+// robustness against click artifacts — even if the trim cut lands at a
+// non-zero amplitude sample, the fade absorbs the discontinuity. Short enough
+// (~25ms) that the attack still feels sharp; the trailing fade smooths the
+// post-release cut.
+const FADE_S = 0.025;
 const OUTPUT_BITRATE = '128k';
 // If trim output is smaller than this fraction of the input, treat it as
 // over-trimmed and try the next attempt.
@@ -77,14 +103,27 @@ console.log(`Trimming ${files.length} samples`);
 console.log(`  from: ${inputDir}`);
 console.log(`  to:   ${outputDir}\n`);
 
-function runTrim(input, output, thresholdDb, durationS, detection, keepSilenceS) {
+function runTrim(input, output, attempt) {
+  const { startThresholdDb, startDurationS, stopThresholdDb, stopDurationS, detection, keepSilenceS } = attempt;
+  // Trailing fade uses the reverse-trick (areverse,afade=t=in,areverse): a plain
+  // `afade=t=out:d=X` without `start_time` defaults to fading out starting at time 0,
+  // which silences everything past the first X ms. Reversing twice applies the
+  // fade at the actual end of the (variable-duration) trimmed clip.
+  const filter = [
+    `silenceremove=start_periods=1`,
+    `:start_duration=${startDurationS}:start_threshold=${startThresholdDb}dB`,
+    `:detection=${detection}:start_silence=${keepSilenceS}`,
+    `:stop_periods=1:stop_duration=${stopDurationS}:stop_threshold=${stopThresholdDb}dB:stop_silence=${keepSilenceS}`,
+    `,afade=t=in:d=${FADE_S}`,
+    `,areverse,afade=t=in:d=${FADE_S},areverse`,
+  ].join('');
   return spawnSync(
     ffmpegPath,
     [
       '-y',
       '-loglevel', 'error',
       '-i', input,
-      '-af', `silenceremove=start_periods=1:start_duration=${durationS}:start_threshold=${thresholdDb}dB:detection=${detection}:start_silence=${keepSilenceS},afade=t=in:d=${FADE_IN_S}`,
+      '-af', filter,
       '-codec:a', 'libmp3lame',
       '-b:a', OUTPUT_BITRATE,
       output,
@@ -104,8 +143,8 @@ for (const file of files) {
 
   let resolved = false;
   for (let attempt = 0; attempt < TRIM_ATTEMPTS.length; attempt++) {
-    const { thresholdDb, durationS, detection, keepSilenceS, label } = TRIM_ATTEMPTS[attempt];
-    const result = runTrim(input, output, thresholdDb, durationS, detection, keepSilenceS);
+    const { label } = TRIM_ATTEMPTS[attempt];
+    const result = runTrim(input, output, TRIM_ATTEMPTS[attempt]);
     if (result.status !== 0) continue;
     const outSize = statSync(output).size;
     const ratio = outSize / inSize;

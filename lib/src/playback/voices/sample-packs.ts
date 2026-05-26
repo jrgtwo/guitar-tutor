@@ -185,6 +185,26 @@ export const KARORYFER_BLACK: ReadonlyArray<Readonly<Record<string, string>>> = 
   karoryferBank(KARORYFER_BLACK_BASE, 4, KARORYFER_NOTES_LOW),
 ];
 
+/** OFFSET_P90 — owner-recorded offset-body P90 electric DI samples.
+ *  Clean DI signal recorded direct to Cubase, 4 round-robin takes per pitch,
+ *  damped between takes. Full chromatic E2 → D#5 (36 notes per bank) — every
+ *  pitch in the electric guitar's usable range is an exact sample, no
+ *  pitch-shifting. Self-hosted on Supabase under
+ *  `samples/offsetp-90/rr<n>/<note>.mp3`. */
+const OFFSET_P90_NOTES = [
+  ['E2','E2'],['F2','F2'],['F#2','Fs2'],['G2','G2'],['G#2','Gs2'],['A2','A2'],['A#2','As2'],['B2','B2'],
+  ['C3','C3'],['C#3','Cs3'],['D3','D3'],['D#3','Ds3'],['E3','E3'],['F3','F3'],['F#3','Fs3'],['G3','G3'],['G#3','Gs3'],['A3','A3'],['A#3','As3'],['B3','B3'],
+  ['C4','C4'],['C#4','Cs4'],['D4','D4'],['D#4','Ds4'],['E4','E4'],['F4','F4'],['F#4','Fs4'],['G4','G4'],['G#4','Gs4'],['A4','A4'],['A#4','As4'],['B4','B4'],
+  ['C5','C5'],['C#5','Cs5'],['D5','D5'],['D#5','Ds5'],
+] as const;
+const OFFSET_P90_BASE = 'https://ssszubkbregwjgkrpqop.supabase.co/storage/v1/object/public/samples/offsetp-90';
+export const OFFSET_P90: ReadonlyArray<Readonly<Record<string, string>>> = [
+  karoryferBank(OFFSET_P90_BASE, 1, OFFSET_P90_NOTES),
+  karoryferBank(OFFSET_P90_BASE, 2, OFFSET_P90_NOTES),
+  karoryferBank(OFFSET_P90_BASE, 3, OFFSET_P90_NOTES),
+  karoryferBank(OFFSET_P90_BASE, 4, OFFSET_P90_NOTES),
+];
+
 const SALAMANDER_PIANO_DEMO: Readonly<Record<string, string>> = {
   A1: 'https://tonejs.github.io/audio/salamander/A1.mp3',
   A2: 'https://tonejs.github.io/audio/salamander/A2.mp3',
@@ -245,6 +265,13 @@ export const SAMPLE_PACKS: readonly SamplePack[] = [
     description:
       'Black Hofner Club hollowbody electric, clean DI. From Karoryfer Lecolds\' free "Black And Green Guitars" pack. Sibling to the green pack — slightly louder and darker. 4 round-robin takes (rr1..rr4) for humanized repeated notes.',
     samples: KARORYFER_BLACK,
+  },
+  {
+    id: 'offset-p90',
+    label: 'Offset P90 (electric)',
+    description:
+      'Owner-recorded offset-body P90 electric, clean DI direct to Cubase. 4 round-robin takes (rr1..rr4) for humanized repeated notes. Full chromatic E2 → D#5 — every pitch in the usable range is an exact sample, no pitch-shifting.',
+    samples: OFFSET_P90,
   },
 ];
 

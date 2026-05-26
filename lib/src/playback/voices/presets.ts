@@ -16,7 +16,7 @@ import type {
   VoiceLevel,
   VoicePreset,
 } from './types';
-import { PHILHARMONIA_CLASSICAL, KARORYFER_GREEN, KARORYFER_BLACK } from './sample-packs';
+import { PHILHARMONIA_CLASSICAL, KARORYFER_GREEN, KARORYFER_BLACK, OFFSET_P90 } from './sample-packs';
 import { getCabinetIR } from './cabinet-irs';
 
 // Sentinel — if the IR id isn't found we ship `undefined` (no cab) rather
@@ -239,18 +239,21 @@ export const ACOUSTIC_UKULELE_PRESET: VoicePreset = {
 // ─── Named amp voicings — starter presets for the new chain ──────────────────
 // Each preset showcases a different combination of amp + pedals + reverb so
 // users can pick a sound and start playing without diving into Sound Lab. All
-// build on Karoryfer Green or Black DI samples + appropriate cab IR; tone
-// shaping happens in the amp + effects chain.
+// build on OFFSET_P90 DI samples + appropriate cab IR; tone shaping happens in
+// the amp + effects chain.
 
-// Clean Amp — Karoryfer Green, basically no drive, gentle reverb. Starting
-// point for clean tones; foundation other presets layer drive/effects on.
+// Clean Amp — basically no drive, gentle reverb. Starting point for clean
+// tones; foundation other presets layer drive/effects on.
 export const CLEAN_AMP_PRESET: VoicePreset = {
   id: 'clean-amp',
   name: 'Clean Amp',
   instrumentId: 'guitar',
   family: 'electric',
-  source: { kind: 'sampler', samples: KARORYFER_GREEN, release: 2.5 },
-  level: NEUTRAL_LEVEL,
+  source: { kind: 'sampler', samples: OFFSET_P90, release: 2.5 },
+  // First-pass loudness balancing across the amp arc — Clean is the quiet end
+  // of the drive spectrum, so it gets the biggest level boost. See the level
+  // ladder at the top of this preset group.
+  level: { volumeDb: 6, pan: 0 },
   effects: {
     amp: {
       preGainDb: 0, preDrive: 0.05, bass: 1, mid: 0, treble: 1,
@@ -261,15 +264,15 @@ export const CLEAN_AMP_PRESET: VoicePreset = {
   },
 };
 
-// Blues — warm Karoryfer Green, low-moderate breakup, mid-forward, gentle
-// short reverb. Sits between Clean and Crunch — the "edge of breakup" tone.
+// Blues — warm, low-moderate breakup, mid-forward, gentle short reverb. Sits
+// between Clean and Crunch — the "edge of breakup" tone.
 export const BLUES_PRESET: VoicePreset = {
   id: 'blues-amp',
   name: 'Blues',
   instrumentId: 'guitar',
   family: 'electric',
-  source: { kind: 'sampler', samples: KARORYFER_GREEN, release: 2.2 },
-  level: NEUTRAL_LEVEL,
+  source: { kind: 'sampler', samples: OFFSET_P90, release: 2.2 },
+  level: { volumeDb: 2, pan: 0 },
   effects: {
     amp: {
       preGainDb: 3, preDrive: 0.25, bass: 2, mid: 3, treble: 0,
@@ -280,15 +283,15 @@ export const BLUES_PRESET: VoicePreset = {
   },
 };
 
-// Crunch — Karoryfer Green, moderate preDrive, mid-bump, brighter top from
-// presence. Classic rhythm-chord crunch.
+// Crunch — moderate preDrive, mid-bump, brighter top from presence. Classic
+// rhythm-chord crunch.
 export const CRUNCH_PRESET: VoicePreset = {
   id: 'crunch-amp',
   name: 'Crunch',
   instrumentId: 'guitar',
   family: 'electric',
-  source: { kind: 'sampler', samples: KARORYFER_GREEN, release: 2.0 },
-  level: NEUTRAL_LEVEL,
+  source: { kind: 'sampler', samples: OFFSET_P90, release: 2.0 },
+  level: { volumeDb: 0, pan: 0 },
   effects: {
     amp: {
       preGainDb: 6, preDrive: 0.4, bass: 2, mid: 4, treble: 1,
@@ -299,15 +302,15 @@ export const CRUNCH_PRESET: VoicePreset = {
   },
 };
 
-// Lead — Karoryfer Black for thicker fundamental, moderate-high drive, focused
-// mids, slight delay for thickness, longer reverb. Sustaining solo voice.
+// Lead — moderate-high drive, focused mids, slight delay for thickness,
+// longer reverb. Sustaining solo voice.
 export const LEAD_PRESET: VoicePreset = {
   id: 'lead-amp',
   name: 'Lead',
   instrumentId: 'guitar',
   family: 'electric',
-  source: { kind: 'sampler', samples: KARORYFER_BLACK, release: 2.5 },
-  level: NEUTRAL_LEVEL,
+  source: { kind: 'sampler', samples: OFFSET_P90, release: 2.5 },
+  level: { volumeDb: -2, pan: 0 },
   effects: {
     delay: { delayTime: 0.32, feedback: 0.25, wet: 0.12 },
     amp: {
@@ -319,15 +322,15 @@ export const LEAD_PRESET: VoicePreset = {
   },
 };
 
-// Metal — Karoryfer Black, heavy preDrive + powerDrive, scooped mids, tight
-// finalEq. Modern high-gain rhythm tone.
+// Metal — heavy preDrive + powerDrive, scooped mids, tight finalEq. Modern
+// high-gain rhythm tone.
 export const METAL_PRESET: VoicePreset = {
   id: 'metal-amp',
   name: 'Metal',
   instrumentId: 'guitar',
   family: 'electric',
-  source: { kind: 'sampler', samples: KARORYFER_BLACK, release: 1.5 },
-  level: NEUTRAL_LEVEL,
+  source: { kind: 'sampler', samples: OFFSET_P90, release: 1.5 },
+  level: { volumeDb: -4, pan: 0 },
   effects: {
     amp: {
       preGainDb: 9, preDrive: 0.85, bass: 4, mid: -4, treble: 4,
@@ -338,16 +341,16 @@ export const METAL_PRESET: VoicePreset = {
   },
 };
 
-// Surf — bright Karoryfer Green, fully clean, heavy spring reverb. Showcases
-// the per-voice reverb stage; closest the bundled set gets to a vintage
-// surf-rock tone without a dedicated tremolo (no tremolo node yet).
+// Surf — fully clean, bright tone, heavy spring reverb. Showcases the
+// per-voice reverb stage; closest the bundled set gets to a vintage surf-rock
+// tone without a dedicated tremolo (no tremolo node yet).
 export const SURF_PRESET: VoicePreset = {
   id: 'surf-amp',
   name: 'Surf',
   instrumentId: 'guitar',
   family: 'electric',
-  source: { kind: 'sampler', samples: KARORYFER_GREEN, release: 2.5 },
-  level: NEUTRAL_LEVEL,
+  source: { kind: 'sampler', samples: OFFSET_P90, release: 2.5 },
+  level: { volumeDb: 6, pan: 0 },
   effects: {
     amp: {
       preGainDb: 0, preDrive: 0, bass: 0, mid: -1, treble: 4,
@@ -359,15 +362,15 @@ export const SURF_PRESET: VoicePreset = {
   },
 };
 
-// Ambient — clean Karoryfer Green with chorus + delay + heavy reverb. Showcases
-// the full pedalboard chain. Good starter for shimmer / ambient passages.
+// Ambient — clean tone with chorus + delay + heavy reverb. Showcases the full
+// pedalboard chain. Good starter for shimmer / ambient passages.
 export const AMBIENT_PRESET: VoicePreset = {
   id: 'ambient-amp',
   name: 'Ambient',
   instrumentId: 'guitar',
   family: 'electric',
-  source: { kind: 'sampler', samples: KARORYFER_GREEN, release: 2.8 },
-  level: NEUTRAL_LEVEL,
+  source: { kind: 'sampler', samples: OFFSET_P90, release: 2.8 },
+  level: { volumeDb: 4, pan: 0 },
   effects: {
     chorus: { frequency: 0.8, depth: 0.5, wet: 0.35, type: 'sine', feedback: 0.2, delayTime: 0.004, spread: 180 },
     delay: { delayTime: 0.45, feedback: 0.4, wet: 0.25 },
