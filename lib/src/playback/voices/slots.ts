@@ -6,9 +6,13 @@ export type SlotId =
   | 'electric-guitar'
   | 'karoryfer-green-guitar'
   | 'karoryfer-black-guitar'
-  | 'test-clean-amp'
-  | 'test-crunch-amp'
-  | 'test-metal-amp'
+  | 'clean-amp'
+  | 'blues-amp'
+  | 'crunch-amp'
+  | 'lead-amp'
+  | 'metal-amp'
+  | 'surf-amp'
+  | 'ambient-amp'
   | 'acoustic-bass'
   | 'electric-bass'
   | 'acoustic-ukulele';
@@ -18,9 +22,13 @@ export const ALL_SLOT_IDS: readonly SlotId[] = [
   'electric-guitar',
   'karoryfer-green-guitar',
   'karoryfer-black-guitar',
-  'test-clean-amp',
-  'test-crunch-amp',
-  'test-metal-amp',
+  'clean-amp',
+  'blues-amp',
+  'crunch-amp',
+  'lead-amp',
+  'metal-amp',
+  'surf-amp',
+  'ambient-amp',
   'acoustic-bass',
   'electric-bass',
   'acoustic-ukulele',
@@ -32,9 +40,13 @@ const SLOTS_BY_INSTRUMENT: Record<FretInstrumentId, readonly SlotId[]> = {
     'electric-guitar',
     'karoryfer-green-guitar',
     'karoryfer-black-guitar',
-    'test-clean-amp',
-    'test-crunch-amp',
-    'test-metal-amp',
+    'clean-amp',
+    'blues-amp',
+    'crunch-amp',
+    'lead-amp',
+    'metal-amp',
+    'surf-amp',
+    'ambient-amp',
   ],
   bass: ['acoustic-bass', 'electric-bass'],
   ukulele: ['acoustic-ukulele'],

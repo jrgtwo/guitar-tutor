@@ -236,89 +236,152 @@ export const ACOUSTIC_UKULELE_PRESET: VoicePreset = {
   level: NEUTRAL_LEVEL,
 };
 
-// ─── Phase 1d test presets ───────────────────────────────────────────────────
-// Throwaway presets to verify the new amp + reverb + finalEq chain is wired
-// correctly. Each one varies a DIFFERENT slice of the chain so an audible
-// regression in one variable points at the right place to look. Delete or
-// refactor into proper amp-character presets in Phase 4.
+// ─── Named amp voicings — starter presets for the new chain ──────────────────
+// Each preset showcases a different combination of amp + pedals + reverb so
+// users can pick a sound and start playing without diving into Sound Lab. All
+// build on Karoryfer Green or Black DI samples + appropriate cab IR; tone
+// shaping happens in the amp + effects chain.
 
-// Clean: exercises low-gain amp + reverb. Should sound like clean Karoryfer
-// Green with a noticeable springy reverb tail.
-export const TEST_CLEAN_PRESET: VoicePreset = {
-  id: 'test-clean-amp',
-  name: 'Test: Clean',
+// Clean Amp — Karoryfer Green, basically no drive, gentle reverb. Starting
+// point for clean tones; foundation other presets layer drive/effects on.
+export const CLEAN_AMP_PRESET: VoicePreset = {
+  id: 'clean-amp',
+  name: 'Clean Amp',
   instrumentId: 'guitar',
   family: 'electric',
   source: { kind: 'sampler', samples: KARORYFER_GREEN, release: 2.5 },
   level: NEUTRAL_LEVEL,
   effects: {
     amp: {
-      preGainDb: 0,
-      preDrive: 0.05,    // basically clean
-      bass: 1,
-      mid: 0,
-      treble: 1,
-      presence: 0,       // no presence — verify the presence node passes through cleanly
-      powerDrive: 0,     // no power-amp saturation
-      outputDb: 0,
+      preGainDb: 0, preDrive: 0.05, bass: 1, mid: 0, treble: 1,
+      presence: 0, powerDrive: 0, outputDb: 0,
     },
-    reverb: { roomSize: 0.6, wet: 0.3 },   // moderate springy reverb — should be obvious
+    reverb: { roomSize: 0.6, wet: 0.3 },
     cabIR: TEST_CLEAN_CAB ? { url: TEST_CLEAN_CAB } : undefined,
-    finalEq: { low: 0, mid: 0, high: 0, lowFrequency: 250, highFrequency: 2500 }, // neutral — verifies the slot is wired
+    finalEq: { low: 0, mid: 0, high: 0, lowFrequency: 250, highFrequency: 2500 },
   },
 };
 
-// Crunch: exercises moderate preDrive + tone-stack shaping + presence.
-// Should sound like overdriven Karoryfer Green with a midrange honk and a
-// noticeable top-end bite (presence).
-export const TEST_CRUNCH_PRESET: VoicePreset = {
-  id: 'test-crunch-amp',
-  name: 'Test: Crunch',
+// Blues — warm Karoryfer Green, low-moderate breakup, mid-forward, gentle
+// short reverb. Sits between Clean and Crunch — the "edge of breakup" tone.
+export const BLUES_PRESET: VoicePreset = {
+  id: 'blues-amp',
+  name: 'Blues',
+  instrumentId: 'guitar',
+  family: 'electric',
+  source: { kind: 'sampler', samples: KARORYFER_GREEN, release: 2.2 },
+  level: NEUTRAL_LEVEL,
+  effects: {
+    amp: {
+      preGainDb: 3, preDrive: 0.25, bass: 2, mid: 3, treble: 0,
+      presence: 1, powerDrive: 0.15, outputDb: -2,
+    },
+    reverb: { roomSize: 0.45, wet: 0.2 },
+    cabIR: TEST_CLEAN_CAB ? { url: TEST_CLEAN_CAB } : undefined,
+    finalEq: { low: 0, mid: 1, high: 0, lowFrequency: 250, highFrequency: 2500 },
+  },
+};
+
+// Crunch — Karoryfer Green, moderate preDrive, mid-bump, brighter top from
+// presence. Classic rhythm-chord crunch.
+export const CRUNCH_PRESET: VoicePreset = {
+  id: 'crunch-amp',
+  name: 'Crunch',
   instrumentId: 'guitar',
   family: 'electric',
   source: { kind: 'sampler', samples: KARORYFER_GREEN, release: 2.0 },
   level: NEUTRAL_LEVEL,
   effects: {
     amp: {
-      preGainDb: 6,
-      preDrive: 0.4,
-      bass: 2,
-      mid: 4,            // mid-forward tone
-      treble: 1,
-      presence: 3,       // +3dB at ~3kHz — should be audibly brighter than Clean
-      powerDrive: 0.1,
-      outputDb: -3,      // trim back the level the gain stages added
+      preGainDb: 6, preDrive: 0.4, bass: 2, mid: 4, treble: 1,
+      presence: 3, powerDrive: 0.1, outputDb: -3,
     },
     reverb: { roomSize: 0.3, wet: 0.15 },
     cabIR: TEST_CRUNCH_CAB ? { url: TEST_CRUNCH_CAB } : undefined,
-    finalEq: { low: -2, mid: 0, high: 0, lowFrequency: 200, highFrequency: 2500 }, // light bass cut
+    finalEq: { low: -2, mid: 0, high: 0, lowFrequency: 200, highFrequency: 2500 },
   },
 };
 
-// Metal: exercises high preDrive + powerDrive + scooped mids + finalEq.
-// Should sound like heavily saturated Karoryfer Black with classic
-// V-shaped EQ and a tight low-end response.
-export const TEST_METAL_PRESET: VoicePreset = {
-  id: 'test-metal-amp',
-  name: 'Test: Metal',
+// Lead — Karoryfer Black for thicker fundamental, moderate-high drive, focused
+// mids, slight delay for thickness, longer reverb. Sustaining solo voice.
+export const LEAD_PRESET: VoicePreset = {
+  id: 'lead-amp',
+  name: 'Lead',
+  instrumentId: 'guitar',
+  family: 'electric',
+  source: { kind: 'sampler', samples: KARORYFER_BLACK, release: 2.5 },
+  level: NEUTRAL_LEVEL,
+  effects: {
+    delay: { delayTime: 0.32, feedback: 0.25, wet: 0.12 },
+    amp: {
+      preGainDb: 7, preDrive: 0.6, bass: 1, mid: 5, treble: 2,
+      presence: 4, powerDrive: 0.2, outputDb: -4,
+    },
+    reverb: { roomSize: 0.7, wet: 0.25 },
+    cabIR: TEST_CRUNCH_CAB ? { url: TEST_CRUNCH_CAB } : undefined,
+    finalEq: { low: -1, mid: 2, high: 1, lowFrequency: 200, highFrequency: 3000 },
+  },
+};
+
+// Metal — Karoryfer Black, heavy preDrive + powerDrive, scooped mids, tight
+// finalEq. Modern high-gain rhythm tone.
+export const METAL_PRESET: VoicePreset = {
+  id: 'metal-amp',
+  name: 'Metal',
   instrumentId: 'guitar',
   family: 'electric',
   source: { kind: 'sampler', samples: KARORYFER_BLACK, release: 1.5 },
   level: NEUTRAL_LEVEL,
   effects: {
     amp: {
-      preGainDb: 9,
-      preDrive: 0.85,    // heavy distortion
-      bass: 4,
-      mid: -4,           // scooped mids
-      treble: 4,
-      presence: 4,
-      powerDrive: 0.3,   // noticeable power-amp coloration
-      outputDb: -6,      // trim further to keep from clipping
+      preGainDb: 9, preDrive: 0.85, bass: 4, mid: -4, treble: 4,
+      presence: 4, powerDrive: 0.3, outputDb: -6,
     },
-    // reverb intentionally omitted — verify no-reverb path works
     cabIR: TEST_METAL_CAB ? { url: TEST_METAL_CAB } : undefined,
-    finalEq: { low: 3, mid: -1, high: -3, lowFrequency: 150, highFrequency: 4000 }, // tighten lows, tame highs
+    finalEq: { low: 3, mid: -1, high: -3, lowFrequency: 150, highFrequency: 4000 },
+  },
+};
+
+// Surf — bright Karoryfer Green, fully clean, heavy spring reverb. Showcases
+// the per-voice reverb stage; closest the bundled set gets to a vintage
+// surf-rock tone without a dedicated tremolo (no tremolo node yet).
+export const SURF_PRESET: VoicePreset = {
+  id: 'surf-amp',
+  name: 'Surf',
+  instrumentId: 'guitar',
+  family: 'electric',
+  source: { kind: 'sampler', samples: KARORYFER_GREEN, release: 2.5 },
+  level: NEUTRAL_LEVEL,
+  effects: {
+    amp: {
+      preGainDb: 0, preDrive: 0, bass: 0, mid: -1, treble: 4,
+      presence: 2, powerDrive: 0, outputDb: 0,
+    },
+    reverb: { roomSize: 0.9, wet: 0.55 },   // BIG spring reverb
+    cabIR: TEST_CLEAN_CAB ? { url: TEST_CLEAN_CAB } : undefined,
+    finalEq: { low: -1, mid: 0, high: 2, lowFrequency: 200, highFrequency: 3000 },
+  },
+};
+
+// Ambient — clean Karoryfer Green with chorus + delay + heavy reverb. Showcases
+// the full pedalboard chain. Good starter for shimmer / ambient passages.
+export const AMBIENT_PRESET: VoicePreset = {
+  id: 'ambient-amp',
+  name: 'Ambient',
+  instrumentId: 'guitar',
+  family: 'electric',
+  source: { kind: 'sampler', samples: KARORYFER_GREEN, release: 2.8 },
+  level: NEUTRAL_LEVEL,
+  effects: {
+    chorus: { frequency: 0.8, depth: 0.5, wet: 0.35, type: 'sine', feedback: 0.2, delayTime: 0.004, spread: 180 },
+    delay: { delayTime: 0.45, feedback: 0.4, wet: 0.25 },
+    amp: {
+      preGainDb: 0, preDrive: 0.05, bass: 1, mid: -1, treble: 2,
+      presence: 1, powerDrive: 0, outputDb: 0,
+    },
+    reverb: { roomSize: 0.95, wet: 0.55 },
+    cabIR: TEST_CLEAN_CAB ? { url: TEST_CLEAN_CAB } : undefined,
+    finalEq: { low: -1, mid: 0, high: 1, lowFrequency: 250, highFrequency: 2500 },
   },
 };
 
@@ -327,9 +390,13 @@ export const VOICE_PRESETS: readonly VoicePreset[] = [
   ELECTRIC_GUITAR_PRESET,
   KARORYFER_GREEN_GUITAR_PRESET,
   KARORYFER_BLACK_GUITAR_PRESET,
-  TEST_CLEAN_PRESET,
-  TEST_CRUNCH_PRESET,
-  TEST_METAL_PRESET,
+  CLEAN_AMP_PRESET,
+  BLUES_PRESET,
+  CRUNCH_PRESET,
+  LEAD_PRESET,
+  METAL_PRESET,
+  SURF_PRESET,
+  AMBIENT_PRESET,
   ACOUSTIC_BASS_PRESET,
   ELECTRIC_BASS_PRESET,
   ACOUSTIC_UKULELE_PRESET,

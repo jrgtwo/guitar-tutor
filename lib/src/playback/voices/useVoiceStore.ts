@@ -2,13 +2,41 @@ import { create } from 'zustand';
 import { persist, type PersistStorage, type StorageValue } from 'zustand/middleware';
 import { generateUuid } from '../../patterns/ids';
 import { gateCreate } from '../../subscription/gate';
-import { getInstrumentFirstDefaultSlotId } from './slots';
+import { ALL_SLOT_IDS, getInstrumentFirstDefaultSlotId, type SlotId } from './slots';
 import type { Variant, VariantRef, ActiveVariantsMap } from './variant-types';
 import { makeDefaultActiveVariants } from './variant-types';
 import type { FretInstrumentId, ReverbSettings } from './types';
 
 export const VOICE_STORAGE_KEY = 'fretwork:lab-presets:v1';
 const SCHEMA_VERSION = 2;
+
+/** Map of legacy slot ids (renamed during the 2026-05-25 voicings rebuild) to
+ *  their current equivalents. Lets us migrate stored activeVariants entries
+ *  in place rather than forcing a schema bump that wipes user data. */
+const LEGACY_SLOT_ID_MAP: Record<string, SlotId> = {
+  'test-clean-amp': 'clean-amp',
+  'test-crunch-amp': 'crunch-amp',
+  'test-metal-amp': 'metal-amp',
+};
+
+/** Rewrite legacy slot ids in an ActiveVariantsMap and replace entries whose
+ *  slot id no longer resolves with the instrument's default. Returns a fresh
+ *  object — never mutates the input (ActiveVariantsMap fields are readonly). */
+function migrateActiveVariants(map: ActiveVariantsMap): ActiveVariantsMap {
+  const knownSlotIds = new Set<string>(ALL_SLOT_IDS);
+  const migrateOne = (instrumentId: FretInstrumentId, ref: VariantRef): VariantRef => {
+    if (ref.kind !== 'default') return ref;
+    if (knownSlotIds.has(ref.slotId)) return ref;
+    const replacement = LEGACY_SLOT_ID_MAP[ref.slotId];
+    if (replacement) return { kind: 'default', slotId: replacement };
+    return { kind: 'default', slotId: getInstrumentFirstDefaultSlotId(instrumentId) };
+  };
+  return {
+    guitar: migrateOne('guitar', map.guitar),
+    bass: migrateOne('bass', map.bass),
+    ukulele: migrateOne('ukulele', map.ukulele),
+  };
+}
 
 interface VoiceState {
   schemaVersion: number;
@@ -145,7 +173,7 @@ export const useVoiceStore = create<VoiceState>()(
           }
           set({
             variants: parsed.variants ?? [],
-            activeVariants: parsed.activeVariants ?? makeDefaultActiveVariants(),
+            activeVariants: migrateActiveVariants(parsed.activeVariants ?? makeDefaultActiveVariants()),
             reverb: parsed.reverb ?? null,
           });
         } catch {
@@ -175,6 +203,9 @@ export const useVoiceStore = create<VoiceState>()(
           try {
             const parsed = JSON.parse(raw) as Partial<VoiceState>;
             if (parsed.schemaVersion !== SCHEMA_VERSION) return null;
+            if (parsed.activeVariants) {
+              parsed.activeVariants = migrateActiveVariants(parsed.activeVariants);
+            }
             return { state: parsed, version: SCHEMA_VERSION };
           } catch {
             return null;

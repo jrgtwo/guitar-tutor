@@ -18,10 +18,19 @@ export function resolveActiveVoice(
 ): VoicePreset {
   const state = useVoiceStore.getState();
   const ref: VariantRef = explicitRef ?? state.activeVariants[instrumentId];
-  if (ref.kind === 'default') {
-    return getDefaultPresetForSlot(ref.slotId);
+  // Fall back to the instrument's first default if the saved slot id no
+  // longer exists. This protects against preset renames (e.g. when 2026-05-25
+  // renamed `test-*-amp` slots to `clean-amp`/`crunch-amp`/`metal-amp`) —
+  // without the fallback the app would crash on boot for any user whose
+  // localStorage held the old id.
+  try {
+    if (ref.kind === 'default') {
+      return getDefaultPresetForSlot(ref.slotId);
+    }
+    const variant = state.variants.find((v) => v.id === ref.id);
+    if (variant) return variant.preset;
+  } catch {
+    // No-op — fall through to the instrument default below.
   }
-  const variant = state.variants.find((v) => v.id === ref.id);
-  if (variant) return variant.preset;
   return getDefaultPresetForSlot(getInstrumentFirstDefaultSlotId(instrumentId));
 }
