@@ -21,6 +21,7 @@
 import * as Tone from 'tone';
 import type {
   ADSREnvelope,
+  AmpParams,
   AutoWahParams,
   BodyFilterEnvelope,
   BodyFilterParams,
@@ -31,12 +32,14 @@ import type {
   DistortionParams,
   EQParams,
   EffectsConfig,
+  GraphicEqParams,
   PluckSynthParams,
   FMSynthParams,
   OscillatorType,
   VoiceLayer,
   VoiceLevel,
   VoicePreset,
+  VoiceReverbParams,
   VoiceSource,
 } from './types';
 import { MasterBus } from './MasterBus';
@@ -51,19 +54,46 @@ interface ChainNodes {
    *  present when the body filter has an `envelope` config. */
   bodyFilterEnvelope?: Tone.FrequencyEnvelope;
   compressor?: Tone.Compressor;
+  // Pedalboard stage (pre-amp pedals)
   distortion?: Tone.Distortion;
   chorus?: Tone.Chorus;
   delay?: Tone.FeedbackDelay;
-  eq?: Tone.EQ3;
   autoWah?: Tone.AutoWah;
-  /** Cabinet IR convolution — last static stage before volume/pan, modelling
-   *  the speaker + mic. Loads its IR file asynchronously; passes audio
-   *  through (uncolored) until the IR is fetched and decoded. */
+  // Graphic EQ stage (8 nodes when present: 7 peaking filters + level gain)
+  /** Seven peaking filters at fixed frequencies (100/200/400/800/1.6k/3.2k/6.4k Hz)
+   *  modelling a Boss GE-7. Built/disposed as a group with `graphicEqLevel`. */
+  graphicEqBands?: readonly Tone.Filter[];
+  /** Output trim after the 7 bands — compensates for cuts/boosts changing
+   *  apparent loudness. */
+  graphicEqLevel?: Tone.Gain;
+  // Amp stage (6 nodes when present, all built/disposed together)
+  /** Input gain driving signal into the pre-amp saturation. */
+  ampPreGain?: Tone.Gain;
+  /** Pre-amp saturation — voicing-defining stage. */
+  ampPreDist?: Tone.Distortion;
+  /** Tone stack — bass/mid/treble shaping after pre-amp. */
+  ampTone?: Tone.EQ3;
+  /** Power-amp saturation — adds harmonic coloration after the tone stack. */
+  ampPowerDist?: Tone.Distortion;
+  /** Presence shelf — high-shelf around 3 kHz, modelled on the power-amp's
+   *  negative-feedback presence control. */
+  ampPresence?: Tone.Filter;
+  /** Output trim after all amp stages. */
+  ampOutput?: Tone.Gain;
+  /** Per-voice spring/plate reverb. Sits between the amp and the cab in
+   *  the chain, mimicking a guitar amp's built-in reverb tank. Separate
+   *  from the global MasterBus reverb send. */
+  voiceReverb?: Tone.JCReverb;
+  /** Cabinet IR convolution — last tone-shaping stage before vol/pan.
+   *  Loads its IR file asynchronously; passes audio through (uncolored)
+   *  until the IR is fetched and decoded. */
   cabIR?: Tone.Convolver;
   /** Makeup gain applied right after the convolver. Compensates for the
    *  loudness shift convolution introduces (some IRs come out hotter than
    *  dry, some quieter; depends on the IR's spectral shape). */
   cabIRMakeup?: Tone.Gain;
+  /** Post-cab mastering EQ — final tone-shaping stage before vol/pan. */
+  finalEq?: Tone.EQ3;
   // Always present:
   volume?: Tone.Volume;
   panner?: Tone.Panner;
@@ -390,11 +420,14 @@ export class Voice implements GuitarInstrument {
     if (next?.distortion && this._chain.distortion) applyDistortion(this._chain.distortion, next.distortion);
     if (next?.chorus && this._chain.chorus) applyChorus(this._chain.chorus, next.chorus);
     if (next?.delay && this._chain.delay) applyDelay(this._chain.delay, next.delay);
-    if (next?.eq && this._chain.eq) applyEQ(this._chain.eq, next.eq);
     if (next?.autoWah && this._chain.autoWah) applyAutoWah(this._chain.autoWah, next.autoWah);
+    if (next?.graphicEq) applyGraphicEq(this._chain, next.graphicEq);
+    if (next?.amp) applyAmp(this._chain, next.amp);
+    if (next?.reverb && this._chain.voiceReverb) applyVoiceReverb(this._chain.voiceReverb, next.reverb);
     if (next?.cabIR && this._chain.cabIRMakeup) {
       this._chain.cabIRMakeup.gain.rampTo(dbToGain(next.cabIR.makeupDb ?? 0), 0.02);
     }
+    if (next?.finalEq && this._chain.finalEq) applyEQ(this._chain.finalEq, next.finalEq);
   }
 
   /** Replace the active preset entirely. Same source kind reuses the synth. */
@@ -637,15 +670,6 @@ function buildChain(preset: VoicePreset): ChainNodes {
       wet: preset.effects.delay.wet,
     });
   }
-  if (preset.effects?.eq) {
-    nodes.eq = new Tone.EQ3({
-      low: preset.effects.eq.low,
-      mid: preset.effects.eq.mid,
-      high: preset.effects.eq.high,
-      lowFrequency: preset.effects.eq.lowFrequency,
-      highFrequency: preset.effects.eq.highFrequency,
-    });
-  }
   if (preset.effects?.autoWah) {
     nodes.autoWah = new Tone.AutoWah({
       baseFrequency: preset.effects.autoWah.baseFrequency,
@@ -654,6 +678,43 @@ function buildChain(preset: VoicePreset): ChainNodes {
       Q: preset.effects.autoWah.q,
       gain: preset.effects.autoWah.gain,
       wet: preset.effects.autoWah.wet,
+    });
+  }
+  if (preset.effects?.graphicEq) {
+    nodes.graphicEqBands = buildGraphicEqBands(preset.effects.graphicEq);
+    nodes.graphicEqLevel = new Tone.Gain(dbToGain(preset.effects.graphicEq.levelDb));
+  }
+  if (preset.effects?.amp) {
+    const a = preset.effects.amp;
+    nodes.ampPreGain = new Tone.Gain(dbToGain(a.preGainDb));
+    // Tone.Distortion `distortion` is the waveshape curve amount (0..1). For
+    // clean settings (preDrive=0) the node passes signal through with mild
+    // shaping; for high settings it produces hard clipping. `oversample: 4x`
+    // matches the existing distortion stompbox to avoid aliasing artifacts.
+    nodes.ampPreDist = new Tone.Distortion({ distortion: a.preDrive, oversample: '4x', wet: 1 });
+    nodes.ampTone = new Tone.EQ3({
+      low: a.bass,
+      mid: a.mid,
+      high: a.treble,
+      // Crossover frequencies modelled loosely on a typical Fender/Marshall
+      // tone stack: bass shelves below ~200Hz, treble above ~2kHz.
+      lowFrequency: 200,
+      highFrequency: 2000,
+    });
+    nodes.ampPowerDist = new Tone.Distortion({ distortion: a.powerDrive, oversample: '2x', wet: 1 });
+    nodes.ampPresence = new Tone.Filter({
+      type: 'highshelf',
+      frequency: 3000,
+      gain: a.presence,
+    });
+    nodes.ampOutput = new Tone.Gain(dbToGain(a.outputDb));
+  }
+  if (preset.effects?.reverb) {
+    // Tone.JCReverb is algorithmic (Schroeder), naturally spring-like.
+    // Cheap enough to run one per voice including at multi-track scale.
+    nodes.voiceReverb = new Tone.JCReverb({
+      roomSize: preset.effects.reverb.roomSize,
+      wet: preset.effects.reverb.wet,
     });
   }
   if (preset.effects?.cabIR) {
@@ -668,6 +729,15 @@ function buildChain(preset: VoicePreset): ChainNodes {
     });
     nodes.cabIRMakeup = new Tone.Gain(dbToGain(preset.effects.cabIR.makeupDb ?? 0));
   }
+  if (preset.effects?.finalEq) {
+    nodes.finalEq = new Tone.EQ3({
+      low: preset.effects.finalEq.low,
+      mid: preset.effects.finalEq.mid,
+      high: preset.effects.finalEq.high,
+      lowFrequency: preset.effects.finalEq.lowFrequency,
+      highFrequency: preset.effects.finalEq.highFrequency,
+    });
+  }
   // Always present: volume + pan at the end of the chain.
   nodes.volume = new Tone.Volume(preset.level.volumeDb);
   nodes.panner = new Tone.Panner(preset.level.pan);
@@ -675,7 +745,19 @@ function buildChain(preset: VoicePreset): ChainNodes {
 }
 
 /** Connect entry node → chain in fixed order. Returns the chain's exit node.
- *  `entry` is the mixer (which receives the primary synth + optional layer). */
+ *  `entry` is the mixer (which receives the primary synth + optional layer).
+ *
+ *  Chain order:
+ *    entry (mixer)
+ *      → bodyFilter → compressor                       (pre-pedalboard shaping)
+ *      → distortion → chorus → delay → autoWah         (pedalboard stage)
+ *      → graphicEq bands → graphicEqLevel              (pre-amp tone shaper)
+ *      → ampPreGain → ampPreDist → ampTone
+ *        → ampPowerDist → ampPresence → ampOutput      (amp stage)
+ *      → voiceReverb                                   (spring/plate)
+ *      → cabIR → cabIRMakeup                           (cab stage)
+ *      → finalEq                                       (mastering EQ)
+ *      → volume → panner                               (output) */
 function wireChain(
   entry: Tone.ToneAudioNode,
   c: ChainNodes,
@@ -686,10 +768,21 @@ function wireChain(
   if (c.distortion) order.push(c.distortion);
   if (c.chorus) order.push(c.chorus);
   if (c.delay) order.push(c.delay);
-  if (c.eq) order.push(c.eq);
   if (c.autoWah) order.push(c.autoWah);
+  if (c.graphicEqBands) {
+    for (const band of c.graphicEqBands) order.push(band);
+  }
+  if (c.graphicEqLevel) order.push(c.graphicEqLevel);
+  if (c.ampPreGain) order.push(c.ampPreGain);
+  if (c.ampPreDist) order.push(c.ampPreDist);
+  if (c.ampTone) order.push(c.ampTone);
+  if (c.ampPowerDist) order.push(c.ampPowerDist);
+  if (c.ampPresence) order.push(c.ampPresence);
+  if (c.ampOutput) order.push(c.ampOutput);
+  if (c.voiceReverb) order.push(c.voiceReverb);
   if (c.cabIR) order.push(c.cabIR);
   if (c.cabIRMakeup) order.push(c.cabIRMakeup);
+  if (c.finalEq) order.push(c.finalEq);
   if (c.volume) order.push(c.volume);
   if (c.panner) order.push(c.panner);
   for (let i = 0; i < order.length - 1; i++) {
@@ -705,10 +798,21 @@ function disposeChain(c: ChainNodes): void {
   c.distortion?.dispose();
   c.chorus?.dispose();
   c.delay?.dispose();
-  c.eq?.dispose();
   c.autoWah?.dispose();
+  if (c.graphicEqBands) {
+    for (const band of c.graphicEqBands) band.dispose();
+  }
+  c.graphicEqLevel?.dispose();
+  c.ampPreGain?.dispose();
+  c.ampPreDist?.dispose();
+  c.ampTone?.dispose();
+  c.ampPowerDist?.dispose();
+  c.ampPresence?.dispose();
+  c.ampOutput?.dispose();
+  c.voiceReverb?.dispose();
   c.cabIR?.dispose();
   c.cabIRMakeup?.dispose();
+  c.finalEq?.dispose();
   c.volume?.dispose();
   c.panner?.dispose();
 }
@@ -771,6 +875,72 @@ function applyAutoWah(node: Tone.AutoWah, p: AutoWahParams): void {
   node.wet.rampTo(p.wet, 0.02);
 }
 
+/** Update all six amp stage nodes in place. Caller has already verified that
+ *  the amp config is still PRESENT (a present→absent transition triggers a
+ *  chain rebuild via sameEffectsShape). preDrive and powerDrive use direct
+ *  assignment (Tone.Distortion's `distortion` field isn't a Signal). All
+ *  gain / EQ params ramp to avoid clicks. */
+function applyAmp(c: ChainNodes, p: AmpParams): void {
+  if (c.ampPreGain) c.ampPreGain.gain.rampTo(dbToGain(p.preGainDb), 0.02);
+  if (c.ampPreDist) c.ampPreDist.distortion = p.preDrive;
+  if (c.ampTone) {
+    c.ampTone.low.rampTo(p.bass, 0.02);
+    c.ampTone.mid.rampTo(p.mid, 0.02);
+    c.ampTone.high.rampTo(p.treble, 0.02);
+  }
+  if (c.ampPowerDist) c.ampPowerDist.distortion = p.powerDrive;
+  if (c.ampPresence) c.ampPresence.gain.rampTo(p.presence, 0.02);
+  if (c.ampOutput) c.ampOutput.gain.rampTo(dbToGain(p.outputDb), 0.02);
+}
+
+function applyVoiceReverb(node: Tone.JCReverb, p: VoiceReverbParams): void {
+  node.roomSize.rampTo(p.roomSize, 0.02);
+  node.wet.rampTo(p.wet, 0.02);
+}
+
+/** Center frequencies for the 7-band graphic EQ, matching the Boss GE-7. */
+const GRAPHIC_EQ_FREQS = [100, 200, 400, 800, 1600, 3200, 6400] as const;
+const GRAPHIC_EQ_Q = 1.4;
+
+function graphicEqBandValues(p: GraphicEqParams): readonly number[] {
+  return [
+    p.band100Hz,
+    p.band200Hz,
+    p.band400Hz,
+    p.band800Hz,
+    p.band1_6kHz,
+    p.band3_2kHz,
+    p.band6_4kHz,
+  ];
+}
+
+function buildGraphicEqBands(p: GraphicEqParams): Tone.Filter[] {
+  const values = graphicEqBandValues(p);
+  return GRAPHIC_EQ_FREQS.map((freq, i) =>
+    new Tone.Filter({
+      type: 'peaking',
+      frequency: freq,
+      Q: GRAPHIC_EQ_Q,
+      gain: values[i],
+    }),
+  );
+}
+
+/** Update the 7 band gains + level gain in place. Caller has already
+ *  verified that graphicEq config is still present (a presence transition
+ *  triggers a chain rebuild via sameEffectsShape). */
+function applyGraphicEq(c: ChainNodes, p: GraphicEqParams): void {
+  if (c.graphicEqBands) {
+    const values = graphicEqBandValues(p);
+    for (let i = 0; i < c.graphicEqBands.length; i++) {
+      c.graphicEqBands[i].gain.rampTo(values[i], 0.02);
+    }
+  }
+  if (c.graphicEqLevel) {
+    c.graphicEqLevel.gain.rampTo(dbToGain(p.levelDb), 0.02);
+  }
+}
+
 function applyCompressor(node: Tone.Compressor, p: CompressorParams): void {
   node.threshold.rampTo(p.threshold, 0.02);
   node.ratio.rampTo(p.ratio, 0.02);
@@ -819,9 +989,12 @@ function sameEffectsShape(a: EffectsConfig | undefined, b: EffectsConfig | undef
     !!a?.distortion === !!b?.distortion &&
     !!a?.chorus === !!b?.chorus &&
     !!a?.delay === !!b?.delay &&
-    !!a?.eq === !!b?.eq &&
     !!a?.autoWah === !!b?.autoWah &&
+    !!a?.graphicEq === !!b?.graphicEq &&
+    !!a?.amp === !!b?.amp &&
+    !!a?.reverb === !!b?.reverb &&
     !!a?.cabIR === !!b?.cabIR &&
+    !!a?.finalEq === !!b?.finalEq &&
     // URL change also requires a rebuild — Tone.Convolver loads its IR in
     // the constructor and doesn't support swapping URLs in place. Makeup
     // gain changes go through the in-place path below.

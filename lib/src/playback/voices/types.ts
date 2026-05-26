@@ -215,13 +215,106 @@ export interface CabIRParams {
   readonly makeupDb?: number;
 }
 
+/** Amplifier simulation. Sits between the pedalboard and the cabinet IR in
+ *  the chain. Implemented as a 5-node stack: pre-gain → pre-amp saturation
+ *  → tone stack (EQ3) → power-amp saturation → output gain. Together these
+ *  give the clean→metal range from a single parameter shape — clean settings
+ *  use low drive on both stages, crunch uses moderate pre-drive, metal uses
+ *  high pre-drive plus moderate power-amp coloration.
+ *
+ *  Not modelled as named amp archetypes (Tweed, Plexi, Recto) — those live
+ *  in preset configs that set these params to evocative values. The data
+ *  shape stays generic so the preset surface can grow without expanding the
+ *  type. */
+export interface AmpParams {
+  /** dB. Input gain — drives signal harder into the pre-amp saturation stage. */
+  readonly preGainDb: number;
+  /** 0..1. Pre-amp saturation amount (clipper drive). 0 = clean pass-through;
+   *  1 = aggressive distortion. */
+  readonly preDrive: number;
+  /** dB. Tone-stack bass shelf. Typical range -12..+12. */
+  readonly bass: number;
+  /** dB. Tone-stack mid bell. Typical range -12..+12. */
+  readonly mid: number;
+  /** dB. Tone-stack treble shelf. Typical range -12..+12. */
+  readonly treble: number;
+  /** dB. High-shelf around 3kHz, applied after the tone stack. Mimics a real
+   *  amp's "presence" knob — adds top-end clarity to a saturated signal. */
+  readonly presence: number;
+  /** 0..1. Power-amp saturation amount. Typically lighter than preDrive;
+   *  contributes harmonic coloration rather than overt distortion. */
+  readonly powerDrive: number;
+  /** dB. Output trim after all amp stages. Use to compensate for level
+   *  changes introduced by the saturation stages. */
+  readonly outputDb: number;
+}
+
+/** Per-voice algorithmic reverb. Sits in the chain between the amp and the
+ *  cab — analogous to a spring reverb tank inside a guitar amp. Implemented
+ *  as `Tone.JCReverb` (Schroeder-style, naturally spring-like character).
+ *  Lightweight enough to run one per voice without significant CPU cost,
+ *  including at multi-track composition scale.
+ *
+ *  Separate from the global MasterBus reverb, which remains as a send for
+ *  room/hall ambience applied to the full mix. */
+export interface VoiceReverbParams {
+  /** 0..1. Room-size analogue. Maps to `JCReverb.roomSize`. Larger values =
+   *  longer, more diffuse tail. */
+  readonly roomSize: number;
+  /** 0..1. Wet/dry mix. 0 = bypassed-feel (dry-only), 1 = fully wet. */
+  readonly wet: number;
+}
+
+/** Seven-band graphic EQ modelled on the Boss GE-7. Sits between the
+ *  pedalboard and the amp — the classic pre-amp tone-shaper position. Each
+ *  band is a peaking filter centred on a fixed frequency; the user adjusts
+ *  its gain (±15 dB typical) to dial in the tone going into the amp. A
+ *  separate Level control trims the overall output of the EQ stage so
+ *  cuts/boosts don't change apparent loudness.
+ *
+ *  Implementation: 7 chained `Tone.Filter` peaking nodes + 1 output
+ *  `Tone.Gain`. Q ≈ 1.4 (approximate ANSI 1/3-octave width — wider feels
+ *  musical, narrower feels surgical). */
+export interface GraphicEqParams {
+  /** dB at 100 Hz. Typical range ±15. */
+  readonly band100Hz: number;
+  /** dB at 200 Hz. */
+  readonly band200Hz: number;
+  /** dB at 400 Hz. */
+  readonly band400Hz: number;
+  /** dB at 800 Hz. */
+  readonly band800Hz: number;
+  /** dB at 1.6 kHz. */
+  readonly band1_6kHz: number;
+  /** dB at 3.2 kHz. */
+  readonly band3_2kHz: number;
+  /** dB at 6.4 kHz. */
+  readonly band6_4kHz: number;
+  /** Overall output trim in dB. Typical range ±15. */
+  readonly levelDb: number;
+}
+
 export interface EffectsConfig {
+  // Pedalboard stage (pre-amp)
   readonly distortion?: DistortionParams;
   readonly chorus?: ChorusParams;
   readonly delay?: DelayParams;
-  readonly eq?: EQParams;
   readonly autoWah?: AutoWahParams;
+
+  // Pre-amp tone shaper (graphic EQ, post-pedalboard)
+  readonly graphicEq?: GraphicEqParams;
+
+  // Amp stage
+  readonly amp?: AmpParams;
+
+  // Post-amp per-voice reverb (spring/plate analogue)
+  readonly reverb?: VoiceReverbParams;
+
+  // Cab stage
   readonly cabIR?: CabIRParams;
+
+  // Post-cab mastering EQ
+  readonly finalEq?: EQParams;
 }
 
 // ─── Voice layer (sub-body / harmonic stacking) ──────────────────────────────

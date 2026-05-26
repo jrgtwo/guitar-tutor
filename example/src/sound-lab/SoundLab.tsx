@@ -29,6 +29,9 @@ import {
   type DelayParams,
   type DistortionParams,
   type DistortionOversample,
+  type AmpParams,
+  type VoiceReverbParams,
+  type GraphicEqParams,
   type EQParams,
   type EffectsConfig,
   type FMSynthParams,
@@ -49,6 +52,12 @@ import { AuditionDeck } from './AuditionDeck';
 import { Link } from '../router';
 import { VoicePickerChip } from '../voices/VoicePickerChip';
 import { SaveAsVariantDialog } from '../voices/SaveAsVariantDialog';
+import { Knob } from '../components/ui/Knob';
+import { VerticalSlider } from '../components/ui/VerticalSlider';
+import { AmpPanel } from '../components/sound-design/AmpPanel';
+import { Cabinet } from '../components/sound-design/Cabinet';
+import { RackUnit } from '../components/sound-design/RackUnit';
+import { ViewModeProvider, ViewToggle, useViewMode } from '../components/sound-design/view-mode';
 
 const OSCILLATOR_TYPES: OscillatorType[] = ['sine', 'square', 'sawtooth', 'triangle'];
 const CHORUS_TYPES: ChorusType[] = ['sine', 'square', 'sawtooth', 'triangle'];
@@ -210,6 +219,7 @@ export function SoundLab() {
   };
 
   return (
+    <ViewModeProvider>
     <div className="min-h-screen bg-background text-foreground">
       <header className="border-b border-border/40 bg-charcoal-raised/70 backdrop-blur px-6 py-3 flex items-center gap-4">
         <h1 className="text-lg font-bold tracking-tight">Sound Lab</h1>
@@ -217,6 +227,7 @@ export function SoundLab() {
           Tune voice variants · /?lab=1
         </span>
         <div className="ml-auto flex items-center gap-2">
+          <ViewToggle />
           <Link to={{ kind: 'home' }} className="text-xs font-mono uppercase tracking-wider text-muted-foreground hover:text-foreground">
             ← Back to app
           </Link>
@@ -363,95 +374,19 @@ export function SoundLab() {
           />
         </Section>
 
-        {/* Optional shaping blocks */}
-        <Section title="Body filter">
-          <ToggleableBlock
-            enabled={!!pendingPreset.bodyFilter}
-            onToggle={(on) =>
-              updateActive((p) => ({
-                ...p,
-                bodyFilter: on ? { cutoff: 3000, q: 0.7 } : undefined,
-              }))
-            }
-            label="Lowpass on"
-          >
-            {pendingPreset.bodyFilter && (
-              <BodyFilterControls
-                params={pendingPreset.bodyFilter}
-                onChange={(bodyFilter) => updateActive((p) => ({ ...p, bodyFilter }))}
-              />
-            )}
-          </ToggleableBlock>
-        </Section>
-
-        <Section title="Compressor">
-          <ToggleableBlock
-            enabled={!!pendingPreset.compressor}
-            onToggle={(on) =>
-              updateActive((p) => ({
-                ...p,
-                compressor: on
-                  ? { threshold: -18, ratio: 4, attack: 0.005, release: 0.1, knee: 6 }
-                  : undefined,
-              }))
-            }
-            label="Compressor on"
-          >
-            {pendingPreset.compressor && (
-              <CompressorControls
-                params={pendingPreset.compressor}
-                onChange={(compressor) => updateActive((p) => ({ ...p, compressor }))}
-              />
-            )}
-          </ToggleableBlock>
-        </Section>
-
-        {/* Effects (now always available regardless of family — lab is exploratory) */}
+        {/* Effects rack — body filter (pre-pre-amp lowpass) leads, then
+            compressor, pedalboard, amp, post-amp, master reverb at the end.
+            Order matches signal flow top to bottom. */}
         <Section title="Effects">
           <EffectControls
             effects={pendingPreset.effects ?? {}}
             onChange={(effects) => updateActive((p) => ({ ...p, effects }))}
-          />
-        </Section>
-
-        {/* Master / reverb */}
-        <Section title="Master · Reverb">
-          <div className="flex items-center justify-between">
-            <Label htmlFor="lab-reverb-on" className="cursor-pointer">
-              Reverb enabled
-            </Label>
-            <Switch
-              id="lab-reverb-on"
-              checked={pendingReverb.enabled}
-              onCheckedChange={(enabled) => updateReverb((r) => ({ ...r, enabled }))}
-            />
-          </div>
-          <ParameterSlider
-            label="Decay"
-            value={pendingReverb.decay}
-            min={0.1}
-            max={6}
-            step={0.05}
-            unit="s"
-            onChange={(decay) => updateReverb((r) => ({ ...r, decay }))}
-          />
-          <ParameterSlider
-            label="Pre-delay"
-            value={pendingReverb.preDelay}
-            min={0}
-            max={0.2}
-            step={0.005}
-            unit="s"
-            precision={3}
-            onChange={(preDelay) => updateReverb((r) => ({ ...r, preDelay }))}
-          />
-          <ParameterSlider
-            label="Wet"
-            value={pendingReverb.wet}
-            min={0}
-            max={1}
-            step={0.01}
-            onChange={(wet) => updateReverb((r) => ({ ...r, wet }))}
+            compressor={pendingPreset.compressor}
+            onCompressorChange={(compressor) => updateActive((p) => ({ ...p, compressor }))}
+            bodyFilter={pendingPreset.bodyFilter}
+            onBodyFilterChange={(bodyFilter) => updateActive((p) => ({ ...p, bodyFilter }))}
+            masterReverb={pendingReverb}
+            onMasterReverbChange={(r) => updateReverb(r)}
           />
         </Section>
 
@@ -486,6 +421,7 @@ export function SoundLab() {
         />
       )}
     </div>
+    </ViewModeProvider>
   );
 }
 
@@ -1021,135 +957,75 @@ function CompressorControls({
 function EffectControls({
   effects,
   onChange,
+  compressor,
+  onCompressorChange,
+  bodyFilter,
+  onBodyFilterChange,
+  masterReverb,
+  onMasterReverbChange,
 }: {
   effects: EffectsConfig;
   onChange: (next: EffectsConfig) => void;
+  compressor: CompressorParams | undefined;
+  onCompressorChange: (next: CompressorParams | undefined) => void;
+  bodyFilter: BodyFilterParams | undefined;
+  onBodyFilterChange: (next: BodyFilterParams | undefined) => void;
+  masterReverb: ReverbSettings;
+  onMasterReverbChange: (next: ReverbSettings) => void;
 }) {
+  // Section order mirrors the audio chain — top to bottom in the rack.
+  //   BodyFilter → Compressor → Distortion → Chorus → Delay → AutoWah → Amp
+  //     → Reverb (per-voice) → Cab → Final EQ → Master Reverb (global)
   return (
     <>
-      <EffectSection
-        title="Distortion"
-        enabled={!!effects.distortion}
-        onToggle={(on) =>
-          onChange({
-            ...effects,
-            distortion: on ? { drive: 0.3, wet: 0.25, oversample: '2x' } : undefined,
-          })
-        }
-      >
-        {effects.distortion && (
-          <DistortionControls
-            params={effects.distortion}
-            onChange={(distortion) => onChange({ ...effects, distortion })}
-          />
-        )}
-      </EffectSection>
-
-      <EffectSection
-        title="Chorus"
-        enabled={!!effects.chorus}
-        onToggle={(on) =>
-          onChange({
-            ...effects,
-            chorus: on
-              ? {
-                  frequency: 1.5,
-                  depth: 0.3,
-                  wet: 0.2,
-                  type: 'sine',
-                  feedback: 0.1,
-                  delayTime: 0.0035,
-                  spread: 180,
-                }
-              : undefined,
-          })
-        }
-      >
-        {effects.chorus && (
-          <ChorusControls
-            params={effects.chorus}
-            onChange={(chorus) => onChange({ ...effects, chorus })}
-          />
-        )}
-      </EffectSection>
-
-      <EffectSection
-        title="Delay"
-        enabled={!!effects.delay}
-        onToggle={(on) =>
-          onChange({
-            ...effects,
-            delay: on ? { delayTime: 0.25, feedback: 0.3, wet: 0.15 } : undefined,
-          })
-        }
-      >
-        {effects.delay && (
-          <DelayControls
-            params={effects.delay}
-            onChange={(delay) => onChange({ ...effects, delay })}
-          />
-        )}
-      </EffectSection>
-
-      <EffectSection
-        title="EQ"
-        enabled={!!effects.eq}
-        onToggle={(on) =>
-          onChange({
-            ...effects,
-            eq: on
-              ? { low: 0, mid: 0, high: 0, lowFrequency: 400, highFrequency: 2500 }
-              : undefined,
-          })
-        }
-      >
-        {effects.eq && (
-          <EQControls
-            params={effects.eq}
-            onChange={(eq) => onChange({ ...effects, eq })}
-          />
-        )}
-      </EffectSection>
-
-      <EffectSection
-        title="Auto-wah (envelope filter)"
-        enabled={!!effects.autoWah}
-        onToggle={(on) =>
-          onChange({
-            ...effects,
-            autoWah: on
-              ? { baseFrequency: 100, octaves: 6, sensitivity: 0, q: 2, gain: 2, wet: 0.5 }
-              : undefined,
-          })
-        }
-      >
-        {effects.autoWah && (
-          <AutoWahControls
-            params={effects.autoWah}
-            onChange={(autoWah) => onChange({ ...effects, autoWah })}
-          />
-        )}
-      </EffectSection>
-
-      <EffectSection
-        title="Cabinet (speaker + mic IR)"
-        enabled={!!effects.cabIR}
-        onToggle={(on) =>
-          onChange({
-            ...effects,
-            // Default to the warmest registered IR — works for clean to
-            // mild-crunch hollowbody tones. User can swap in the picker.
-            cabIR: on ? { url: CABINET_IRS[0]!.url, makeupDb: 0 } : undefined,
-          })
-        }
-      >
-        {effects.cabIR && (
-          <CabinetControls
-            cabIR={effects.cabIR}
-            onChange={(cabIR) => onChange({ ...effects, cabIR })}
-          />
-        )}
-      </EffectSection>
+      <BodyFilterSection
+        params={bodyFilter}
+        onChange={onBodyFilterChange}
+      />
+      <CompressorSection
+        params={compressor}
+        onChange={onCompressorChange}
+      />
+      <DistortionSection
+        params={effects.distortion}
+        onChange={(distortion) => onChange({ ...effects, distortion })}
+      />
+      <ChorusSection
+        params={effects.chorus}
+        onChange={(chorus) => onChange({ ...effects, chorus })}
+      />
+      <DelaySection
+        params={effects.delay}
+        onChange={(delay) => onChange({ ...effects, delay })}
+      />
+      <AutoWahSection
+        params={effects.autoWah}
+        onChange={(autoWah) => onChange({ ...effects, autoWah })}
+      />
+      <GraphicEqSection
+        params={effects.graphicEq}
+        onChange={(graphicEq) => onChange({ ...effects, graphicEq })}
+      />
+      <AmpSection
+        amp={effects.amp}
+        onChange={(amp) => onChange({ ...effects, amp })}
+      />
+      <ReverbSection
+        reverb={effects.reverb}
+        onChange={(reverb) => onChange({ ...effects, reverb })}
+      />
+      <CabinetSection
+        cabIR={effects.cabIR}
+        onChange={(cabIR) => onChange({ ...effects, cabIR })}
+      />
+      <FinalEqSection
+        finalEq={effects.finalEq}
+        onChange={(finalEq) => onChange({ ...effects, finalEq })}
+      />
+      <MasterReverbSection
+        reverb={masterReverb}
+        onChange={onMasterReverbChange}
+      />
     </>
   );
 }
@@ -1322,3 +1198,681 @@ function AutoWahControls({
     </div>
   );
 }
+
+// ─── Effects rack sections — graphic/slider branching ───────────────────────
+// Each effect (Compressor, Distortion, Chorus, Delay, AutoWah, Reverb)
+// renders as a RackUnit (horizontal rack-style panel) in graphic mode, and
+// the classic EffectSection + ParameterSlider rows in slider mode. Both
+// write the same field (preset.compressor for Compressor, preset.effects.*
+// for the others). On/off toggle is the RackUnit power switch in graphic
+// mode and the EffectSection switch in slider mode.
+
+const DEFAULT_BODY_FILTER: BodyFilterParams = { cutoff: 3000, q: 0.7 };
+
+function BodyFilterSection({
+  params,
+  onChange,
+}: {
+  params: BodyFilterParams | undefined;
+  onChange: (next: BodyFilterParams | undefined) => void;
+}) {
+  const mode = useViewMode();
+  const enabled = !!params;
+  const current = params ?? DEFAULT_BODY_FILTER;
+  const toggle = (on: boolean) => onChange(on ? { ...DEFAULT_BODY_FILTER } : undefined);
+  const update = (patch: Partial<BodyFilterParams>) => params && onChange({ ...params, ...patch });
+  if (mode === 'graphic') {
+    // Cutoff + Q only in graphic mode. Envelope sub-section (ADSR + base/oct)
+    // is slider-mode only for now — nested toggle-with-sub-controls deserves
+    // its own design pass and slider mode preserves full functionality.
+    return (
+      <RackUnit label="Lowpass" enabled={enabled} onToggle={toggle} accent="slate">
+        <Knob label="Cutoff" value={current.cutoff} onChange={(v) => update({ cutoff: v })}
+          min={200} max={12000} step={50} defaultValue={3000} disabled={!enabled} size={44}
+          formatValue={(v) => `${v.toFixed(0)} Hz`} />
+        <Knob label="Q" value={current.q} onChange={(v) => update({ q: v })}
+          min={0.1} max={18} step={0.1} defaultValue={0.7} disabled={!enabled} size={44}
+          formatValue={(v) => v.toFixed(1)} />
+        {params?.envelope && (
+          <div className="text-[9px] font-mono text-amber-300/70 italic max-w-[120px]">
+            Envelope is active (switch to slider view to edit).
+          </div>
+        )}
+      </RackUnit>
+    );
+  }
+  return (
+    <EffectSection title="Lowpass (body filter)" enabled={enabled} onToggle={toggle}>
+      {params && <BodyFilterControls params={params} onChange={onChange} />}
+    </EffectSection>
+  );
+}
+
+const DEFAULT_COMPRESSOR: CompressorParams = {
+  threshold: -18, ratio: 4, attack: 0.005, release: 0.1, knee: 6,
+};
+
+function CompressorSection({
+  params,
+  onChange,
+}: {
+  params: CompressorParams | undefined;
+  onChange: (next: CompressorParams | undefined) => void;
+}) {
+  const mode = useViewMode();
+  const enabled = !!params;
+  const current = params ?? DEFAULT_COMPRESSOR;
+  const toggle = (on: boolean) => onChange(on ? { ...DEFAULT_COMPRESSOR } : undefined);
+  const update = (patch: Partial<CompressorParams>) => params && onChange({ ...params, ...patch });
+  if (mode === 'graphic') {
+    return (
+      <RackUnit label="Compressor" enabled={enabled} onToggle={toggle} accent="green">
+        <Knob label="Thresh" value={current.threshold} onChange={(v) => update({ threshold: v })}
+          min={-60} max={0} step={0.5} defaultValue={-18} disabled={!enabled} size={44}
+          formatValue={(v) => `${v.toFixed(1)} dB`} />
+        <Knob label="Ratio" value={current.ratio} onChange={(v) => update({ ratio: v })}
+          min={1} max={20} step={0.1} defaultValue={4} disabled={!enabled} size={44}
+          formatValue={(v) => `${v.toFixed(1)}:1`} />
+        <Knob label="Attack" value={current.attack} onChange={(v) => update({ attack: v })}
+          min={0.001} max={1} step={0.001} defaultValue={0.005} disabled={!enabled} size={44}
+          formatValue={(v) => `${(v * 1000).toFixed(0)} ms`} />
+        <Knob label="Release" value={current.release} onChange={(v) => update({ release: v })}
+          min={0.01} max={2} step={0.005} defaultValue={0.1} disabled={!enabled} size={44}
+          formatValue={(v) => `${(v * 1000).toFixed(0)} ms`} />
+        <Knob label="Knee" value={current.knee} onChange={(v) => update({ knee: v })}
+          min={0} max={40} step={0.5} defaultValue={6} disabled={!enabled} size={44}
+          formatValue={(v) => `${v.toFixed(1)} dB`} />
+      </RackUnit>
+    );
+  }
+  return (
+    <EffectSection title="Compressor" enabled={enabled} onToggle={toggle}>
+      {params && (
+        <div className="space-y-2 pt-1">
+          <CompressorControls params={params} onChange={onChange} />
+        </div>
+      )}
+    </EffectSection>
+  );
+}
+
+const DEFAULT_DISTORTION: DistortionParams = { drive: 0.3, wet: 0.25, oversample: '2x' };
+
+function DistortionSection({
+  params,
+  onChange,
+}: {
+  params: DistortionParams | undefined;
+  onChange: (next: DistortionParams | undefined) => void;
+}) {
+  const mode = useViewMode();
+  const enabled = !!params;
+  const current = params ?? DEFAULT_DISTORTION;
+  const toggle = (on: boolean) => onChange(on ? { ...DEFAULT_DISTORTION } : undefined);
+  const update = (patch: Partial<DistortionParams>) => params && onChange({ ...params, ...patch });
+  if (mode === 'graphic') {
+    return (
+      <RackUnit label="Distortion" enabled={enabled} onToggle={toggle} accent="orange">
+          <Knob label="Drive" value={current.drive} onChange={(v) => update({ drive: v })}
+            min={0} max={1} step={0.01} defaultValue={0.3} disabled={!enabled} size={44}
+            formatValue={(v) => v.toFixed(2)} />
+          <Knob label="Wet" value={current.wet} onChange={(v) => update({ wet: v })}
+            min={0} max={1} step={0.01} defaultValue={0.25} disabled={!enabled} size={44}
+            formatValue={(v) => v.toFixed(2)} />
+        </RackUnit>
+    );
+  }
+  return (
+    <EffectSection title="Distortion" enabled={enabled} onToggle={toggle}>
+      {params && <DistortionControls params={params} onChange={onChange} />}
+    </EffectSection>
+  );
+}
+
+const DEFAULT_CHORUS: ChorusParams = {
+  frequency: 1.5, depth: 0.3, wet: 0.2, type: 'sine',
+  feedback: 0.1, delayTime: 0.0035, spread: 180,
+};
+
+function ChorusSection({
+  params,
+  onChange,
+}: {
+  params: ChorusParams | undefined;
+  onChange: (next: ChorusParams | undefined) => void;
+}) {
+  const mode = useViewMode();
+  const enabled = !!params;
+  const current = params ?? DEFAULT_CHORUS;
+  const toggle = (on: boolean) => onChange(on ? { ...DEFAULT_CHORUS } : undefined);
+  const update = (patch: Partial<ChorusParams>) => params && onChange({ ...params, ...patch });
+  if (mode === 'graphic') {
+    return (
+      <RackUnit label="Chorus" enabled={enabled} onToggle={toggle} accent="blue">
+          <Knob label="Rate" value={current.frequency} onChange={(v) => update({ frequency: v })}
+            min={0.05} max={10} step={0.05} defaultValue={1.5} disabled={!enabled} size={44}
+            formatValue={(v) => `${v.toFixed(2)} Hz`} />
+          <Knob label="Depth" value={current.depth} onChange={(v) => update({ depth: v })}
+            min={0} max={1} step={0.01} defaultValue={0.3} disabled={!enabled} size={44}
+            formatValue={(v) => v.toFixed(2)} />
+          <Knob label="Feedback" value={current.feedback} onChange={(v) => update({ feedback: v })}
+            min={0} max={1} step={0.01} defaultValue={0.1} disabled={!enabled} size={44}
+            formatValue={(v) => v.toFixed(2)} />
+          <Knob label="Wet" value={current.wet} onChange={(v) => update({ wet: v })}
+            min={0} max={1} step={0.01} defaultValue={0.2} disabled={!enabled} size={44}
+            formatValue={(v) => v.toFixed(2)} />
+        </RackUnit>
+    );
+  }
+  return (
+    <EffectSection title="Chorus" enabled={enabled} onToggle={toggle}>
+      {params && <ChorusControls params={params} onChange={onChange} />}
+    </EffectSection>
+  );
+}
+
+const DEFAULT_DELAY: DelayParams = { delayTime: 0.25, feedback: 0.3, wet: 0.15 };
+
+function DelaySection({
+  params,
+  onChange,
+}: {
+  params: DelayParams | undefined;
+  onChange: (next: DelayParams | undefined) => void;
+}) {
+  const mode = useViewMode();
+  const enabled = !!params;
+  const current = params ?? DEFAULT_DELAY;
+  const toggle = (on: boolean) => onChange(on ? { ...DEFAULT_DELAY } : undefined);
+  const update = (patch: Partial<DelayParams>) => params && onChange({ ...params, ...patch });
+  if (mode === 'graphic') {
+    return (
+      <RackUnit label="Delay" enabled={enabled} onToggle={toggle} accent="purple">
+          <Knob label="Time" value={current.delayTime} onChange={(v) => update({ delayTime: v })}
+            min={0.01} max={1.5} step={0.01} defaultValue={0.25} disabled={!enabled} size={44}
+            formatValue={(v) => `${(v * 1000).toFixed(0)} ms`} />
+          <Knob label="Feedback" value={current.feedback} onChange={(v) => update({ feedback: v })}
+            min={0} max={0.95} step={0.01} defaultValue={0.3} disabled={!enabled} size={44}
+            formatValue={(v) => v.toFixed(2)} />
+          <Knob label="Wet" value={current.wet} onChange={(v) => update({ wet: v })}
+            min={0} max={1} step={0.01} defaultValue={0.15} disabled={!enabled} size={44}
+            formatValue={(v) => v.toFixed(2)} />
+        </RackUnit>
+    );
+  }
+  return (
+    <EffectSection title="Delay" enabled={enabled} onToggle={toggle}>
+      {params && <DelayControls params={params} onChange={onChange} />}
+    </EffectSection>
+  );
+}
+
+const DEFAULT_AUTOWAH: AutoWahParams = {
+  baseFrequency: 100, octaves: 6, sensitivity: 0, q: 2, gain: 2, wet: 0.5,
+};
+
+function AutoWahSection({
+  params,
+  onChange,
+}: {
+  params: AutoWahParams | undefined;
+  onChange: (next: AutoWahParams | undefined) => void;
+}) {
+  const mode = useViewMode();
+  const enabled = !!params;
+  const current = params ?? DEFAULT_AUTOWAH;
+  const toggle = (on: boolean) => onChange(on ? { ...DEFAULT_AUTOWAH } : undefined);
+  const update = (patch: Partial<AutoWahParams>) => params && onChange({ ...params, ...patch });
+  if (mode === 'graphic') {
+    return (
+      <RackUnit label="Auto-wah" enabled={enabled} onToggle={toggle} accent="red">
+          <Knob label="Base" value={current.baseFrequency} onChange={(v) => update({ baseFrequency: v })}
+            min={50} max={2000} step={10} defaultValue={100} disabled={!enabled} size={44}
+            formatValue={(v) => `${v.toFixed(0)} Hz`} />
+          <Knob label="Octaves" value={current.octaves} onChange={(v) => update({ octaves: v })}
+            min={0} max={8} step={0.1} defaultValue={6} disabled={!enabled} size={44}
+            formatValue={(v) => v.toFixed(1)} />
+          <Knob label="Sense" value={current.sensitivity} onChange={(v) => update({ sensitivity: v })}
+            min={-40} max={20} step={0.5} defaultValue={0} disabled={!enabled} size={44}
+            formatValue={(v) => `${v >= 0 ? '+' : ''}${v.toFixed(1)} dB`} />
+          <Knob label="Q" value={current.q} onChange={(v) => update({ q: v })}
+            min={0.1} max={18} step={0.1} defaultValue={2} disabled={!enabled} size={44}
+            formatValue={(v) => v.toFixed(1)} />
+          <Knob label="Wet" value={current.wet} onChange={(v) => update({ wet: v })}
+            min={0} max={1} step={0.01} defaultValue={0.5} disabled={!enabled} size={44}
+            formatValue={(v) => v.toFixed(2)} />
+        </RackUnit>
+    );
+  }
+  return (
+    <EffectSection title="Auto-wah (envelope filter)" enabled={enabled} onToggle={toggle}>
+      {params && <AutoWahControls params={params} onChange={onChange} />}
+    </EffectSection>
+  );
+}
+
+// ─── Post-amp sections — Phase 3c (Reverb / Cabinet / Final EQ) ─────────────
+
+const DEFAULT_REVERB: VoiceReverbParams = { roomSize: 0.5, wet: 0.25 };
+
+function ReverbSection({
+  reverb,
+  onChange,
+}: {
+  reverb: VoiceReverbParams | undefined;
+  onChange: (next: VoiceReverbParams | undefined) => void;
+}) {
+  const mode = useViewMode();
+  const enabled = !!reverb;
+  const current = reverb ?? DEFAULT_REVERB;
+  const toggle = (on: boolean) => onChange(on ? { ...DEFAULT_REVERB } : undefined);
+  const update = (patch: Partial<VoiceReverbParams>) => reverb && onChange({ ...reverb, ...patch });
+  if (mode === 'graphic') {
+    return (
+      <RackUnit label="Reverb" enabled={enabled} onToggle={toggle} accent="yellow">
+        <Knob label="Room" value={current.roomSize} onChange={(v) => update({ roomSize: v })}
+          min={0} max={1} step={0.01} defaultValue={0.5} disabled={!enabled} size={44}
+          formatValue={(v) => v.toFixed(2)} />
+        <Knob label="Wet" value={current.wet} onChange={(v) => update({ wet: v })}
+          min={0} max={1} step={0.01} defaultValue={0.25} disabled={!enabled} size={44}
+          formatValue={(v) => v.toFixed(2)} />
+      </RackUnit>
+    );
+  }
+  return (
+    <EffectSection title="Reverb (per-voice spring)" enabled={enabled} onToggle={toggle}>
+      {reverb && (
+        <div className="space-y-2 pt-1">
+          <ParameterSlider label="Room size" value={reverb.roomSize} min={0} max={1} step={0.01}
+            onChange={(roomSize) => onChange({ ...reverb, roomSize })} />
+          <ParameterSlider label="Wet" value={reverb.wet} min={0} max={1} step={0.01}
+            onChange={(wet) => onChange({ ...reverb, wet })} />
+        </div>
+      )}
+    </EffectSection>
+  );
+}
+
+function CabinetSection({
+  cabIR,
+  onChange,
+}: {
+  cabIR: { url: string; makeupDb?: number } | undefined;
+  onChange: (next: { url: string; makeupDb?: number } | undefined) => void;
+}) {
+  const mode = useViewMode();
+  const enabled = !!cabIR;
+  const toggle = (on: boolean) =>
+    onChange(on ? { url: CABINET_IRS[0]!.url, makeupDb: 0 } : undefined);
+  if (mode === 'graphic') {
+    const irOptions = CABINET_IRS.map((ir) => ({ id: ir.id, label: ir.label }));
+    const currentIrId = cabIR ? detectCabinetIR(cabIR.url)?.id : undefined;
+    const activeIR = cabIR ? detectCabinetIR(cabIR.url) : null;
+    return (
+      <div className="border border-border/30 rounded-md p-3 flex gap-6 items-start justify-center">
+        <Cabinet
+          irOptions={irOptions}
+          selectedIrId={currentIrId}
+          onIrChange={(id) => {
+            const next = CABINET_IRS.find((ir) => ir.id === id);
+            if (next && cabIR) onChange({ ...cabIR, url: next.url });
+          }}
+          enabled={enabled}
+          onToggle={toggle}
+        />
+        <div className="flex flex-col items-center gap-2 pt-12">
+          <Knob
+            label="Makeup"
+            value={cabIR?.makeupDb ?? 0}
+            onChange={(v) => cabIR && onChange({ ...cabIR, makeupDb: v })}
+            min={-24}
+            max={24}
+            step={0.5}
+            defaultValue={0}
+            disabled={!enabled}
+            formatValue={(v) => `${v >= 0 ? '+' : ''}${v.toFixed(1)} dB`}
+          />
+          {activeIR && (
+            <p className="text-[10px] font-mono text-foreground/60 max-w-[180px] text-center leading-tight">
+              {activeIR.description}
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
+  return (
+    <EffectSection title="Cabinet (speaker + mic IR)" enabled={enabled} onToggle={toggle}>
+      {cabIR && <CabinetControls cabIR={cabIR} onChange={onChange} />}
+    </EffectSection>
+  );
+}
+
+const DEFAULT_FINAL_EQ: EQParams = {
+  low: 0, mid: 0, high: 0, lowFrequency: 400, highFrequency: 2500,
+};
+
+function FinalEqSection({
+  finalEq,
+  onChange,
+}: {
+  finalEq: EQParams | undefined;
+  onChange: (next: EQParams | undefined) => void;
+}) {
+  const mode = useViewMode();
+  const enabled = !!finalEq;
+  const current = finalEq ?? DEFAULT_FINAL_EQ;
+  const toggle = (on: boolean) => onChange(on ? { ...DEFAULT_FINAL_EQ } : undefined);
+  const update = (patch: Partial<EQParams>) => finalEq && onChange({ ...finalEq, ...patch });
+  if (mode === 'graphic') {
+    return (
+      <div className="border border-border/30 rounded-md p-3">
+        <AmpPanel label="Final EQ" enabled={enabled} onToggle={toggle}>
+          <Knob label="Low" value={current.low} onChange={(v) => update({ low: v })}
+            min={-12} max={12} step={0.5} defaultValue={0} disabled={!enabled}
+            formatValue={(v) => `${v >= 0 ? '+' : ''}${v.toFixed(1)}`} />
+          <Knob label="Mid" value={current.mid} onChange={(v) => update({ mid: v })}
+            min={-12} max={12} step={0.5} defaultValue={0} disabled={!enabled}
+            formatValue={(v) => `${v >= 0 ? '+' : ''}${v.toFixed(1)}`} />
+          <Knob label="High" value={current.high} onChange={(v) => update({ high: v })}
+            min={-12} max={12} step={0.5} defaultValue={0} disabled={!enabled}
+            formatValue={(v) => `${v >= 0 ? '+' : ''}${v.toFixed(1)}`} />
+          <Knob label="L/M Hz" value={current.lowFrequency} onChange={(v) => update({ lowFrequency: v })}
+            min={80} max={1000} step={10} defaultValue={400} disabled={!enabled}
+            formatValue={(v) => `${v.toFixed(0)} Hz`} />
+          <Knob label="M/H Hz" value={current.highFrequency} onChange={(v) => update({ highFrequency: v })}
+            min={500} max={8000} step={50} defaultValue={2500} disabled={!enabled}
+            formatValue={(v) => `${v.toFixed(0)} Hz`} />
+        </AmpPanel>
+      </div>
+    );
+  }
+  return (
+    <EffectSection title="Final EQ (post-cabinet)" enabled={enabled} onToggle={toggle}>
+      {finalEq && <EQControls params={finalEq} onChange={onChange} />}
+    </EffectSection>
+  );
+}
+
+// Master Reverb — global setting (lives on MasterBus, shared by all voices).
+// Renders as the last rack unit with a slate accent stripe to visually signal
+// "different scope" vs the yellow per-voice Reverb earlier in the rack. Settings
+// always exist; toggle flips `enabled` rather than adding/removing config.
+function MasterReverbSection({
+  reverb,
+  onChange,
+}: {
+  reverb: ReverbSettings;
+  onChange: (next: ReverbSettings) => void;
+}) {
+  const mode = useViewMode();
+  const enabled = reverb.enabled;
+  const toggle = (on: boolean) => onChange({ ...reverb, enabled: on });
+  const update = (patch: Partial<ReverbSettings>) => onChange({ ...reverb, ...patch });
+  if (mode === 'graphic') {
+    return (
+      <RackUnit label="Master Reverb" enabled={enabled} onToggle={toggle} accent="slate">
+        <Knob label="Decay" value={reverb.decay} onChange={(v) => update({ decay: v })}
+          min={0.1} max={6} step={0.05} defaultValue={1.5} disabled={!enabled} size={44}
+          formatValue={(v) => `${v.toFixed(2)} s`} />
+        <Knob label="Predelay" value={reverb.preDelay} onChange={(v) => update({ preDelay: v })}
+          min={0} max={0.2} step={0.005} defaultValue={0.01} disabled={!enabled} size={44}
+          formatValue={(v) => `${(v * 1000).toFixed(0)} ms`} />
+        <Knob label="Wet" value={reverb.wet} onChange={(v) => update({ wet: v })}
+          min={0} max={1} step={0.01} defaultValue={0.18} disabled={!enabled} size={44}
+          formatValue={(v) => v.toFixed(2)} />
+        <div className="text-[9px] font-mono text-zinc-400/70 italic max-w-[140px] leading-tight">
+          Global · shared across all voices · not saved with variant
+        </div>
+      </RackUnit>
+    );
+  }
+  return (
+    <EffectSection title="Master Reverb (global send)" enabled={enabled} onToggle={toggle}>
+      <div className="space-y-2 pt-1">
+        <ParameterSlider label="Decay" value={reverb.decay} min={0.1} max={6} step={0.05} unit="s"
+          onChange={(decay) => update({ decay })} />
+        <ParameterSlider label="Pre-delay" value={reverb.preDelay} min={0} max={0.2} step={0.005} unit="s" precision={3}
+          onChange={(preDelay) => update({ preDelay })} />
+        <ParameterSlider label="Wet" value={reverb.wet} min={0} max={1} step={0.01}
+          onChange={(wet) => update({ wet })} />
+      </div>
+    </EffectSection>
+  );
+}
+
+// Graphic EQ — Boss GE-7-inspired 7-band pre-amp tone shaper. Renders as
+// vertical faders in BOTH view modes — the metaphor IS sliders, so it'd be
+// weird to map them to knobs. Graphic mode wraps in a RackUnit; slider mode
+// wraps in the classic EffectSection. The fader layout itself is identical.
+const GRAPHIC_EQ_BAND_DEFS: ReadonlyArray<{
+  key: keyof Omit<GraphicEqParams, 'levelDb'>;
+  label: string;
+}> = [
+  { key: 'band100Hz',  label: '100' },
+  { key: 'band200Hz',  label: '200' },
+  { key: 'band400Hz',  label: '400' },
+  { key: 'band800Hz',  label: '800' },
+  { key: 'band1_6kHz', label: '1.6k' },
+  { key: 'band3_2kHz', label: '3.2k' },
+  { key: 'band6_4kHz', label: '6.4k' },
+];
+
+const DEFAULT_GRAPHIC_EQ: GraphicEqParams = {
+  band100Hz: 0, band200Hz: 0, band400Hz: 0, band800Hz: 0,
+  band1_6kHz: 0, band3_2kHz: 0, band6_4kHz: 0, levelDb: 0,
+};
+
+function GraphicEqSection({
+  params,
+  onChange,
+}: {
+  params: GraphicEqParams | undefined;
+  onChange: (next: GraphicEqParams | undefined) => void;
+}) {
+  const mode = useViewMode();
+  const enabled = !!params;
+  const current = params ?? DEFAULT_GRAPHIC_EQ;
+  const toggle = (on: boolean) => onChange(on ? { ...DEFAULT_GRAPHIC_EQ } : undefined);
+  const update = (patch: Partial<GraphicEqParams>) => params && onChange({ ...params, ...patch });
+
+  const faders = (
+    <div className="flex items-end justify-start gap-2 flex-wrap">
+      {GRAPHIC_EQ_BAND_DEFS.map(({ key, label }) => (
+        <VerticalSlider
+          key={key}
+          label={label}
+          value={current[key]}
+          onChange={(v) => update({ [key]: v } as Partial<GraphicEqParams>)}
+          min={-15}
+          max={15}
+          step={0.5}
+          defaultValue={0}
+          centerValue={0}
+          disabled={!enabled}
+          formatValue={(v) => `${v >= 0 ? '+' : ''}${v.toFixed(1)} dB`}
+        />
+      ))}
+      {/* Visual divider between the 7 EQ bands and the Level slider */}
+      <div className="w-px self-stretch bg-zinc-700/60 mx-1" aria-hidden="true" />
+      <VerticalSlider
+        label="Level"
+        value={current.levelDb}
+        onChange={(v) => update({ levelDb: v })}
+        min={-15}
+        max={15}
+        step={0.5}
+        defaultValue={0}
+        centerValue={0}
+        disabled={!enabled}
+        formatValue={(v) => `${v >= 0 ? '+' : ''}${v.toFixed(1)} dB`}
+      />
+    </div>
+  );
+
+  if (mode === 'graphic') {
+    return (
+      <RackUnit label="Graphic EQ" enabled={enabled} onToggle={toggle} accent="amber">
+        {faders}
+      </RackUnit>
+    );
+  }
+  return (
+    <EffectSection title="Graphic EQ (pre-amp, 7-band)" enabled={enabled} onToggle={toggle}>
+      <div className="pt-2 flex justify-center">{faders}</div>
+    </EffectSection>
+  );
+}
+
+// ─── Amp section — Phase 2d proof of concept ─────────────────────────────────
+// First Sound Lab section that branches on view mode. In graphic mode renders
+// the new AmpPanel with Knobs; in slider mode renders the classic
+// EffectSection + ParameterSlider style. Both write to the same EffectsConfig
+// `amp` field so the chosen view doesn't change the persisted data.
+const DEFAULT_AMP: AmpParams = {
+  preGainDb: 0,
+  preDrive: 0.3,
+  bass: 0,
+  mid: 0,
+  treble: 0,
+  presence: 0,
+  powerDrive: 0.1,
+  outputDb: 0,
+};
+
+function AmpSection({
+  amp,
+  onChange,
+}: {
+  amp: AmpParams | undefined;
+  onChange: (next: AmpParams | undefined) => void;
+}) {
+  const mode = useViewMode();
+  const enabled = !!amp;
+  // When amp is disabled (config absent), render knobs against DEFAULT_AMP so
+  // the panel layout stays visually consistent. The Knobs are disabled so the
+  // user can't edit values into the void; they have to flip power on first.
+  const current = amp ?? DEFAULT_AMP;
+  const toggle = (on: boolean) => onChange(on ? { ...DEFAULT_AMP } : undefined);
+  const updateField = <K extends keyof AmpParams>(key: K, value: AmpParams[K]) => {
+    if (!amp) return;
+    onChange({ ...amp, [key]: value });
+  };
+
+  if (mode === 'graphic') {
+    return (
+      <div className="border border-border/30 rounded-md p-3">
+        <AmpPanel label="Fretwork 50" enabled={enabled} onToggle={toggle}>
+          <Knob
+            label="Pre Gain"
+            value={current.preGainDb}
+            onChange={(v) => updateField('preGainDb', v)}
+            min={-12}
+            max={24}
+            step={0.5}
+            defaultValue={0}
+            disabled={!enabled}
+            formatValue={(v) => `${v >= 0 ? '+' : ''}${v.toFixed(1)} dB`}
+          />
+          <Knob
+            label="Drive"
+            value={current.preDrive}
+            onChange={(v) => updateField('preDrive', v)}
+            min={0}
+            max={1}
+            step={0.01}
+            defaultValue={0.3}
+            disabled={!enabled}
+            formatValue={(v) => v.toFixed(2)}
+          />
+          <Knob
+            label="Bass"
+            value={current.bass}
+            onChange={(v) => updateField('bass', v)}
+            min={-12}
+            max={12}
+            step={0.5}
+            defaultValue={0}
+            disabled={!enabled}
+            formatValue={(v) => `${v >= 0 ? '+' : ''}${v.toFixed(1)}`}
+          />
+          <Knob
+            label="Mid"
+            value={current.mid}
+            onChange={(v) => updateField('mid', v)}
+            min={-12}
+            max={12}
+            step={0.5}
+            defaultValue={0}
+            disabled={!enabled}
+            formatValue={(v) => `${v >= 0 ? '+' : ''}${v.toFixed(1)}`}
+          />
+          <Knob
+            label="Treble"
+            value={current.treble}
+            onChange={(v) => updateField('treble', v)}
+            min={-12}
+            max={12}
+            step={0.5}
+            defaultValue={0}
+            disabled={!enabled}
+            formatValue={(v) => `${v >= 0 ? '+' : ''}${v.toFixed(1)}`}
+          />
+          <Knob
+            label="Presence"
+            value={current.presence}
+            onChange={(v) => updateField('presence', v)}
+            min={-12}
+            max={12}
+            step={0.5}
+            defaultValue={0}
+            disabled={!enabled}
+            formatValue={(v) => `${v >= 0 ? '+' : ''}${v.toFixed(1)}`}
+          />
+          <Knob
+            label="Power"
+            value={current.powerDrive}
+            onChange={(v) => updateField('powerDrive', v)}
+            min={0}
+            max={1}
+            step={0.01}
+            defaultValue={0.1}
+            disabled={!enabled}
+            formatValue={(v) => v.toFixed(2)}
+          />
+          <Knob
+            label="Out"
+            value={current.outputDb}
+            onChange={(v) => updateField('outputDb', v)}
+            min={-12}
+            max={12}
+            step={0.5}
+            defaultValue={0}
+            disabled={!enabled}
+            formatValue={(v) => `${v >= 0 ? '+' : ''}${v.toFixed(1)} dB`}
+          />
+        </AmpPanel>
+      </div>
+    );
+  }
+
+  // Slider mode — wrap in the classic EffectSection. Each row is a
+  // ParameterSlider against the AmpParams field.
+  return (
+    <EffectSection title="Amp" enabled={enabled} onToggle={toggle}>
+      {amp && (
+        <div className="space-y-2 pt-1">
+          <ParameterSlider label="Pre Gain" value={amp.preGainDb} min={-12} max={24} step={0.5} unit="dB" precision={1} onChange={(preGainDb) => onChange({ ...amp, preGainDb })} />
+          <ParameterSlider label="Pre Drive" value={amp.preDrive} min={0} max={1} step={0.01} onChange={(preDrive) => onChange({ ...amp, preDrive })} />
+          <ParameterSlider label="Bass" value={amp.bass} min={-12} max={12} step={0.5} unit="dB" precision={1} onChange={(bass) => onChange({ ...amp, bass })} />
+          <ParameterSlider label="Mid" value={amp.mid} min={-12} max={12} step={0.5} unit="dB" precision={1} onChange={(mid) => onChange({ ...amp, mid })} />
+          <ParameterSlider label="Treble" value={amp.treble} min={-12} max={12} step={0.5} unit="dB" precision={1} onChange={(treble) => onChange({ ...amp, treble })} />
+          <ParameterSlider label="Presence" value={amp.presence} min={-12} max={12} step={0.5} unit="dB" precision={1} onChange={(presence) => onChange({ ...amp, presence })} />
+          <ParameterSlider label="Power Drive" value={amp.powerDrive} min={0} max={1} step={0.01} onChange={(powerDrive) => onChange({ ...amp, powerDrive })} />
+          <ParameterSlider label="Output" value={amp.outputDb} min={-12} max={12} step={0.5} unit="dB" precision={1} onChange={(outputDb) => onChange({ ...amp, outputDb })} />
+        </div>
+      )}
+    </EffectSection>
+  );
+}
+
