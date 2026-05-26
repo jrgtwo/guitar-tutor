@@ -17,7 +17,9 @@ import type { ReactNode } from 'react';
 interface RackUnitProps {
   label: string;
   enabled: boolean;
-  onToggle(next: boolean): void;
+  /** When omitted, the power toggle is hidden — use for always-on stages
+   *  like Voice Level. The `enabled` value still controls opacity. */
+  onToggle?(next: boolean): void;
   children?: ReactNode;
   /** Optional accent stripe color along the left edge — distinguishes effect
    *  types at a glance without forcing a noisy full-pedal color scheme. */
@@ -58,24 +60,26 @@ export function RackUnit({ label, enabled, onToggle, children, accent = 'slate' 
           <div className="flex items-end justify-start gap-3 flex-wrap flex-1">
             {children}
           </div>
-          <button
-            type="button"
-            onClick={() => onToggle(!enabled)}
-            aria-label={enabled ? `${label}: turn off` : `${label}: turn on`}
-            aria-pressed={enabled}
-            className="flex items-center gap-1 px-1.5 h-6 rounded border border-zinc-700 bg-zinc-800 hover:bg-zinc-700 transition-colors shrink-0"
-          >
-            <span
-              className={
-                'h-1.5 w-1.5 rounded-full transition-all ' +
-                (enabled
-                  ? 'bg-red-400 shadow-[0_0_5px_rgba(248,113,113,0.95)]'
-                  : 'bg-zinc-600')
-              }
-              aria-hidden="true"
-            />
-            <span className="text-[9px] font-mono uppercase tracking-wider text-zinc-300">on</span>
-          </button>
+          {onToggle ? (
+            <button
+              type="button"
+              onClick={() => onToggle(!enabled)}
+              aria-label={enabled ? `${label}: turn off` : `${label}: turn on`}
+              aria-pressed={enabled}
+              className="flex items-center gap-1 px-1.5 h-6 rounded border border-zinc-700 bg-zinc-800 hover:bg-zinc-700 transition-colors shrink-0"
+            >
+              <span
+                className={
+                  'h-1.5 w-1.5 rounded-full transition-all ' +
+                  (enabled
+                    ? 'bg-red-400 shadow-[0_0_5px_rgba(248,113,113,0.95)]'
+                    : 'bg-zinc-600')
+                }
+                aria-hidden="true"
+              />
+              <span className="text-[9px] font-mono uppercase tracking-wider text-zinc-300">on</span>
+            </button>
+          ) : null}
         </div>
       </div>
     </div>

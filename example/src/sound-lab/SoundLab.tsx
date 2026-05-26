@@ -366,17 +366,9 @@ export function SoundLab() {
           </ToggleableBlock>
         </Section>
 
-        {/* Voice level (always-on) */}
-        <Section title="Voice level">
-          <VoiceLevelControls
-            level={pendingPreset.level}
-            onChange={(level) => updateActive((p) => ({ ...p, level }))}
-          />
-        </Section>
-
         {/* Effects rack — body filter (pre-pre-amp lowpass) leads, then
-            compressor, pedalboard, amp, post-amp, master reverb at the end.
-            Order matches signal flow top to bottom. */}
+            compressor, pedalboard, graphic EQ, amp, post-amp, voice level,
+            master reverb at the end. Order matches signal flow top to bottom. */}
         <Section title="Effects">
           <EffectControls
             effects={pendingPreset.effects ?? {}}
@@ -385,6 +377,8 @@ export function SoundLab() {
             onCompressorChange={(compressor) => updateActive((p) => ({ ...p, compressor }))}
             bodyFilter={pendingPreset.bodyFilter}
             onBodyFilterChange={(bodyFilter) => updateActive((p) => ({ ...p, bodyFilter }))}
+            level={pendingPreset.level}
+            onLevelChange={(level) => updateActive((p) => ({ ...p, level }))}
             masterReverb={pendingReverb}
             onMasterReverbChange={(r) => updateReverb(r)}
           />
@@ -961,6 +955,8 @@ function EffectControls({
   onCompressorChange,
   bodyFilter,
   onBodyFilterChange,
+  level,
+  onLevelChange,
   masterReverb,
   onMasterReverbChange,
 }: {
@@ -970,12 +966,15 @@ function EffectControls({
   onCompressorChange: (next: CompressorParams | undefined) => void;
   bodyFilter: BodyFilterParams | undefined;
   onBodyFilterChange: (next: BodyFilterParams | undefined) => void;
+  level: VoiceLevel;
+  onLevelChange: (next: VoiceLevel) => void;
   masterReverb: ReverbSettings;
   onMasterReverbChange: (next: ReverbSettings) => void;
 }) {
   // Section order mirrors the audio chain — top to bottom in the rack.
-  //   BodyFilter → Compressor → Distortion → Chorus → Delay → AutoWah → Amp
-  //     → Reverb (per-voice) → Cab → Final EQ → Master Reverb (global)
+  //   BodyFilter → Compressor → Distortion → Chorus → Delay → AutoWah
+  //     → GraphicEq → Amp → Reverb (per-voice) → Cab → Final EQ
+  //     → Voice Level (always-on output stage) → Master Reverb (global)
   return (
     <>
       <BodyFilterSection
@@ -1022,6 +1021,7 @@ function EffectControls({
         finalEq={effects.finalEq}
         onChange={(finalEq) => onChange({ ...effects, finalEq })}
       />
+      <VoiceLevelSection level={level} onChange={onLevelChange} />
       <MasterReverbSection
         reverb={masterReverb}
         onChange={onMasterReverbChange}
@@ -1591,6 +1591,38 @@ function FinalEqSection({
     <EffectSection title="Final EQ (post-cabinet)" enabled={enabled} onToggle={toggle}>
       {finalEq && <EQControls params={finalEq} onChange={onChange} />}
     </EffectSection>
+  );
+}
+
+// Voice Level — per-voice output stage (volume + pan). Always-on; no toggle.
+// Sits between Final EQ and Master Reverb in the rack — matches the audio
+// chain where `Tone.Volume` + `Tone.Panner` are the last per-voice nodes
+// before the signal hits MasterBus.
+function VoiceLevelSection({
+  level,
+  onChange,
+}: {
+  level: VoiceLevel;
+  onChange: (next: VoiceLevel) => void;
+}) {
+  const mode = useViewMode();
+  if (mode === 'graphic') {
+    return (
+      <RackUnit label="Voice Level" enabled accent="slate">
+        <Knob label="Volume" value={level.volumeDb} onChange={(v) => onChange({ ...level, volumeDb: v })}
+          min={-24} max={12} step={0.5} defaultValue={0} size={44}
+          formatValue={(v) => `${v >= 0 ? '+' : ''}${v.toFixed(1)} dB`} />
+        <Knob label="Pan" value={level.pan} onChange={(v) => onChange({ ...level, pan: v })}
+          min={-1} max={1} step={0.05} defaultValue={0} size={44}
+          formatValue={(v) => v === 0 ? 'C' : v < 0 ? `L${(Math.abs(v) * 100).toFixed(0)}` : `R${(v * 100).toFixed(0)}`} />
+      </RackUnit>
+    );
+  }
+  return (
+    <div className="border border-border/30 rounded-md p-3 space-y-2">
+      <div className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Voice level</div>
+      <VoiceLevelControls level={level} onChange={onChange} />
+    </div>
   );
 }
 
