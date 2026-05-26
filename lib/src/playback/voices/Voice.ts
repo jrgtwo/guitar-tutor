@@ -109,6 +109,18 @@ export class Voice implements GuitarInstrument {
   private _layerSynth: SynthNode | null = null;
   /** Gain that controls the layer's mix level relative to the primary. */
   private _layerGain: Tone.Gain | null = null;
+  /** Sampler-kind voices: one Tone.Sampler per round-robin bank. Voice rotates
+   *  between these in play() to humanize repeated-note passages. For non-sampler
+   *  voices, null — _synth is the only sound source. */
+  private _samplerBanks: Tone.Sampler[] | null = null;
+  /** Parallel to `_samplerBanks` — the original URL maps so `_pickBankFor`
+   *  can check which banks contain an exact-match sample for a given pitch
+   *  (banks with non-uniform coverage are rotated only among those that have
+   *  the requested note, avoiding audible pitch-shift from distant neighbors). */
+  private _samplerBankUrls: ReadonlyArray<Readonly<Record<string, string>>> | null = null;
+  /** Per-pitch index of the last bank played, for random-no-repeat rotation.
+   *  Keys are note names ("A3"), values are bank indices. */
+  private _lastBankByPitch: Map<string, number> = new Map();
   /** Always-present mixer node so layer + primary feed the same chain entry. */
   private _mixer: Tone.Gain | null = null;
   /** Always-present vibrato node. Depth=0 when idle; `play()` schedules
@@ -161,9 +173,34 @@ export class Voice implements GuitarInstrument {
 
   private _ensureBuilt(): void {
     if (this._synth) return;
-    this._synth = buildSynth(this._preset.source);
-    this._mixer = new Tone.Gain(1);
-    this._synth.connect(this._mixer);
+    const src = this._preset.source;
+    const hasAnyBank =
+      src.kind === 'sampler' &&
+      src.samples.some((b) => Object.keys(b).length > 0);
+    if (hasAnyBank) {
+      // Multi-bank sampler: one Tone.Sampler per round-robin take, all
+      // connected to the mixer in parallel. play() picks one bank per trigger
+      // via random-no-repeat in `_pickBankFor`. _samplerBankUrls stays parallel
+      // to _samplerBanks so the picker can check exact-match coverage.
+      const samplerSrc = src as VoiceSource & { kind: 'sampler' };
+      const nonEmpty = samplerSrc.samples.filter((b) => Object.keys(b).length > 0);
+      this._samplerBankUrls = nonEmpty;
+      this._samplerBanks = nonEmpty.map((urls) => new Tone.Sampler({
+        urls: urls as Record<string, string>,
+        release: samplerSrc.release ?? 1,
+      }));
+      this._synth = this._samplerBanks[0];
+      this._mixer = new Tone.Gain(1);
+      for (const bank of this._samplerBanks) bank.connect(this._mixer);
+    } else {
+      // Single-synth path: pluck-synth, fm-synth, or sampler with all-empty
+      // banks (falls back to a neutral PluckSynth inside `buildSynth`).
+      this._synth = buildSynth(src);
+      this._samplerBanks = null;
+      this._samplerBankUrls = null;
+      this._mixer = new Tone.Gain(1);
+      this._synth.connect(this._mixer);
+    }
     if (this._preset.layer) {
       this._buildLayer(this._preset.layer);
     }
@@ -221,7 +258,7 @@ export class Voice implements GuitarInstrument {
     },
   ): void {
     this._ensureBuilt();
-    const synth = this._synth!;
+    const synth = this._pickBankFor(noteName);
     const velocity = options?.velocity;
     // Audio-thread instrumentation (no-op when window.__FRETWORK_AUDIO_DEBUG
     // is falsy). Track active note count + release-tail estimate so the
@@ -311,7 +348,14 @@ export class Voice implements GuitarInstrument {
       MasterBus.disconnectVoice(this._exit);
       this._connectedToMaster = false;
     }
-    this._synth?.dispose();
+    if (this._samplerBanks) {
+      for (const b of this._samplerBanks) b.dispose();
+      this._samplerBanks = null;
+    } else {
+      this._synth?.dispose();
+    }
+    this._samplerBankUrls = null;
+    this._lastBankByPitch.clear();
     this._disposeLayer();
     this._mixer?.dispose();
     this._vibrato?.dispose();
@@ -447,6 +491,40 @@ export class Voice implements GuitarInstrument {
   }
 
   // ─── Internal ────────────────────────────────────────────────────────────────
+
+  /** Pick which synth node fires for this note. For non-sampler voices, always
+   *  `_synth`. For sampler-kind voices, coverage-aware random-no-repeat:
+   *  rotates only among banks whose URL map has an exact-match entry for the
+   *  requested pitch (Tone.Sampler pitch-shifts inside a bank when the exact
+   *  note is missing — distant shifts sound wrong, so we keep rotation within
+   *  the "exact match" pool). Falls back to the full bank pool if no bank has
+   *  the pitch (uniform pitch-shift across all banks then). */
+  private _pickBankFor(noteName: string): SynthNode {
+    if (!this._samplerBanks || !this._samplerBankUrls) return this._synth!;
+    const banks = this._samplerBanks;
+    const urlMaps = this._samplerBankUrls;
+    let pool: number[] = [];
+    for (let i = 0; i < urlMaps.length; i++) {
+      if (urlMaps[i][noteName] !== undefined) pool.push(i);
+    }
+    if (pool.length === 0) pool = banks.map((_, i) => i);
+    const n = pool.length;
+    if (n <= 1) return banks[pool[0]];
+    const last = this._lastBankByPitch.get(noteName);
+    const lastIdx = last !== undefined ? pool.indexOf(last) : -1;
+    let pickedIdx: number;
+    if (lastIdx < 0) {
+      pickedIdx = Math.floor(Math.random() * n);
+    } else {
+      // Uniform over n-1 banks in the pool excluding `last`: pick from
+      // [0..n-2], shift if ≥ lastIdx.
+      pickedIdx = Math.floor(Math.random() * (n - 1));
+      if (pickedIdx >= lastIdx) pickedIdx++;
+    }
+    const picked = pool[pickedIdx];
+    this._lastBankByPitch.set(noteName, picked);
+    return banks[picked];
+  }
 
   private _rebuildChain(): void {
     if (
@@ -600,19 +678,19 @@ function buildSynth(source: VoiceSource): SynthNode {
     });
     return synth;
   }
-  // Sampler — Tone.Sampler pitch-shifts across a sparse note → URL map (every
-  // few semitones is enough). An empty map is meaningless; fall back to a
-  // neutral PluckSynth so the voice still makes sound until the user attaches
-  // a real sample pack.
-  const sampleEntries = Object.keys(source.samples);
-  if (sampleEntries.length === 0) {
+  // Sampler — single-bank path. Reads bank 0; multi-bank sampler voices go
+  // through `buildSamplerBanks` via _ensureBuilt instead. Empty banks fall back
+  // to a neutral PluckSynth so the voice still makes sound until samples attach.
+  const bank0 = source.samples[0] ?? {};
+  if (Object.keys(bank0).length === 0) {
     return new Tone.PluckSynth({ attackNoise: 0.5, dampening: 4000, resonance: 0.85, release: 0.5 });
   }
   return new Tone.Sampler({
-    urls: source.samples,
+    urls: bank0 as Record<string, string>,
     release: source.release ?? 1,
   });
 }
+
 
 function buildChain(preset: VoicePreset): ChainNodes {
   const nodes: ChainNodes = {};

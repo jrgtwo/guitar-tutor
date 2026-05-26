@@ -6,6 +6,8 @@ import { ALL_SLOT_IDS, getInstrumentFirstDefaultSlotId, type SlotId } from './sl
 import type { Variant, VariantRef, ActiveVariantsMap } from './variant-types';
 import { makeDefaultActiveVariants } from './variant-types';
 import type { FretInstrumentId, ReverbSettings } from './types';
+import { resolveActiveVoice } from './resolve-active-voice';
+import { prefetchSampleBanks } from './sample-packs';
 
 export const VOICE_STORAGE_KEY = 'fretwork:lab-presets:v1';
 const SCHEMA_VERSION = 2;
@@ -153,6 +155,13 @@ export const useVoiceStore = create<VoiceState>()(
 
       setActiveVariantRef(instrumentId, ref) {
         set((s) => ({ activeVariants: { ...s.activeVariants, [instrumentId]: ref } }));
+        // Fire-and-forget prefetch of the newly-active voice's sample URLs so
+        // the browser cache is warm by the time the user hits Play. No-op for
+        // non-sampler voices.
+        const preset = resolveActiveVoice(instrumentId, ref);
+        if (preset.source.kind === 'sampler') {
+          prefetchSampleBanks(preset.source.samples);
+        }
       },
 
       setReverb(reverb) {

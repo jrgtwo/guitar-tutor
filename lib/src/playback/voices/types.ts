@@ -65,9 +65,11 @@ export interface FMSynthParams {
 export type VoiceSource =
   | { readonly kind: 'pluck-synth'; readonly params: PluckSynthParams }
   | { readonly kind: 'fm-synth'; readonly params: FMSynthParams }
-  /** Reserved for the future SamplerInstrument. The `samples` map is `note → URL`
-   *  (e.g. `{ A2: '/sounds/guitar/A2.wav', E3: '...' }`). Not implemented in v1. */
-  | { readonly kind: 'sampler'; readonly samples: Readonly<Record<string, string>>; readonly release?: number };
+  /** Sampler source. `samples` is one-or-more `note → URL` maps; each entry in the
+   *  array is a "bank" (a round-robin take of the same instrument). Single-take
+   *  packs use `[oneMap]`; multi-bank packs (e.g. Karoryfer rr1..rr4) list all
+   *  takes and the Voice rotates between them per-pitch at trigger time. */
+  | { readonly kind: 'sampler'; readonly samples: ReadonlyArray<Readonly<Record<string, string>>>; readonly release?: number };
 
 // ─── Tone-shaping (always available, not just electric) ──────────────────────
 

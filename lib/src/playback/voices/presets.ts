@@ -22,13 +22,13 @@ import { getCabinetIR } from './cabinet-irs';
 // Sentinel — if the IR id isn't found we ship `undefined` (no cab) rather
 // than crash. Should never happen in production, but lets the registry
 // move under us without breaking presets.
-const KARORYFER_GREEN_CAB = getCabinetIR('gods-warm-421')?.url;
-const KARORYFER_BLACK_CAB = getCabinetIR('catharsis-balanced')?.url;
+const KARORYFER_GREEN_CAB = getCabinetIR('twin-clean')?.url;
+const KARORYFER_BLACK_CAB = getCabinetIR('twin-clean')?.url;
 // Cab IRs used by the Phase 1d test presets — exercise different IRs to verify
 // each one wires through the chain correctly.
-const TEST_CLEAN_CAB = getCabinetIR('gods-warm-421')?.url;
-const TEST_CRUNCH_CAB = getCabinetIR('gods-bright-57')?.url;
-const TEST_METAL_CAB = getCabinetIR('gods-crunch-57-ts')?.url;
+const TEST_CLEAN_CAB = getCabinetIR('twin-clean')?.url;
+const TEST_CRUNCH_CAB = getCabinetIR('twin-clean')?.url;
+const TEST_METAL_CAB = getCabinetIR('twin-clean')?.url;
 
 const NEUTRAL_LEVEL: VoiceLevel = { volumeDb: 0, pan: 0 };
 
@@ -256,7 +256,6 @@ export const CLEAN_AMP_PRESET: VoicePreset = {
       preGainDb: 0, preDrive: 0.05, bass: 1, mid: 0, treble: 1,
       presence: 0, powerDrive: 0, outputDb: 0,
     },
-    reverb: { roomSize: 0.6, wet: 0.3 },
     cabIR: TEST_CLEAN_CAB ? { url: TEST_CLEAN_CAB } : undefined,
     finalEq: { low: 0, mid: 0, high: 0, lowFrequency: 250, highFrequency: 2500 },
   },
@@ -276,7 +275,6 @@ export const BLUES_PRESET: VoicePreset = {
       preGainDb: 3, preDrive: 0.25, bass: 2, mid: 3, treble: 0,
       presence: 1, powerDrive: 0.15, outputDb: -2,
     },
-    reverb: { roomSize: 0.45, wet: 0.2 },
     cabIR: TEST_CLEAN_CAB ? { url: TEST_CLEAN_CAB } : undefined,
     finalEq: { low: 0, mid: 1, high: 0, lowFrequency: 250, highFrequency: 2500 },
   },
@@ -296,7 +294,6 @@ export const CRUNCH_PRESET: VoicePreset = {
       preGainDb: 6, preDrive: 0.4, bass: 2, mid: 4, treble: 1,
       presence: 3, powerDrive: 0.1, outputDb: -3,
     },
-    reverb: { roomSize: 0.3, wet: 0.15 },
     cabIR: TEST_CRUNCH_CAB ? { url: TEST_CRUNCH_CAB } : undefined,
     finalEq: { low: -2, mid: 0, high: 0, lowFrequency: 200, highFrequency: 2500 },
   },
@@ -317,7 +314,6 @@ export const LEAD_PRESET: VoicePreset = {
       preGainDb: 7, preDrive: 0.6, bass: 1, mid: 5, treble: 2,
       presence: 4, powerDrive: 0.2, outputDb: -4,
     },
-    reverb: { roomSize: 0.7, wet: 0.25 },
     cabIR: TEST_CRUNCH_CAB ? { url: TEST_CRUNCH_CAB } : undefined,
     finalEq: { low: -1, mid: 2, high: 1, lowFrequency: 200, highFrequency: 3000 },
   },

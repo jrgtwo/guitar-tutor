@@ -4,12 +4,20 @@
  * option in the Sound Lab's SamplerControls. Users can also bring their own
  * pack via the "Custom JSON…" editor.
  *
+ * A pack's `samples` is a `ReadonlyArray` of note→URL maps. Each entry is a
+ * "bank" — a round-robin take of the same instrument at the same dynamic.
+ * Single-take packs use one map (`[oneMap]`); multi-bank packs list all takes
+ * (e.g. Karoryfer rr1..rr4 = 4 banks) and the Voice rotates between them
+ * per-pitch at trigger time to humanize repeated-note passages.
+ *
  * Hosting recipe:
  *   1. Drop .mp3 (or .ogg) sample files into `example/public/samples/<pack-id>/`.
- *      Filenames should be note names like `A2.mp3`, `Cs3.mp3` (use lowercase
- *      `s` for sharp in filenames to avoid `#` URL issues).
+ *      For multi-bank packs use per-take subfolders: `samples/<pack-id>/rr1/`,
+ *      `samples/<pack-id>/rr2/`, etc. Filenames should be note names like
+ *      `A2.mp3`, `Cs3.mp3` (use lowercase `s` for sharp in filenames to avoid
+ *      `#` URL issues).
  *   2. Add an entry below mapping note names (e.g. `A2`, `C#3`) to the served
- *      URL paths (`/samples/<pack-id>/A2.mp3`).
+ *      URL paths. For multi-bank packs, register all banks in the array.
  *   3. Three notes per octave (every 3 semitones) is enough; Tone.Sampler
  *      pitch-shifts between them with minimal artifacts.
  *
@@ -42,8 +50,9 @@ export interface SamplePack {
   readonly label: string;
   /** Short description shown under the picker — what the pack sounds like. */
   readonly description: string;
-  /** note → URL map fed straight into `Tone.Sampler`. */
-  readonly samples: Readonly<Record<string, string>>;
+  /** One-or-more note → URL maps. Each entry is a round-robin bank. Voice
+   *  rotates per-pitch between banks at trigger time. */
+  readonly samples: ReadonlyArray<Readonly<Record<string, string>>>;
 }
 
 /** Tone.js's public demo set — Salamander piano. Hosted by the Tone.js team at
@@ -72,12 +81,12 @@ const CASIO_PIANO_DEMO: Readonly<Record<string, string>> = {
  *  match for every note in the guitar range — zero pitch-shift artifacts.
  *  Files renamed from Philharmonia's `guitar_<note>_very-long_forte_normal.mp3`
  *  to short `<note>.mp3` at upload time. Sharps use `s` in filenames (As2 = A♯2)
- *  to avoid `#` URL encoding. */
+ *  to avoid `#` URL encoding. Single-take pack (one bank). */
 const PHILHARMONIA_BASE = 'https://ssszubkbregwjgkrpqop.supabase.co/storage/v1/object/public/samples/philharmonia';
 function philharmoniaUrl(noteFile: string): string {
   return `${PHILHARMONIA_BASE}/${noteFile}.mp3`;
 }
-export const PHILHARMONIA_CLASSICAL: Readonly<Record<string, string>> = {
+const PHILHARMONIA_CLASSICAL_BANK: Readonly<Record<string, string>> = {
   E2: philharmoniaUrl('E2'),
   F2: philharmoniaUrl('F2'),
   'F#2': philharmoniaUrl('Fs2'),
@@ -119,121 +128,62 @@ export const PHILHARMONIA_CLASSICAL: Readonly<Record<string, string>> = {
   G5: philharmoniaUrl('G5'),
   'G#5': philharmoniaUrl('Gs5'),
 };
+export const PHILHARMONIA_CLASSICAL: ReadonlyArray<Readonly<Record<string, string>>> = [
+  PHILHARMONIA_CLASSICAL_BANK,
+];
+
+/** Karoryfer's mf-dynamic coverage isn't uniform across takes: rr1+rr2 ship
+ *  the full chromatic E2..D6 (47 notes); rr3+rr4 stop at E5 (37 notes, top
+ *  octave absent). Banks declare only the notes they actually have so Voice's
+ *  coverage-aware rotation skips a bank when it lacks an exact pitch match —
+ *  avoiding audible pitch-shifting (Tone.Sampler chipmunks ≥6 semitones up). */
+const KARORYFER_NOTES_FULL = [
+  ['E2','E2'],['F2','F2'],['F#2','Fs2'],['G2','G2'],['G#2','Gs2'],['A2','A2'],['A#2','As2'],['B2','B2'],
+  ['C3','C3'],['C#3','Cs3'],['D3','D3'],['D#3','Ds3'],['E3','E3'],['F3','F3'],['F#3','Fs3'],['G3','G3'],['G#3','Gs3'],['A3','A3'],['A#3','As3'],['B3','B3'],
+  ['C4','C4'],['C#4','Cs4'],['D4','D4'],['D#4','Ds4'],['E4','E4'],['F4','F4'],['F#4','Fs4'],['G4','G4'],['G#4','Gs4'],['A4','A4'],['A#4','As4'],['B4','B4'],
+  ['C5','C5'],['C#5','Cs5'],['D5','D5'],['D#5','Ds5'],['E5','E5'],['F5','F5'],['F#5','Fs5'],['G5','G5'],['G#5','Gs5'],['A5','A5'],['A#5','As5'],['B5','B5'],
+  ['C6','C6'],['C#6','Cs6'],['D6','D6'],
+] as const;
+const KARORYFER_NOTES_LOW = KARORYFER_NOTES_FULL.slice(0, 37);
+
+/** Builds one Karoryfer bank from a notes list. URL pattern is
+ *  `<base>/rr<n>/<fileBase>.mp3`. */
+function karoryferBank(
+  base: string,
+  rr: number,
+  notes: ReadonlyArray<readonly [string, string]>,
+): Readonly<Record<string, string>> {
+  const out: Record<string, string> = {};
+  for (const [sciNote, fileBase] of notes) {
+    out[sciNote] = `${base}/rr${rr}/${fileBase}.mp3`;
+  }
+  return out;
+}
 
 /** Karoryfer "Black And Green Guitars" — green Gretsch Anniversary hollowbody.
- *  Clean DI samples, mf dynamic, RR1 only. Full chromatic E2 → D6 (47 notes —
- *  every note in the guitar range is an exact match, no pitch-shifting).
- *  Royalty-free (Karoryfer Lecolds). Self-hosted on Supabase. */
+ *  Clean DI samples, mf dynamic, 4 round-robin takes (rr1..rr4). Full chromatic
+ *  E2 → D6 (47 notes per bank — every note in the guitar range is an exact
+ *  match, no pitch-shifting). Royalty-free (Karoryfer Lecolds). Self-hosted on
+ *  Supabase under `samples/karoryfer-green/rr<n>/<note>.mp3`. */
 const KARORYFER_GREEN_BASE = 'https://ssszubkbregwjgkrpqop.supabase.co/storage/v1/object/public/samples/karoryfer-green';
-function karoryferGreenUrl(noteFile: string): string {
-  return `${KARORYFER_GREEN_BASE}/${noteFile}.mp3`;
-}
-export const KARORYFER_GREEN: Readonly<Record<string, string>> = {
-  E2: karoryferGreenUrl('E2'),
-  F2: karoryferGreenUrl('F2'),
-  'F#2': karoryferGreenUrl('Fs2'),
-  G2: karoryferGreenUrl('G2'),
-  'G#2': karoryferGreenUrl('Gs2'),
-  A2: karoryferGreenUrl('A2'),
-  'A#2': karoryferGreenUrl('As2'),
-  B2: karoryferGreenUrl('B2'),
-  C3: karoryferGreenUrl('C3'),
-  'C#3': karoryferGreenUrl('Cs3'),
-  D3: karoryferGreenUrl('D3'),
-  'D#3': karoryferGreenUrl('Ds3'),
-  E3: karoryferGreenUrl('E3'),
-  F3: karoryferGreenUrl('F3'),
-  'F#3': karoryferGreenUrl('Fs3'),
-  G3: karoryferGreenUrl('G3'),
-  'G#3': karoryferGreenUrl('Gs3'),
-  A3: karoryferGreenUrl('A3'),
-  'A#3': karoryferGreenUrl('As3'),
-  B3: karoryferGreenUrl('B3'),
-  C4: karoryferGreenUrl('C4'),
-  'C#4': karoryferGreenUrl('Cs4'),
-  D4: karoryferGreenUrl('D4'),
-  'D#4': karoryferGreenUrl('Ds4'),
-  E4: karoryferGreenUrl('E4'),
-  F4: karoryferGreenUrl('F4'),
-  'F#4': karoryferGreenUrl('Fs4'),
-  G4: karoryferGreenUrl('G4'),
-  'G#4': karoryferGreenUrl('Gs4'),
-  A4: karoryferGreenUrl('A4'),
-  'A#4': karoryferGreenUrl('As4'),
-  B4: karoryferGreenUrl('B4'),
-  C5: karoryferGreenUrl('C5'),
-  'C#5': karoryferGreenUrl('Cs5'),
-  D5: karoryferGreenUrl('D5'),
-  'D#5': karoryferGreenUrl('Ds5'),
-  E5: karoryferGreenUrl('E5'),
-  F5: karoryferGreenUrl('F5'),
-  'F#5': karoryferGreenUrl('Fs5'),
-  G5: karoryferGreenUrl('G5'),
-  'G#5': karoryferGreenUrl('Gs5'),
-  A5: karoryferGreenUrl('A5'),
-  'A#5': karoryferGreenUrl('As5'),
-  B5: karoryferGreenUrl('B5'),
-  C6: karoryferGreenUrl('C6'),
-  'C#6': karoryferGreenUrl('Cs6'),
-  D6: karoryferGreenUrl('D6'),
-};
+export const KARORYFER_GREEN: ReadonlyArray<Readonly<Record<string, string>>> = [
+  karoryferBank(KARORYFER_GREEN_BASE, 1, KARORYFER_NOTES_FULL),
+  karoryferBank(KARORYFER_GREEN_BASE, 2, KARORYFER_NOTES_FULL),
+  karoryferBank(KARORYFER_GREEN_BASE, 3, KARORYFER_NOTES_LOW),
+  karoryferBank(KARORYFER_GREEN_BASE, 4, KARORYFER_NOTES_LOW),
+];
 
 /** Karoryfer "Black And Green Guitars" — black Hofner Club hollowbody.
  *  Same coverage and conventions as the green pack — sibling tone (slightly
- *  louder, darker). Royalty-free, self-hosted on Supabase. */
+ *  louder, darker). 4 round-robin takes (rr1..rr4). Royalty-free, self-hosted
+ *  on Supabase under `samples/karoryfer-black/rr<n>/<note>.mp3`. */
 const KARORYFER_BLACK_BASE = 'https://ssszubkbregwjgkrpqop.supabase.co/storage/v1/object/public/samples/karoryfer-black';
-function karoryferBlackUrl(noteFile: string): string {
-  return `${KARORYFER_BLACK_BASE}/${noteFile}.mp3`;
-}
-export const KARORYFER_BLACK: Readonly<Record<string, string>> = {
-  E2: karoryferBlackUrl('E2'),
-  F2: karoryferBlackUrl('F2'),
-  'F#2': karoryferBlackUrl('Fs2'),
-  G2: karoryferBlackUrl('G2'),
-  'G#2': karoryferBlackUrl('Gs2'),
-  A2: karoryferBlackUrl('A2'),
-  'A#2': karoryferBlackUrl('As2'),
-  B2: karoryferBlackUrl('B2'),
-  C3: karoryferBlackUrl('C3'),
-  'C#3': karoryferBlackUrl('Cs3'),
-  D3: karoryferBlackUrl('D3'),
-  'D#3': karoryferBlackUrl('Ds3'),
-  E3: karoryferBlackUrl('E3'),
-  F3: karoryferBlackUrl('F3'),
-  'F#3': karoryferBlackUrl('Fs3'),
-  G3: karoryferBlackUrl('G3'),
-  'G#3': karoryferBlackUrl('Gs3'),
-  A3: karoryferBlackUrl('A3'),
-  'A#3': karoryferBlackUrl('As3'),
-  B3: karoryferBlackUrl('B3'),
-  C4: karoryferBlackUrl('C4'),
-  'C#4': karoryferBlackUrl('Cs4'),
-  D4: karoryferBlackUrl('D4'),
-  'D#4': karoryferBlackUrl('Ds4'),
-  E4: karoryferBlackUrl('E4'),
-  F4: karoryferBlackUrl('F4'),
-  'F#4': karoryferBlackUrl('Fs4'),
-  G4: karoryferBlackUrl('G4'),
-  'G#4': karoryferBlackUrl('Gs4'),
-  A4: karoryferBlackUrl('A4'),
-  'A#4': karoryferBlackUrl('As4'),
-  B4: karoryferBlackUrl('B4'),
-  C5: karoryferBlackUrl('C5'),
-  'C#5': karoryferBlackUrl('Cs5'),
-  D5: karoryferBlackUrl('D5'),
-  'D#5': karoryferBlackUrl('Ds5'),
-  E5: karoryferBlackUrl('E5'),
-  F5: karoryferBlackUrl('F5'),
-  'F#5': karoryferBlackUrl('Fs5'),
-  G5: karoryferBlackUrl('G5'),
-  'G#5': karoryferBlackUrl('Gs5'),
-  A5: karoryferBlackUrl('A5'),
-  'A#5': karoryferBlackUrl('As5'),
-  B5: karoryferBlackUrl('B5'),
-  C6: karoryferBlackUrl('C6'),
-  'C#6': karoryferBlackUrl('Cs6'),
-  D6: karoryferBlackUrl('D6'),
-};
+export const KARORYFER_BLACK: ReadonlyArray<Readonly<Record<string, string>>> = [
+  karoryferBank(KARORYFER_BLACK_BASE, 1, KARORYFER_NOTES_FULL),
+  karoryferBank(KARORYFER_BLACK_BASE, 2, KARORYFER_NOTES_FULL),
+  karoryferBank(KARORYFER_BLACK_BASE, 3, KARORYFER_NOTES_LOW),
+  karoryferBank(KARORYFER_BLACK_BASE, 4, KARORYFER_NOTES_LOW),
+];
 
 const SALAMANDER_PIANO_DEMO: Readonly<Record<string, string>> = {
   A1: 'https://tonejs.github.io/audio/salamander/A1.mp3',
@@ -259,21 +209,21 @@ export const SAMPLE_PACKS: readonly SamplePack[] = [
     label: 'Empty (falls back to PluckSynth)',
     description:
       'No samples loaded — Sampler-kind voice plays as a neutral PluckSynth until a pack is attached.',
-    samples: {},
+    samples: [{}],
   },
   {
     id: 'salamander-piano-demo',
     label: 'Salamander Piano (demo)',
     description:
       'Tone.js example samples — piano, not guitar. Proves the Sampler pipeline end-to-end. Replace with a real guitar pack hosted at /samples/<pack-id>/ for production.',
-    samples: SALAMANDER_PIANO_DEMO,
+    samples: [SALAMANDER_PIANO_DEMO],
   },
   {
     id: 'casio-piano-demo',
     label: 'Casio Piano (demo)',
     description:
       'Tone.js example samples — Casio CT-X3000 piano. Sparser than Salamander but more characterful. CC-BY hosted at tonejs.github.io.',
-    samples: CASIO_PIANO_DEMO,
+    samples: [CASIO_PIANO_DEMO],
   },
   {
     id: 'philharmonia-classical',
@@ -286,32 +236,58 @@ export const SAMPLE_PACKS: readonly SamplePack[] = [
     id: 'karoryfer-green',
     label: 'Karoryfer — Green Gretsch (electric)',
     description:
-      'Green Gretsch Anniversary hollowbody electric, clean DI. From Karoryfer Lecolds\' free "Black And Green Guitars" pack. Single-layer (mf dynamic). Full chromatic E2 → D6 — every guitar-range note is an exact sample, no pitch-shifting.',
+      'Green Gretsch Anniversary hollowbody electric, clean DI. From Karoryfer Lecolds\' free "Black And Green Guitars" pack. 4 round-robin takes (rr1..rr4) for humanized repeated notes. Full chromatic E2 → D6 — every guitar-range note is an exact sample, no pitch-shifting.',
     samples: KARORYFER_GREEN,
   },
   {
     id: 'karoryfer-black',
     label: 'Karoryfer — Black Hofner (electric)',
     description:
-      'Black Hofner Club hollowbody electric, clean DI. From Karoryfer Lecolds\' free "Black And Green Guitars" pack. Sibling to the green pack — slightly louder and darker. Same coverage and conventions.',
+      'Black Hofner Club hollowbody electric, clean DI. From Karoryfer Lecolds\' free "Black And Green Guitars" pack. Sibling to the green pack — slightly louder and darker. 4 round-robin takes (rr1..rr4) for humanized repeated notes.',
     samples: KARORYFER_BLACK,
   },
 ];
+
+/** Eagerly populate the browser HTTP cache for every URL across all banks of a
+ *  sample-bank array. Fire-and-forget: doesn't await, swallows errors. Idempotent
+ *  (cached responses are fine). Call when the user picks a voice so the
+ *  eventual Tone.Sampler fetch (at first play, possibly in a fresh Voice
+ *  instance) hits cache instead of the network. */
+export function prefetchSampleBanks(
+  banks: ReadonlyArray<Readonly<Record<string, string>>>,
+): void {
+  if (typeof fetch === 'undefined') return;
+  for (const bank of banks) {
+    for (const url of Object.values(bank)) {
+      fetch(url).catch(() => {});
+    }
+  }
+}
 
 /** Look up a pack by id. Returns undefined if not registered. */
 export function getSamplePack(id: string): SamplePack | undefined {
   return SAMPLE_PACKS.find((p) => p.id === id);
 }
 
-/** Find which pre-registered pack (if any) matches a given sample map by deep
- *  shape. Used by the Lab UI to highlight the active pack in the picker after
- *  the preset hydrates from storage. Returns `null` if no match. */
-export function detectSamplePack(samples: Readonly<Record<string, string>>): SamplePack | null {
-  const keys = Object.keys(samples);
+/** Find which pre-registered pack (if any) matches a given sample-bank array by
+ *  deep shape. Banks within a pack share keys and only differ by URL prefix, so
+ *  identifying a pack only requires matching bank 0 against the input's bank 0
+ *  (plus a bank-count check to disambiguate multi-bank packs from single-bank
+ *  custom maps that happen to look like one of the banks). Used by the Lab UI
+ *  to highlight the active pack in the picker after the preset hydrates from
+ *  storage. Returns `null` if no match. */
+export function detectSamplePack(
+  samples: ReadonlyArray<Readonly<Record<string, string>>>,
+): SamplePack | null {
+  if (samples.length === 0) return null;
+  const inputBank0 = samples[0];
+  const inputKeys = Object.keys(inputBank0);
   for (const pack of SAMPLE_PACKS) {
-    const packKeys = Object.keys(pack.samples);
-    if (packKeys.length !== keys.length) continue;
-    const allMatch = packKeys.every((k) => pack.samples[k] === samples[k]);
+    if (pack.samples.length !== samples.length) continue;
+    const packBank0 = pack.samples[0];
+    const packKeys = Object.keys(packBank0);
+    if (packKeys.length !== inputKeys.length) continue;
+    const allMatch = packKeys.every((k) => packBank0[k] === inputBank0[k]);
     if (allMatch) return pack;
   }
   return null;

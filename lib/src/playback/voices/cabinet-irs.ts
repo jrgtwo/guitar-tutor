@@ -33,6 +33,14 @@ export interface CabinetIR {
 }
 
 export const CABINET_IRS: readonly CabinetIR[] = [
+  // ─── Twin — Fender-style clean combo ───────────────────────────────────────
+  {
+    id: 'twin-clean',
+    label: 'Twin clean',
+    description: 'Fender Twin-style clean combo — pristine headroom, glassy top, tight low end. The reference clean-cab character.',
+    url: irUrl('twin'),
+  },
+
   // ─── God's Cab — Mesa-style V30 4×12, multi-mic ────────────────────────────
   {
     id: 'gods-warm-421',
