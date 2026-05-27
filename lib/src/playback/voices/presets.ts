@@ -29,6 +29,9 @@ const KARORYFER_BLACK_CAB = getCabinetIR('twin-clean')?.url;
 const TEST_CLEAN_CAB = getCabinetIR('twin-clean')?.url;
 const TEST_CRUNCH_CAB = getCabinetIR('twin-clean')?.url;
 const TEST_METAL_CAB = getCabinetIR('twin-clean')?.url;
+// Blues currently pairs with the God's Cab Crunch IR (SM57 + Tube Screamer) so
+// the bake-in pre-amp character gives instant break-up without dialing drive.
+const BLUES_CAB = getCabinetIR('gods-crunch-57-ts')?.url;
 
 const NEUTRAL_LEVEL: VoiceLevel = { volumeDb: 0, pan: 0 };
 
@@ -254,13 +257,16 @@ export const CLEAN_AMP_PRESET: VoicePreset = {
   // of the drive spectrum, so it gets the biggest level boost. See the level
   // ladder at the top of this preset group.
   level: { volumeDb: 6, pan: 0 },
+  compressor: {
+    threshold: -41.5, ratio: 6, attack: 0.001, release: 0.535, knee: 3.5,
+  },
   effects: {
     amp: {
-      preGainDb: 0, preDrive: 0.05, bass: 1, mid: 0, treble: 1,
-      presence: 0, powerDrive: 0, outputDb: 0,
+      preGainDb: -12, preDrive: 0.11, bass: 0, mid: -6.5, treble: 0,
+      presence: -1.5, powerDrive: 0.29, outputDb: 0,
     },
-    cabIR: TEST_CLEAN_CAB ? { url: TEST_CLEAN_CAB } : undefined,
-    finalEq: { low: 0, mid: 0, high: 0, lowFrequency: 250, highFrequency: 2500 },
+    cabIR: TEST_CLEAN_CAB ? { url: TEST_CLEAN_CAB, makeupDb: 3 } : undefined,
+    finalEq: { low: 0, mid: -1, high: 0.5, lowFrequency: 250, highFrequency: 2500 },
   },
 };
 
@@ -272,13 +278,13 @@ export const BLUES_PRESET: VoicePreset = {
   instrumentId: 'guitar',
   family: 'electric',
   source: { kind: 'sampler', samples: OFFSET_P90, release: 2.2 },
-  level: { volumeDb: 2, pan: 0 },
+  level: { volumeDb: -0.5, pan: 0 },
   effects: {
     amp: {
-      preGainDb: 3, preDrive: 0.25, bass: 2, mid: 3, treble: 0,
-      presence: 1, powerDrive: 0.15, outputDb: -2,
+      preGainDb: -4.5, preDrive: 0, bass: -3.5, mid: 5.5, treble: 3,
+      presence: 1, powerDrive: 0.83, outputDb: -2,
     },
-    cabIR: TEST_CLEAN_CAB ? { url: TEST_CLEAN_CAB } : undefined,
+    cabIR: BLUES_CAB ? { url: BLUES_CAB } : undefined,
     finalEq: { low: 0, mid: 1, high: 0, lowFrequency: 250, highFrequency: 2500 },
   },
 };

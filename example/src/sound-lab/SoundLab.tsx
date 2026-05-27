@@ -8,7 +8,7 @@
  *
  * Reach this page via `?lab=1` (handled in `main.tsx`).
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Button,
   Switch,
@@ -1801,11 +1801,21 @@ function AmpSection({
 }) {
   const mode = useViewMode();
   const enabled = !!amp;
-  // When amp is disabled (config absent), render knobs against DEFAULT_AMP so
-  // the panel layout stays visually consistent. The Knobs are disabled so the
-  // user can't edit values into the void; they have to flip power on first.
-  const current = amp ?? DEFAULT_AMP;
-  const toggle = (on: boolean) => onChange(on ? { ...DEFAULT_AMP } : undefined);
+  // Preserve the user's amp params across toggle-off so toggling back on
+  // restores their tone instead of snapping to DEFAULT_AMP (preDrive 0.3 — a
+  // mild crunch). The ref tracks the most recent non-null amp value; when amp
+  // becomes undefined the ref retains it so we can restore on toggle-on.
+  // Known minor edge case: loading a preset whose amp is undefined while the
+  // ref holds a previous preset's value means toggling on returns the prior
+  // value instead of DEFAULT_AMP — acceptable for now.
+  const lastParamsRef = useRef<AmpParams | null>(amp ?? null);
+  if (amp) lastParamsRef.current = amp;
+  // Display values are pinned to the last enabled state so the panel doesn't
+  // visually jump when the user toggles off (Knobs are greyed via
+  // `disabled={!enabled}` but still show meaningful values).
+  const current = amp ?? lastParamsRef.current ?? DEFAULT_AMP;
+  const toggle = (on: boolean) =>
+    onChange(on ? (lastParamsRef.current ?? { ...DEFAULT_AMP }) : undefined);
   const updateField = <K extends keyof AmpParams>(key: K, value: AmpParams[K]) => {
     if (!amp) return;
     onChange({ ...amp, [key]: value });
