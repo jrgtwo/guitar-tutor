@@ -102,6 +102,11 @@ export interface BodyFilterEnvelope {
 /** Optional post-synth lowpass filter. Useful for "body" character beyond what
  *  PluckSynth's `dampening` provides. */
 export interface BodyFilterParams {
+  /** Whether this stage is currently in the audio chain. `undefined` is
+   *  implicit-on (back-compat with stored variants that pre-date this field).
+   *  Toggling off in the lab sets `enabled: false` and preserves all other
+   *  params so toggling back on restores the user's tuning. */
+  readonly enabled?: boolean;
   /** Cutoff frequency in Hertz. Used as the static value when `envelope` is
    *  absent; ignored when an envelope is driving the cutoff. */
   readonly cutoff: number;
@@ -115,6 +120,8 @@ export interface BodyFilterParams {
 /** Optional pre-effects compressor. Useful for evening out attack transients
  *  and adding warmth. */
 export interface CompressorParams {
+  /** Whether this stage is currently in the audio chain. `undefined` = on. */
+  readonly enabled?: boolean;
   /** dB. Level above which compression starts. */
   readonly threshold: number;
   /** Compression ratio (1 = none, 4 = moderate, 20 = limiter). */
@@ -132,6 +139,8 @@ export interface CompressorParams {
 export type DistortionOversample = 'none' | '2x' | '4x';
 
 export interface DistortionParams {
+  /** Whether this stage is currently in the audio chain. `undefined` = on. */
+  readonly enabled?: boolean;
   /** 0..1. Drive amount. Higher = more clipping. */
   readonly drive: number;
   /** 0..1. Effect mix. 0 = bypassed. */
@@ -144,6 +153,8 @@ export interface DistortionParams {
 export type ChorusType = 'sine' | 'square' | 'sawtooth' | 'triangle';
 
 export interface ChorusParams {
+  /** Whether this stage is currently in the audio chain. `undefined` = on. */
+  readonly enabled?: boolean;
   /** Hz. LFO rate of the chorus modulation. */
   readonly frequency: number;
   /** 0..1. Modulation depth. */
@@ -161,6 +172,8 @@ export interface ChorusParams {
 }
 
 export interface DelayParams {
+  /** Whether this stage is currently in the audio chain. `undefined` = on. */
+  readonly enabled?: boolean;
   /** Seconds. Delay time. */
   readonly delayTime: number;
   /** 0..1. Feedback amount (how much echo bleeds back into the line). */
@@ -170,6 +183,8 @@ export interface DelayParams {
 }
 
 export interface EQParams {
+  /** Whether this stage is currently in the audio chain. `undefined` = on. */
+  readonly enabled?: boolean;
   /** dB. Low-shelf gain. Negative = cut, positive = boost. Range typically -12..+12. */
   readonly low: number;
   /** dB. Mid peak/cut gain. */
@@ -187,6 +202,8 @@ export interface EQParams {
  *  classic "envelope wah" pedal. Different from the body-filter envelope, which
  *  is triggered per note. */
 export interface AutoWahParams {
+  /** Whether this stage is currently in the audio chain. `undefined` = on. */
+  readonly enabled?: boolean;
   /** Hz. Lowest cutoff (when input is silent). */
   readonly baseFrequency: number;
   /** How many octaves above `baseFrequency` the cutoff can sweep. */
@@ -213,6 +230,8 @@ export interface AutoWahParams {
  *  explicit makeup knob lets each IR be balanced individually. Defaults to
  *  0dB. Applied via a Gain node directly after the Convolver. */
 export interface CabIRParams {
+  /** Whether this stage is currently in the audio chain. `undefined` = on. */
+  readonly enabled?: boolean;
   readonly url: string;
   readonly makeupDb?: number;
 }
@@ -229,6 +248,19 @@ export interface CabIRParams {
  *  shape stays generic so the preset surface can grow without expanding the
  *  type. */
 export interface AmpParams {
+  /** Whether this stage is currently in the audio chain. `undefined` = on. */
+  readonly enabled?: boolean;
+  /** Optional reference to a named amp model (e.g. `'fender-twin'`,
+   *  `'marshall-plexi'`). The model defines the saturator curve algorithm,
+   *  tone-stack crossover frequencies, and presence-shelf frequency — all
+   *  characteristics that distinguish e.g. a Fender clean from a Marshall
+   *  crunch. When undefined, falls back to `DEFAULT_AMP_MODEL_ID` (Plexi —
+   *  closest to the legacy single-curve behavior so old variants keep
+   *  sounding similar after the migration). The numeric knobs below
+   *  (preGainDb, preDrive, bass/mid/treble, presence, powerDrive) still
+   *  control how each model is set; the model just decides what those
+   *  controls do. See `amp-models.ts`. */
+  readonly modelId?: string;
   /** dB. Input gain — drives signal harder into the pre-amp saturation stage. */
   readonly preGainDb: number;
   /** 0..1. Pre-amp saturation amount (clipper drive). 0 = clean pass-through;
@@ -260,6 +292,8 @@ export interface AmpParams {
  *  Separate from the global MasterBus reverb, which remains as a send for
  *  room/hall ambience applied to the full mix. */
 export interface VoiceReverbParams {
+  /** Whether this stage is currently in the audio chain. `undefined` = on. */
+  readonly enabled?: boolean;
   /** 0..1. Room-size analogue. Maps to `JCReverb.roomSize`. Larger values =
    *  longer, more diffuse tail. */
   readonly roomSize: number;
@@ -278,6 +312,8 @@ export interface VoiceReverbParams {
  *  `Tone.Gain`. Q ≈ 1.4 (approximate ANSI 1/3-octave width — wider feels
  *  musical, narrower feels surgical). */
 export interface GraphicEqParams {
+  /** Whether this stage is currently in the audio chain. `undefined` = on. */
+  readonly enabled?: boolean;
   /** dB at 100 Hz. Typical range ±15. */
   readonly band100Hz: number;
   /** dB at 200 Hz. */

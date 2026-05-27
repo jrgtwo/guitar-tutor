@@ -8,7 +8,7 @@
  *
  * Reach this page via `?lab=1` (handled in `main.tsx`).
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Button,
   Switch,
@@ -30,6 +30,10 @@ import {
   type DistortionParams,
   type DistortionOversample,
   type AmpParams,
+  type CabIRParams,
+  AMP_MODELS,
+  getAmpModel,
+  DEFAULT_AMP_MODEL_ID,
   type VoiceReverbParams,
   type GraphicEqParams,
   type EQParams,
@@ -1227,6 +1231,30 @@ function AutoWahControls({
 // for the others). On/off toggle is the RackUnit power switch in graphic
 // mode and the EffectSection switch in slider mode.
 
+/** Shared toggle handler for every rack section. Replaces the old pattern
+ *  `onChange(on ? { ...DEFAULTS } : undefined)` which threw the user's tuned
+ *  params away on toggle-off. The new pattern preserves params across an
+ *  off→on cycle by flipping the optional `enabled` flag on the params
+ *  themselves. `params=undefined` still means "stage never set in this
+ *  preset" — toggle-on creates with defaults; toggle-off is a no-op.
+ *  Reads `enabled !== false` so legacy presets/variants without the field
+ *  are implicitly on. */
+function stageToggle<T extends { enabled?: boolean }>(
+  params: T | undefined,
+  defaults: T,
+  onChange: (next: T | undefined) => void,
+): { enabled: boolean; toggle: (on: boolean) => void } {
+  const enabled = params != null && params.enabled !== false;
+  const toggle = (on: boolean) => {
+    if (on) {
+      onChange(params ? { ...params, enabled: true } : { ...defaults, enabled: true });
+    } else {
+      onChange(params ? { ...params, enabled: false } : undefined);
+    }
+  };
+  return { enabled, toggle };
+}
+
 const DEFAULT_BODY_FILTER: BodyFilterParams = { cutoff: 3000, q: 0.7 };
 
 function BodyFilterSection({
@@ -1237,9 +1265,8 @@ function BodyFilterSection({
   onChange: (next: BodyFilterParams | undefined) => void;
 }) {
   const mode = useViewMode();
-  const enabled = !!params;
+  const { enabled, toggle } = stageToggle(params, DEFAULT_BODY_FILTER, onChange);
   const current = params ?? DEFAULT_BODY_FILTER;
-  const toggle = (on: boolean) => onChange(on ? { ...DEFAULT_BODY_FILTER } : undefined);
   const update = (patch: Partial<BodyFilterParams>) => params && onChange({ ...params, ...patch });
   if (mode === 'graphic') {
     // Cutoff + Q only in graphic mode. Envelope sub-section (ADSR + base/oct)
@@ -1280,9 +1307,8 @@ function CompressorSection({
   onChange: (next: CompressorParams | undefined) => void;
 }) {
   const mode = useViewMode();
-  const enabled = !!params;
+  const { enabled, toggle } = stageToggle(params, DEFAULT_COMPRESSOR, onChange);
   const current = params ?? DEFAULT_COMPRESSOR;
-  const toggle = (on: boolean) => onChange(on ? { ...DEFAULT_COMPRESSOR } : undefined);
   const update = (patch: Partial<CompressorParams>) => params && onChange({ ...params, ...patch });
   if (mode === 'graphic') {
     return (
@@ -1326,9 +1352,8 @@ function DistortionSection({
   onChange: (next: DistortionParams | undefined) => void;
 }) {
   const mode = useViewMode();
-  const enabled = !!params;
+  const { enabled, toggle } = stageToggle(params, DEFAULT_DISTORTION, onChange);
   const current = params ?? DEFAULT_DISTORTION;
-  const toggle = (on: boolean) => onChange(on ? { ...DEFAULT_DISTORTION } : undefined);
   const update = (patch: Partial<DistortionParams>) => params && onChange({ ...params, ...patch });
   if (mode === 'graphic') {
     return (
@@ -1362,9 +1387,8 @@ function ChorusSection({
   onChange: (next: ChorusParams | undefined) => void;
 }) {
   const mode = useViewMode();
-  const enabled = !!params;
+  const { enabled, toggle } = stageToggle(params, DEFAULT_CHORUS, onChange);
   const current = params ?? DEFAULT_CHORUS;
-  const toggle = (on: boolean) => onChange(on ? { ...DEFAULT_CHORUS } : undefined);
   const update = (patch: Partial<ChorusParams>) => params && onChange({ ...params, ...patch });
   if (mode === 'graphic') {
     return (
@@ -1401,9 +1425,8 @@ function DelaySection({
   onChange: (next: DelayParams | undefined) => void;
 }) {
   const mode = useViewMode();
-  const enabled = !!params;
+  const { enabled, toggle } = stageToggle(params, DEFAULT_DELAY, onChange);
   const current = params ?? DEFAULT_DELAY;
-  const toggle = (on: boolean) => onChange(on ? { ...DEFAULT_DELAY } : undefined);
   const update = (patch: Partial<DelayParams>) => params && onChange({ ...params, ...patch });
   if (mode === 'graphic') {
     return (
@@ -1439,9 +1462,8 @@ function AutoWahSection({
   onChange: (next: AutoWahParams | undefined) => void;
 }) {
   const mode = useViewMode();
-  const enabled = !!params;
+  const { enabled, toggle } = stageToggle(params, DEFAULT_AUTOWAH, onChange);
   const current = params ?? DEFAULT_AUTOWAH;
-  const toggle = (on: boolean) => onChange(on ? { ...DEFAULT_AUTOWAH } : undefined);
   const update = (patch: Partial<AutoWahParams>) => params && onChange({ ...params, ...patch });
   if (mode === 'graphic') {
     return (
@@ -1483,9 +1505,8 @@ function ReverbSection({
   onChange: (next: VoiceReverbParams | undefined) => void;
 }) {
   const mode = useViewMode();
-  const enabled = !!reverb;
+  const { enabled, toggle } = stageToggle(reverb, DEFAULT_REVERB, onChange);
   const current = reverb ?? DEFAULT_REVERB;
-  const toggle = (on: boolean) => onChange(on ? { ...DEFAULT_REVERB } : undefined);
   const update = (patch: Partial<VoiceReverbParams>) => reverb && onChange({ ...reverb, ...patch });
   if (mode === 'graphic') {
     return (
@@ -1517,13 +1538,12 @@ function CabinetSection({
   cabIR,
   onChange,
 }: {
-  cabIR: { url: string; makeupDb?: number } | undefined;
-  onChange: (next: { url: string; makeupDb?: number } | undefined) => void;
+  cabIR: CabIRParams | undefined;
+  onChange: (next: CabIRParams | undefined) => void;
 }) {
   const mode = useViewMode();
-  const enabled = !!cabIR;
-  const toggle = (on: boolean) =>
-    onChange(on ? { url: CABINET_IRS[0]!.url, makeupDb: 0 } : undefined);
+  const DEFAULT_CABIR: CabIRParams = { url: CABINET_IRS[0]!.url, makeupDb: 0 };
+  const { enabled, toggle } = stageToggle(cabIR, DEFAULT_CABIR, onChange);
   if (mode === 'graphic') {
     const irOptions = CABINET_IRS.map((ir) => ({ id: ir.id, label: ir.label }));
     const currentIrId = cabIR ? detectCabinetIR(cabIR.url)?.id : undefined;
@@ -1580,9 +1600,8 @@ function FinalEqSection({
   onChange: (next: EQParams | undefined) => void;
 }) {
   const mode = useViewMode();
-  const enabled = !!finalEq;
+  const { enabled, toggle } = stageToggle(finalEq, DEFAULT_FINAL_EQ, onChange);
   const current = finalEq ?? DEFAULT_FINAL_EQ;
-  const toggle = (on: boolean) => onChange(on ? { ...DEFAULT_FINAL_EQ } : undefined);
   const update = (patch: Partial<EQParams>) => finalEq && onChange({ ...finalEq, ...patch });
   if (mode === 'graphic') {
     return (
@@ -1698,7 +1717,7 @@ function MasterReverbSection({
 // weird to map them to knobs. Graphic mode wraps in a RackUnit; slider mode
 // wraps in the classic EffectSection. The fader layout itself is identical.
 const GRAPHIC_EQ_BAND_DEFS: ReadonlyArray<{
-  key: keyof Omit<GraphicEqParams, 'levelDb'>;
+  key: keyof Omit<GraphicEqParams, 'levelDb' | 'enabled'>;
   label: string;
 }> = [
   { key: 'band100Hz',  label: '100' },
@@ -1723,9 +1742,8 @@ function GraphicEqSection({
   onChange: (next: GraphicEqParams | undefined) => void;
 }) {
   const mode = useViewMode();
-  const enabled = !!params;
+  const { enabled, toggle } = stageToggle(params, DEFAULT_GRAPHIC_EQ, onChange);
   const current = params ?? DEFAULT_GRAPHIC_EQ;
-  const toggle = (on: boolean) => onChange(on ? { ...DEFAULT_GRAPHIC_EQ } : undefined);
   const update = (patch: Partial<GraphicEqParams>) => params && onChange({ ...params, ...patch });
 
   const faders = (
@@ -1782,6 +1800,7 @@ function GraphicEqSection({
 // EffectSection + ParameterSlider style. Both write to the same EffectsConfig
 // `amp` field so the chosen view doesn't change the persisted data.
 const DEFAULT_AMP: AmpParams = {
+  modelId: DEFAULT_AMP_MODEL_ID,
   preGainDb: 0,
   preDrive: 0.3,
   bass: 0,
@@ -1800,31 +1819,40 @@ function AmpSection({
   onChange: (next: AmpParams | undefined) => void;
 }) {
   const mode = useViewMode();
-  const enabled = !!amp;
-  // Preserve the user's amp params across toggle-off so toggling back on
-  // restores their tone instead of snapping to DEFAULT_AMP (preDrive 0.3 — a
-  // mild crunch). The ref tracks the most recent non-null amp value; when amp
-  // becomes undefined the ref retains it so we can restore on toggle-on.
-  // Known minor edge case: loading a preset whose amp is undefined while the
-  // ref holds a previous preset's value means toggling on returns the prior
-  // value instead of DEFAULT_AMP — acceptable for now.
-  const lastParamsRef = useRef<AmpParams | null>(amp ?? null);
-  if (amp) lastParamsRef.current = amp;
-  // Display values are pinned to the last enabled state so the panel doesn't
-  // visually jump when the user toggles off (Knobs are greyed via
-  // `disabled={!enabled}` but still show meaningful values).
-  const current = amp ?? lastParamsRef.current ?? DEFAULT_AMP;
-  const toggle = (on: boolean) =>
-    onChange(on ? (lastParamsRef.current ?? { ...DEFAULT_AMP }) : undefined);
+  const { enabled, toggle } = stageToggle(amp, DEFAULT_AMP, onChange);
+  const current = amp ?? DEFAULT_AMP;
   const updateField = <K extends keyof AmpParams>(key: K, value: AmpParams[K]) => {
     if (!amp) return;
     onChange({ ...amp, [key]: value });
   };
 
+  const activeModel = getAmpModel(current.modelId);
+  const modelPicker = (
+    <div className="flex flex-col gap-1.5 mb-3">
+      <label className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+        Amp Model
+      </label>
+      <select
+        value={current.modelId ?? DEFAULT_AMP_MODEL_ID}
+        onChange={(e) => updateField('modelId', e.target.value)}
+        disabled={!enabled}
+        className="h-8 px-2 rounded-md bg-card border border-input text-xs font-mono disabled:opacity-40"
+      >
+        {AMP_MODELS.map((m) => (
+          <option key={m.id} value={m.id}>
+            {m.name} ({m.category})
+          </option>
+        ))}
+      </select>
+      <p className="text-[10px] text-muted-foreground leading-snug">{activeModel.description}</p>
+    </div>
+  );
+
   if (mode === 'graphic') {
     return (
       <div className="border border-border/30 rounded-md p-3">
-        <AmpPanel label="Fretwork 50" enabled={enabled} onToggle={toggle}>
+        {modelPicker}
+        <AmpPanel label={activeModel.name} enabled={enabled} onToggle={toggle}>
           <Knob
             label="Pre Gain"
             value={current.preGainDb}
@@ -1924,6 +1952,7 @@ function AmpSection({
     <EffectSection title="Amp" enabled={enabled} onToggle={toggle}>
       {amp && (
         <div className="space-y-2 pt-1">
+          {modelPicker}
           <ParameterSlider label="Pre Gain" value={amp.preGainDb} min={-12} max={24} step={0.5} unit="dB" precision={1} onChange={(preGainDb) => onChange({ ...amp, preGainDb })} />
           <ParameterSlider label="Pre Drive" value={amp.preDrive} min={0} max={1} step={0.01} onChange={(preDrive) => onChange({ ...amp, preDrive })} />
           <ParameterSlider label="Bass" value={amp.bass} min={-12} max={12} step={0.5} unit="dB" precision={1} onChange={(bass) => onChange({ ...amp, bass })} />

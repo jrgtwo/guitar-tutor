@@ -39,6 +39,13 @@ export {
   type CabinetIR,
 } from './voices/cabinet-irs';
 export {
+  AMP_MODELS,
+  getAmpModel,
+  DEFAULT_AMP_MODEL_ID,
+  type AmpModel,
+  type AmpModelCategory,
+} from './voices/amp-models';
+export {
   Voice,
   MasterBus,
   VOICE_PRESETS,
@@ -84,6 +91,7 @@ export type {
   DelayParams,
   EQParams,
   AutoWahParams,
+  CabIRParams,
   AmpParams,
   VoiceReverbParams,
   GraphicEqParams,

@@ -43,6 +43,18 @@ import type {
   VoiceSource,
 } from './types';
 import { MasterBus } from './MasterBus';
+import { getAmpModel } from './amp-models';
+
+/** A rack stage is "in the chain" iff its params object exists AND its
+ *  optional `enabled` flag isn't explicitly `false`. Undefined `enabled`
+ *  reads as on, so any pre-existing variant or preset that pre-dates the
+ *  enabled flag keeps working as before. Set `enabled: false` in the lab
+ *  to disable a stage without losing the user's tuned values. */
+function isStageEnabled<T extends { enabled?: boolean } | undefined>(
+  params: T,
+): params is Exclude<T, undefined> {
+  return params != null && params.enabled !== false;
+}
 import { noteTriggered } from '../audio-debug';
 import type { GuitarInstrument } from '../types';
 
@@ -450,12 +462,13 @@ export class Voice implements GuitarInstrument {
   }
 
   /** Update or remove the body filter. Adding/removing the filter (or its
-   *  envelope) rebuilds the chain; parameter-only changes mutate in place. */
+   *  envelope), or flipping its `enabled` flag, rebuilds the chain;
+   *  parameter-only changes mutate in place. */
   updateBodyFilter(next: BodyFilterParams | undefined): void {
     const prev = this._preset.bodyFilter;
     this._preset = { ...this._preset, bodyFilter: next };
     if (!this._synth) return;
-    if (!!prev !== !!next || !!prev?.envelope !== !!next?.envelope) {
+    if (isStageEnabled(prev) !== isStageEnabled(next) || !!prev?.envelope !== !!next?.envelope) {
       this._rebuildChain();
       return;
     }
@@ -467,12 +480,13 @@ export class Voice implements GuitarInstrument {
     }
   }
 
-  /** Update or remove the compressor. */
+  /** Update or remove the compressor. Flipping `enabled` rebuilds the chain;
+   *  parameter-only changes mutate in place. */
   updateCompressor(next: CompressorParams | undefined): void {
     const prev = this._preset.compressor;
     this._preset = { ...this._preset, compressor: next };
     if (!this._synth) return;
-    if (!!prev !== !!next) {
+    if (isStageEnabled(prev) !== isStageEnabled(next)) {
       this._rebuildChain();
       return;
     }
@@ -723,7 +737,7 @@ function buildSynth(source: VoiceSource): SynthNode {
 
 function buildChain(preset: VoicePreset): ChainNodes {
   const nodes: ChainNodes = {};
-  if (preset.bodyFilter) {
+  if (isStageEnabled(preset.bodyFilter)) {
     nodes.bodyFilter = new Tone.Filter({
       type: 'lowpass',
       frequency: preset.bodyFilter.cutoff,
@@ -742,7 +756,7 @@ function buildChain(preset: VoicePreset): ChainNodes {
       nodes.bodyFilterEnvelope.connect(nodes.bodyFilter.frequency);
     }
   }
-  if (preset.compressor) {
+  if (isStageEnabled(preset.compressor)) {
     nodes.compressor = new Tone.Compressor({
       threshold: preset.compressor.threshold,
       ratio: preset.compressor.ratio,
@@ -751,14 +765,14 @@ function buildChain(preset: VoicePreset): ChainNodes {
       knee: preset.compressor.knee,
     });
   }
-  if (preset.effects?.distortion) {
+  if (isStageEnabled(preset.effects?.distortion)) {
     nodes.distortion = new Tone.Distortion({
       distortion: preset.effects.distortion.drive,
       wet: preset.effects.distortion.wet,
       oversample: preset.effects.distortion.oversample,
     });
   }
-  if (preset.effects?.chorus) {
+  if (isStageEnabled(preset.effects?.chorus)) {
     nodes.chorus = new Tone.Chorus({
       frequency: preset.effects.chorus.frequency,
       depth: preset.effects.chorus.depth,
@@ -770,14 +784,14 @@ function buildChain(preset: VoicePreset): ChainNodes {
     });
     nodes.chorus.start();
   }
-  if (preset.effects?.delay) {
+  if (isStageEnabled(preset.effects?.delay)) {
     nodes.delay = new Tone.FeedbackDelay({
       delayTime: preset.effects.delay.delayTime,
       feedback: preset.effects.delay.feedback,
       wet: preset.effects.delay.wet,
     });
   }
-  if (preset.effects?.autoWah) {
+  if (isStageEnabled(preset.effects?.autoWah)) {
     nodes.autoWah = new Tone.AutoWah({
       baseFrequency: preset.effects.autoWah.baseFrequency,
       octaves: preset.effects.autoWah.octaves,
@@ -787,12 +801,16 @@ function buildChain(preset: VoicePreset): ChainNodes {
       wet: preset.effects.autoWah.wet,
     });
   }
-  if (preset.effects?.graphicEq) {
+  if (isStageEnabled(preset.effects?.graphicEq)) {
     nodes.graphicEqBands = buildGraphicEqBands(preset.effects.graphicEq);
     nodes.graphicEqLevel = new Tone.Gain(dbToGain(preset.effects.graphicEq.levelDb));
   }
-  if (preset.effects?.amp) {
-    const a = preset.effects.amp;
+  if (isStageEnabled(preset.effects?.amp)) {
+    const a = preset.effects!.amp!;
+    // Look up the amp model — defines curve algorithm, tone-stack crossover
+    // frequencies, and presence-shelf frequency. Falls back to a default if
+    // the modelId is missing or unknown (handled inside getAmpModel).
+    const model = getAmpModel(a.modelId);
     nodes.ampPreGain = new Tone.Gain(dbToGain(a.preGainDb));
     // Bass split — lows bypass saturation, highs feed the drive chain.
     // 120 Hz crossover, gentle Butterworth Q. Phase isn't perfectly summed
@@ -800,35 +818,38 @@ function buildChain(preset: VoicePreset): ChainNodes {
     // is well below audible threshold.
     nodes.ampBassHpf = new Tone.Filter({ type: 'highpass', frequency: 120, Q: 0.7 });
     nodes.ampBassLpf = new Tone.Filter({ type: 'lowpass', frequency: 120, Q: 0.7 });
-    // Asymmetric soft-clip waveshapers. The curve treats positive and
-    // negative samples differently — positive saturates ~2× faster — to
-    // produce even harmonics (octaves, fifths) the way tube amps do.
-    // Symmetric clipping only produces odd harmonics → "metallic." Both
-    // stages use 4× oversampling to keep aliasing harmonics out of the
-    // audible band. setMap rebuilds the LUT when drive changes (see
-    // applyAmp).
-    nodes.ampPreDist = new Tone.WaveShaper(makeAsymmetricSoftClipCurve(a.preDrive), 4096);
+    // Saturator waveshapers. The curve function comes from the model —
+    // Twin uses symmetric quadratic, Plexi uses asymmetric linear, AC30
+    // uses arctan-compressed, etc. All curves are normalized so peaks ≈
+    // unity at any drive value (compresses dynamics without bumping
+    // headline level). 4× oversampling keeps aliasing harmonics out of
+    // the audible band on both stages. setMap rebuilds the LUT when
+    // drive or modelId changes (see applyAmp).
+    nodes.ampPreDist = new Tone.WaveShaper(model.curve(a.preDrive), 4096);
     nodes.ampPreDist.oversample = '4x';
-    nodes.ampPowerDist = new Tone.WaveShaper(makeAsymmetricSoftClipCurve(a.powerDrive), 4096);
+    nodes.ampPowerDist = new Tone.WaveShaper(model.curve(a.powerDrive), 4096);
     nodes.ampPowerDist.oversample = '4x';
     nodes.ampBassMerge = new Tone.Gain(1);
     nodes.ampTone = new Tone.EQ3({
       low: a.bass,
       mid: a.mid,
       high: a.treble,
-      // Crossover frequencies modelled loosely on a typical Fender/Marshall
-      // tone stack: bass shelves below ~200Hz, treble above ~2kHz.
-      lowFrequency: 200,
-      highFrequency: 2000,
+      // Crossover frequencies come from the model — Fender amps run wider
+      // (bass shelf around 80 Hz, treble around 4.5 kHz), Marshalls narrower
+      // (200/2.2k for the mid-forward voice).
+      lowFrequency: model.toneStack.lowFrequency,
+      highFrequency: model.toneStack.highFrequency,
     });
     nodes.ampPresence = new Tone.Filter({
       type: 'highshelf',
-      frequency: 3000,
+      // Presence shelf frequency also varies by model — Twin/AC30 sit higher
+      // (4.5-5 kHz for air); Marshalls lower (~3 kHz for upper-mid snap).
+      frequency: model.presence.frequency,
       gain: a.presence,
     });
     nodes.ampOutput = new Tone.Gain(dbToGain(a.outputDb));
   }
-  if (preset.effects?.reverb) {
+  if (isStageEnabled(preset.effects?.reverb)) {
     // Tone.JCReverb is algorithmic (Schroeder), naturally spring-like.
     // Cheap enough to run one per voice including at multi-track scale.
     nodes.voiceReverb = new Tone.JCReverb({
@@ -836,7 +857,7 @@ function buildChain(preset: VoicePreset): ChainNodes {
       wet: preset.effects.reverb.wet,
     });
   }
-  if (preset.effects?.cabIR) {
+  if (isStageEnabled(preset.effects?.cabIR)) {
     // `normalize: false` applies the IR at its native level. Tone's default
     // normalize divides by the IR's RMS, which sounds drastically quieter
     // for cab IRs (which attenuate high-end). The IR packs we ship are
@@ -848,7 +869,7 @@ function buildChain(preset: VoicePreset): ChainNodes {
     });
     nodes.cabIRMakeup = new Tone.Gain(dbToGain(preset.effects.cabIR.makeupDb ?? 0));
   }
-  if (preset.effects?.finalEq) {
+  if (isStageEnabled(preset.effects?.finalEq)) {
     nodes.finalEq = new Tone.EQ3({
       low: preset.effects.finalEq.low,
       mid: preset.effects.finalEq.mid,
@@ -1020,39 +1041,31 @@ function applyAutoWah(node: Tone.AutoWah, p: AutoWahParams): void {
 
 /** Update all amp stage nodes in place. Caller has already verified that the
  *  amp config is still PRESENT (a present→absent transition triggers a chain
- *  rebuild via sameEffectsShape). Drive changes rebuild the saturator LUT via
- *  setMap (Tone.WaveShaper's curve isn't a Signal). Gain / EQ params ramp to
- *  avoid clicks. */
+ *  rebuild via sameEffectsShape). When `modelId` changes (or when the drive
+ *  values change), the curve function from the model is reapplied via
+ *  WaveShaper.setMap. Tone-stack crossover frequencies + presence frequency
+ *  also re-derive from the model on each call so changing models retunes
+ *  those instantly. All gain / EQ params ramp to avoid clicks. */
 function applyAmp(c: ChainNodes, p: AmpParams): void {
+  const model = getAmpModel(p.modelId);
   if (c.ampPreGain) c.ampPreGain.gain.rampTo(dbToGain(p.preGainDb), 0.02);
-  if (c.ampPreDist) c.ampPreDist.setMap(makeAsymmetricSoftClipCurve(p.preDrive), 4096);
+  if (c.ampPreDist) c.ampPreDist.setMap(model.curve(p.preDrive), 4096);
   if (c.ampTone) {
     c.ampTone.low.rampTo(p.bass, 0.02);
     c.ampTone.mid.rampTo(p.mid, 0.02);
     c.ampTone.high.rampTo(p.treble, 0.02);
+    // EQ3.lowFrequency + highFrequency are Tone.Signals (frequency type), so
+    // they can ramp like the gain controls. Switching amp models retunes the
+    // tone stack without a chain rebuild.
+    c.ampTone.lowFrequency.rampTo(model.toneStack.lowFrequency, 0.02);
+    c.ampTone.highFrequency.rampTo(model.toneStack.highFrequency, 0.02);
   }
-  if (c.ampPowerDist) c.ampPowerDist.setMap(makeAsymmetricSoftClipCurve(p.powerDrive), 4096);
-  if (c.ampPresence) c.ampPresence.gain.rampTo(p.presence, 0.02);
+  if (c.ampPowerDist) c.ampPowerDist.setMap(model.curve(p.powerDrive), 4096);
+  if (c.ampPresence) {
+    c.ampPresence.gain.rampTo(p.presence, 0.02);
+    c.ampPresence.frequency.rampTo(model.presence.frequency, 0.02);
+  }
   if (c.ampOutput) c.ampOutput.gain.rampTo(dbToGain(p.outputDb), 0.02);
-}
-
-/** Asymmetric soft-clip curve. Real tube amps clip positive and negative
- *  halves differently — that asymmetry produces **even** harmonics (octaves,
- *  fifths) which read as "warm" / "tube-like." Pure symmetric clipping only
- *  produces odd harmonics, which read as "metallic" / "buzzy." This is the
- *  single biggest character difference between a polynomial waveshaper and a
- *  real saturating amp.
- *
- *  Implementation: positive half uses a steeper tanh (saturates ~2× faster),
- *  negative half uses a gentler tanh. At drive=0 both halves are identical
- *  (clean tanh — adds gentle warmth at unity gain). As drive increases, the
- *  asymmetry grows along with overall saturation.
- *
- *  Used by ampPreDist + ampPowerDist via Tone.WaveShaper.setMap(). */
-function makeAsymmetricSoftClipCurve(drive: number): (x: number) => number {
-  const dp = 1 + drive * 8;  // positive-half gain → saturates harder
-  const dn = 1 + drive * 4;  // negative-half gain → saturates gentler
-  return (x) => (x >= 0 ? Math.tanh(x * dp) : Math.tanh(x * dn));
 }
 
 function applyVoiceReverb(node: Tone.JCReverb, p: VoiceReverbParams): void {
@@ -1147,16 +1160,20 @@ function applyEQ(node: Tone.EQ3, p: EQParams): void {
 }
 
 function sameEffectsShape(a: EffectsConfig | undefined, b: EffectsConfig | undefined): boolean {
+  // Each stage's "shape" is whether it's actually present in the chain — i.e.
+  // params exist AND enabled !== false. A toggle-off (enabled true → false)
+  // must trigger a chain rebuild so the node is removed from the signal flow;
+  // toggle-on rebuilds to re-insert it.
   return (
-    !!a?.distortion === !!b?.distortion &&
-    !!a?.chorus === !!b?.chorus &&
-    !!a?.delay === !!b?.delay &&
-    !!a?.autoWah === !!b?.autoWah &&
-    !!a?.graphicEq === !!b?.graphicEq &&
-    !!a?.amp === !!b?.amp &&
-    !!a?.reverb === !!b?.reverb &&
-    !!a?.cabIR === !!b?.cabIR &&
-    !!a?.finalEq === !!b?.finalEq &&
+    isStageEnabled(a?.distortion) === isStageEnabled(b?.distortion) &&
+    isStageEnabled(a?.chorus) === isStageEnabled(b?.chorus) &&
+    isStageEnabled(a?.delay) === isStageEnabled(b?.delay) &&
+    isStageEnabled(a?.autoWah) === isStageEnabled(b?.autoWah) &&
+    isStageEnabled(a?.graphicEq) === isStageEnabled(b?.graphicEq) &&
+    isStageEnabled(a?.amp) === isStageEnabled(b?.amp) &&
+    isStageEnabled(a?.reverb) === isStageEnabled(b?.reverb) &&
+    isStageEnabled(a?.cabIR) === isStageEnabled(b?.cabIR) &&
+    isStageEnabled(a?.finalEq) === isStageEnabled(b?.finalEq) &&
     // URL change also requires a rebuild — Tone.Convolver loads its IR in
     // the constructor and doesn't support swapping URLs in place. Makeup
     // gain changes go through the in-place path below.

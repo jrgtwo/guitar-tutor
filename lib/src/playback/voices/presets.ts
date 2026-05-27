@@ -262,6 +262,7 @@ export const CLEAN_AMP_PRESET: VoicePreset = {
   },
   effects: {
     amp: {
+      modelId: 'fender-twin',
       preGainDb: -12, preDrive: 0.11, bass: 0, mid: -6.5, treble: 0,
       presence: -1.5, powerDrive: 0.29, outputDb: 0,
     },
@@ -281,6 +282,7 @@ export const BLUES_PRESET: VoicePreset = {
   level: { volumeDb: -0.5, pan: 0 },
   effects: {
     amp: {
+      modelId: 'fender-champ',
       preGainDb: -4.5, preDrive: 0, bass: -3.5, mid: 5.5, treble: 3,
       presence: 1, powerDrive: 0.83, outputDb: -2,
     },
@@ -300,6 +302,7 @@ export const CRUNCH_PRESET: VoicePreset = {
   level: { volumeDb: 0, pan: 0 },
   effects: {
     amp: {
+      modelId: 'marshall-plexi',
       preGainDb: 6, preDrive: 0.4, bass: 2, mid: 4, treble: 1,
       presence: 3, powerDrive: 0.1, outputDb: -3,
     },
@@ -320,6 +323,7 @@ export const LEAD_PRESET: VoicePreset = {
   effects: {
     delay: { delayTime: 0.32, feedback: 0.25, wet: 0.12 },
     amp: {
+      modelId: 'marshall-plexi',
       preGainDb: 7, preDrive: 0.6, bass: 1, mid: 5, treble: 2,
       presence: 4, powerDrive: 0.2, outputDb: -4,
     },
@@ -339,6 +343,7 @@ export const METAL_PRESET: VoicePreset = {
   level: { volumeDb: -4, pan: 0 },
   effects: {
     amp: {
+      modelId: 'modern-high-gain',
       preGainDb: 9, preDrive: 0.85, bass: 4, mid: -4, treble: 4,
       presence: 4, powerDrive: 0.3, outputDb: -6,
     },
@@ -359,6 +364,7 @@ export const SURF_PRESET: VoicePreset = {
   level: { volumeDb: 6, pan: 0 },
   effects: {
     amp: {
+      modelId: 'fender-twin',
       preGainDb: 0, preDrive: 0, bass: 0, mid: -1, treble: 4,
       presence: 2, powerDrive: 0, outputDb: 0,
     },
@@ -381,6 +387,7 @@ export const AMBIENT_PRESET: VoicePreset = {
     chorus: { frequency: 0.8, depth: 0.5, wet: 0.35, type: 'sine', feedback: 0.2, delayTime: 0.004, spread: 180 },
     delay: { delayTime: 0.45, feedback: 0.4, wet: 0.25 },
     amp: {
+      modelId: 'fender-twin',
       preGainDb: 0, preDrive: 0.05, bass: 1, mid: -1, treble: 2,
       presence: 1, powerDrive: 0, outputDb: 0,
     },

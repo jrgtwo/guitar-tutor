@@ -413,8 +413,11 @@ export {
   CABINET_IRS,
   getCabinetIR,
   detectCabinetIR,
+  AMP_MODELS,
+  getAmpModel,
+  DEFAULT_AMP_MODEL_ID,
 } from './playback';
-export type { AbsoluteCell, CagedShape, CagedShapeId, CagedLetter, SamplePack, CabinetIR } from './playback';
+export type { AbsoluteCell, CagedShape, CagedShapeId, CagedLetter, SamplePack, CabinetIR, AmpModel, AmpModelCategory } from './playback';
 export type {
   PlaybackPattern,
   PlaybackOptions,
@@ -441,6 +444,7 @@ export type {
   DelayParams,
   EQParams,
   AutoWahParams,
+  CabIRParams,
   AmpParams,
   VoiceReverbParams,
   GraphicEqParams,
