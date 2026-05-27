@@ -38,7 +38,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ffmpegPath from 'ffmpeg-static';
 
-const OUTPUT_BITRATE = '128k';
+const OUTPUT_BITRATE = '192k';
 const FRETS_PER_STRING = 12;          // open + 11 frets
 const RR_COUNT = 4;
 const EVENTS_PER_TRACK = FRETS_PER_STRING * RR_COUNT; // 48

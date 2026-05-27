@@ -66,15 +66,32 @@ interface ChainNodes {
   /** Output trim after the 7 bands — compensates for cuts/boosts changing
    *  apparent loudness. */
   graphicEqLevel?: Tone.Gain;
-  // Amp stage (6 nodes when present, all built/disposed together)
-  /** Input gain driving signal into the pre-amp saturation. */
+  // Amp stage (9 nodes when present, all built/disposed together).
+  // Topology: input → preGain → split[hpf, lpf] → hpf → preDist → powerDist →
+  //           merge ← lpf ← (clean bass bypass) → tone → presence → output.
+  // Bass-split before drive keeps the lows clean (cab can't reproduce muddy
+  // distorted bass anyway) and lets the saturation work on the harmonically
+  // interesting mid+high range. Tone stack runs on the merged signal so
+  // bass/mid/treble controls affect the full bandwidth.
+  /** Input gain driving signal into the pre-amp section. */
   ampPreGain?: Tone.Gain;
-  /** Pre-amp saturation — voicing-defining stage. */
-  ampPreDist?: Tone.Distortion;
-  /** Tone stack — bass/mid/treble shaping after pre-amp. */
+  /** High-pass at ~120 Hz — feeds the saturation chain. Lows bypass. */
+  ampBassHpf?: Tone.Filter;
+  /** Low-pass at ~120 Hz — clean bass bypass around the saturators. */
+  ampBassLpf?: Tone.Filter;
+  /** Pre-amp saturation. Asymmetric soft-clip WaveShaper (replaces the old
+   *  symmetric Tone.Distortion polynomial — that's the "metallic" sound). */
+  ampPreDist?: Tone.WaveShaper;
+  /** Power-amp saturation. Same asymmetric WaveShaper algorithm, separate
+   *  drive amount. */
+  ampPowerDist?: Tone.WaveShaper;
+  /** Summing node where the driven highs + clean lows meet. */
+  ampBassMerge?: Tone.Gain;
+  /** Tone stack — bass/mid/treble shaping. Now operates on the re-merged
+   *  signal (was between preDist and powerDist). The bass knob now affects
+   *  the clean-bypass low-end as well, which matches how real amp tone
+   *  controls feel. */
   ampTone?: Tone.EQ3;
-  /** Power-amp saturation — adds harmonic coloration after the tone stack. */
-  ampPowerDist?: Tone.Distortion;
   /** Presence shelf — high-shelf around 3 kHz, modelled on the power-amp's
    *  negative-feedback presence control. */
   ampPresence?: Tone.Filter;
@@ -266,8 +283,20 @@ export class Voice implements GuitarInstrument {
     const durSecForDebug = options?.durationSec ?? (typeof duration === 'number' ? duration : 1);
     const releaseEstimate = this._preset.source.kind === 'sampler' ? (this._preset.source.release ?? 1) : 1;
     noteTriggered(durSecForDebug + releaseEstimate);
+    // Sub-cent humanization. Tone.Sampler reproduces every trigger at the
+    // exact same pitch, which makes consecutive notes (especially scales
+    // and arpeggios) sound mechanical. Real guitarists land microtones off
+    // every pluck — ±5 cents is below the conscious-pitch threshold but
+    // enough to break the sterile uniformity. We perturb the frequency
+    // passed to the trigger (not the Sampler.detune Signal) so each voice
+    // gets its own pitch offset without modulating in-flight sustaining
+    // voices on the same Sampler.
+    const HUMANIZE_RANGE_CENTS = 10; // ±5 cents
+    const detuneCents = (Math.random() - 0.5) * HUMANIZE_RANGE_CENTS;
+    const triggerFreq =
+      Tone.Frequency(noteName).toFrequency() * Math.pow(2, detuneCents / 1200);
     try {
-      synth.triggerAttackRelease(noteName, duration, audioTime, velocity);
+      synth.triggerAttackRelease(triggerFreq, duration, audioTime, velocity);
       // Trigger the body-filter envelope on each note so the cutoff sweeps in
       // sync with the pluck. The envelope's release continues after the synth
       // is silent, which is fine — it only modulates the filter, not the audio.
@@ -765,11 +794,24 @@ function buildChain(preset: VoicePreset): ChainNodes {
   if (preset.effects?.amp) {
     const a = preset.effects.amp;
     nodes.ampPreGain = new Tone.Gain(dbToGain(a.preGainDb));
-    // Tone.Distortion `distortion` is the waveshape curve amount (0..1). For
-    // clean settings (preDrive=0) the node passes signal through with mild
-    // shaping; for high settings it produces hard clipping. `oversample: 4x`
-    // matches the existing distortion stompbox to avoid aliasing artifacts.
-    nodes.ampPreDist = new Tone.Distortion({ distortion: a.preDrive, oversample: '4x', wet: 1 });
+    // Bass split — lows bypass saturation, highs feed the drive chain.
+    // 120 Hz crossover, gentle Butterworth Q. Phase isn't perfectly summed
+    // (would need Linkwitz-Riley), but the resulting ~1 dB dip at crossover
+    // is well below audible threshold.
+    nodes.ampBassHpf = new Tone.Filter({ type: 'highpass', frequency: 120, Q: 0.7 });
+    nodes.ampBassLpf = new Tone.Filter({ type: 'lowpass', frequency: 120, Q: 0.7 });
+    // Asymmetric soft-clip waveshapers. The curve treats positive and
+    // negative samples differently — positive saturates ~2× faster — to
+    // produce even harmonics (octaves, fifths) the way tube amps do.
+    // Symmetric clipping only produces odd harmonics → "metallic." Both
+    // stages use 4× oversampling to keep aliasing harmonics out of the
+    // audible band. setMap rebuilds the LUT when drive changes (see
+    // applyAmp).
+    nodes.ampPreDist = new Tone.WaveShaper(makeAsymmetricSoftClipCurve(a.preDrive), 4096);
+    nodes.ampPreDist.oversample = '4x';
+    nodes.ampPowerDist = new Tone.WaveShaper(makeAsymmetricSoftClipCurve(a.powerDrive), 4096);
+    nodes.ampPowerDist.oversample = '4x';
+    nodes.ampBassMerge = new Tone.Gain(1);
     nodes.ampTone = new Tone.EQ3({
       low: a.bass,
       mid: a.mid,
@@ -779,7 +821,6 @@ function buildChain(preset: VoicePreset): ChainNodes {
       lowFrequency: 200,
       highFrequency: 2000,
     });
-    nodes.ampPowerDist = new Tone.Distortion({ distortion: a.powerDrive, oversample: '2x', wet: 1 });
     nodes.ampPresence = new Tone.Filter({
       type: 'highshelf',
       frequency: 3000,
@@ -852,9 +893,30 @@ function wireChain(
   }
   if (c.graphicEqLevel) order.push(c.graphicEqLevel);
   if (c.ampPreGain) order.push(c.ampPreGain);
-  if (c.ampPreDist) order.push(c.ampPreDist);
+  // Amp stage uses a parallel bass-bypass topology that doesn't fit the
+  // linear `order` chain. We flush the prefix up to ampPreGain, wire the
+  // split-merge structure manually, then resume the linear chain at
+  // ampTone with ampBassMerge as the new entry point.
+  if (c.ampBassHpf && c.ampBassLpf && c.ampPreDist && c.ampPowerDist && c.ampBassMerge) {
+    // Flush the linear prefix into the chain so ampPreGain is connected.
+    for (let i = 0; i < order.length - 1; i++) {
+      order[i].connect(order[i + 1]);
+    }
+    const splitIn = order[order.length - 1];
+    // Driven branch: split → hpf → preDist → powerDist → merge
+    splitIn.connect(c.ampBassHpf);
+    c.ampBassHpf.connect(c.ampPreDist);
+    c.ampPreDist.connect(c.ampPowerDist);
+    c.ampPowerDist.connect(c.ampBassMerge);
+    // Clean bass branch: split → lpf → merge
+    splitIn.connect(c.ampBassLpf);
+    c.ampBassLpf.connect(c.ampBassMerge);
+    // Reset the order array — subsequent linear-chain entries pick up at
+    // ampBassMerge.
+    order.length = 0;
+    order.push(c.ampBassMerge);
+  }
   if (c.ampTone) order.push(c.ampTone);
-  if (c.ampPowerDist) order.push(c.ampPowerDist);
   if (c.ampPresence) order.push(c.ampPresence);
   if (c.ampOutput) order.push(c.ampOutput);
   if (c.voiceReverb) order.push(c.voiceReverb);
@@ -882,9 +944,12 @@ function disposeChain(c: ChainNodes): void {
   }
   c.graphicEqLevel?.dispose();
   c.ampPreGain?.dispose();
+  c.ampBassHpf?.dispose();
+  c.ampBassLpf?.dispose();
   c.ampPreDist?.dispose();
-  c.ampTone?.dispose();
   c.ampPowerDist?.dispose();
+  c.ampBassMerge?.dispose();
+  c.ampTone?.dispose();
   c.ampPresence?.dispose();
   c.ampOutput?.dispose();
   c.voiceReverb?.dispose();
@@ -953,22 +1018,41 @@ function applyAutoWah(node: Tone.AutoWah, p: AutoWahParams): void {
   node.wet.rampTo(p.wet, 0.02);
 }
 
-/** Update all six amp stage nodes in place. Caller has already verified that
- *  the amp config is still PRESENT (a present→absent transition triggers a
- *  chain rebuild via sameEffectsShape). preDrive and powerDrive use direct
- *  assignment (Tone.Distortion's `distortion` field isn't a Signal). All
- *  gain / EQ params ramp to avoid clicks. */
+/** Update all amp stage nodes in place. Caller has already verified that the
+ *  amp config is still PRESENT (a present→absent transition triggers a chain
+ *  rebuild via sameEffectsShape). Drive changes rebuild the saturator LUT via
+ *  setMap (Tone.WaveShaper's curve isn't a Signal). Gain / EQ params ramp to
+ *  avoid clicks. */
 function applyAmp(c: ChainNodes, p: AmpParams): void {
   if (c.ampPreGain) c.ampPreGain.gain.rampTo(dbToGain(p.preGainDb), 0.02);
-  if (c.ampPreDist) c.ampPreDist.distortion = p.preDrive;
+  if (c.ampPreDist) c.ampPreDist.setMap(makeAsymmetricSoftClipCurve(p.preDrive), 4096);
   if (c.ampTone) {
     c.ampTone.low.rampTo(p.bass, 0.02);
     c.ampTone.mid.rampTo(p.mid, 0.02);
     c.ampTone.high.rampTo(p.treble, 0.02);
   }
-  if (c.ampPowerDist) c.ampPowerDist.distortion = p.powerDrive;
+  if (c.ampPowerDist) c.ampPowerDist.setMap(makeAsymmetricSoftClipCurve(p.powerDrive), 4096);
   if (c.ampPresence) c.ampPresence.gain.rampTo(p.presence, 0.02);
   if (c.ampOutput) c.ampOutput.gain.rampTo(dbToGain(p.outputDb), 0.02);
+}
+
+/** Asymmetric soft-clip curve. Real tube amps clip positive and negative
+ *  halves differently — that asymmetry produces **even** harmonics (octaves,
+ *  fifths) which read as "warm" / "tube-like." Pure symmetric clipping only
+ *  produces odd harmonics, which read as "metallic" / "buzzy." This is the
+ *  single biggest character difference between a polynomial waveshaper and a
+ *  real saturating amp.
+ *
+ *  Implementation: positive half uses a steeper tanh (saturates ~2× faster),
+ *  negative half uses a gentler tanh. At drive=0 both halves are identical
+ *  (clean tanh — adds gentle warmth at unity gain). As drive increases, the
+ *  asymmetry grows along with overall saturation.
+ *
+ *  Used by ampPreDist + ampPowerDist via Tone.WaveShaper.setMap(). */
+function makeAsymmetricSoftClipCurve(drive: number): (x: number) => number {
+  const dp = 1 + drive * 8;  // positive-half gain → saturates harder
+  const dn = 1 + drive * 4;  // negative-half gain → saturates gentler
+  return (x) => (x >= 0 ? Math.tanh(x * dp) : Math.tanh(x * dn));
 }
 
 function applyVoiceReverb(node: Tone.JCReverb, p: VoiceReverbParams): void {

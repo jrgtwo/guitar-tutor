@@ -70,7 +70,7 @@ const TRIM_ATTEMPTS = [
 // (~25ms) that the attack still feels sharp; the trailing fade smooths the
 // post-release cut.
 const FADE_S = 0.025;
-const OUTPUT_BITRATE = '128k';
+const OUTPUT_BITRATE = '192k';
 // If trim output is smaller than this fraction of the input, treat it as
 // over-trimmed and try the next attempt.
 const MIN_OUTPUT_RATIO = 0.15;
