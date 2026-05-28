@@ -384,6 +384,14 @@ export interface VoicePreset {
   readonly source: VoiceSource;
   /** Optional layered second synth, mixed with the primary for harmonic depth. */
   readonly layer?: VoiceLayer;
+  /** Optional input gain — clean linear gain applied at the very start of the
+   *  chain (after the synth/sampler mixer, before bodyFilter / compressor /
+   *  effects / amp). Use to attenuate hot sample levels before they hit the
+   *  amp section, or to boost quiet sources without driving the saturators
+   *  harder. Default 0 dB (unity). Slider min of -80 dB grounds the signal
+   *  (perceptually silent), max +24 dB for hot boost. Optional for back-compat
+   *  with stored variants that pre-date this field. */
+  readonly inputGainDb?: number;
   /** Per-voice gain + stereo placement. Always present in the chain. */
   readonly level: VoiceLevel;
   /** Optional body lowpass before the effects chain. */

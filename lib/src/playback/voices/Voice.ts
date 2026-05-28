@@ -124,6 +124,11 @@ interface ChainNodes {
   /** Post-cab mastering EQ — final tone-shaping stage before vol/pan. */
   finalEq?: Tone.EQ3;
   // Always present:
+  /** Pre-chain input gain — first node after the mixer/synth. Lets the user
+   *  attenuate hot samples (or boost quiet sources) before anything else
+   *  processes the signal. Always built so the chain has a consistent entry
+   *  point regardless of whether the preset specifies inputGainDb. */
+  inputGain?: Tone.Gain;
   volume?: Tone.Volume;
   panner?: Tone.Panner;
 }
@@ -436,6 +441,16 @@ export class Voice implements GuitarInstrument {
     if (this._chain.panner) this._chain.panner.pan.rampTo(level.pan, 0.02);
   }
 
+  /** Update the pre-chain input gain in place. Lets the user attenuate hot
+   *  samples (or boost quiet sources) before anything else processes the
+   *  signal. */
+  updateInputGain(inputGainDb: number | undefined): void {
+    this._preset = { ...this._preset, inputGainDb };
+    if (this._chain.inputGain) {
+      this._chain.inputGain.gain.rampTo(dbToGain(inputGainDb ?? 0), 0.02);
+    }
+  }
+
   /** Update / add / remove the sub-body layer. Source-kind changes (or
    *  add/remove) rebuild the layer; everything else mutates in place. */
   updateLayer(next: VoiceLayer | undefined): void {
@@ -526,6 +541,7 @@ export class Voice implements GuitarInstrument {
     }
     this.updateSynthParams(extractSynthParams(next.source));
     this.updateLayer(next.layer);
+    this.updateInputGain(next.inputGainDb);
     this.updateLevel(next.level);
     this.updateBodyFilter(next.bodyFilter);
     this.updateCompressor(next.compressor);
@@ -825,10 +841,15 @@ function buildChain(preset: VoicePreset): ChainNodes {
     // headline level). 4× oversampling keeps aliasing harmonics out of
     // the audible band on both stages. setMap rebuilds the LUT when
     // drive or modelId changes (see applyAmp).
+    // 2× oversample on both stages. Was 4× during the amp redesign which
+    // sounded cleaner against aliasing artifacts but pushed the audio thread
+    // into underrun territory on lower-end machines (audible as constant
+    // crackling). 2× is the standard trade-off — modestly more high-end
+    // aliasing in exchange for stable buffer fills.
     nodes.ampPreDist = new Tone.WaveShaper(model.curve(a.preDrive), 4096);
-    nodes.ampPreDist.oversample = '4x';
+    nodes.ampPreDist.oversample = '2x';
     nodes.ampPowerDist = new Tone.WaveShaper(model.curve(a.powerDrive), 4096);
-    nodes.ampPowerDist.oversample = '4x';
+    nodes.ampPowerDist.oversample = '2x';
     nodes.ampBassMerge = new Tone.Gain(1);
     nodes.ampTone = new Tone.EQ3({
       low: a.bass,
@@ -878,6 +899,10 @@ function buildChain(preset: VoicePreset): ChainNodes {
       highFrequency: preset.effects.finalEq.highFrequency,
     });
   }
+  // Pre-chain input gain — first stage after the mixer. Default 0 dB unity
+  // when the preset doesn't specify it. Always present so the chain has a
+  // consistent entry-point node we can attenuate at without rebuilding.
+  nodes.inputGain = new Tone.Gain(dbToGain(preset.inputGainDb ?? 0));
   // Always present: volume + pan at the end of the chain.
   nodes.volume = new Tone.Volume(preset.level.volumeDb);
   nodes.panner = new Tone.Panner(preset.level.pan);
@@ -903,6 +928,9 @@ function wireChain(
   c: ChainNodes,
 ): Tone.ToneAudioNode {
   const order: Tone.ToneAudioNode[] = [entry];
+  // Input gain — first stage after the mixer/synth entry, before anything
+  // else processes the signal. Always present (default 0 dB unity).
+  if (c.inputGain) order.push(c.inputGain);
   if (c.bodyFilter) order.push(c.bodyFilter);
   if (c.compressor) order.push(c.compressor);
   if (c.distortion) order.push(c.distortion);
@@ -977,6 +1005,7 @@ function disposeChain(c: ChainNodes): void {
   c.cabIR?.dispose();
   c.cabIRMakeup?.dispose();
   c.finalEq?.dispose();
+  c.inputGain?.dispose();
   c.volume?.dispose();
   c.panner?.dispose();
 }

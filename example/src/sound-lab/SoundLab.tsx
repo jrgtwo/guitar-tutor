@@ -390,6 +390,8 @@ export function SoundLab() {
             onCompressorChange={(compressor) => updateActive((p) => ({ ...p, compressor }))}
             bodyFilter={pendingPreset.bodyFilter}
             onBodyFilterChange={(bodyFilter) => updateActive((p) => ({ ...p, bodyFilter }))}
+            inputGainDb={pendingPreset.inputGainDb}
+            onInputGainChange={(inputGainDb) => updateActive((p) => ({ ...p, inputGainDb }))}
             level={pendingPreset.level}
             onLevelChange={(level) => updateActive((p) => ({ ...p, level }))}
             masterReverb={pendingReverb}
@@ -874,7 +876,7 @@ function VoiceLevelControls({
 }) {
   return (
     <>
-      <ParameterSlider label="Volume" value={level.volumeDb} min={-24} max={12} step={0.5} unit="dB" precision={1} onChange={(volumeDb) => onChange({ ...level, volumeDb })} />
+      <ParameterSlider label="Volume" value={level.volumeDb} min={-80} max={12} step={0.5} unit="dB" precision={1} onChange={(volumeDb) => onChange({ ...level, volumeDb })} />
       <ParameterSlider label="Pan" value={level.pan} min={-1} max={1} step={0.05} onChange={(pan) => onChange({ ...level, pan })} />
     </>
   );
@@ -979,6 +981,8 @@ function EffectControls({
   onCompressorChange,
   bodyFilter,
   onBodyFilterChange,
+  inputGainDb,
+  onInputGainChange,
   level,
   onLevelChange,
   masterReverb,
@@ -990,6 +994,8 @@ function EffectControls({
   onCompressorChange: (next: CompressorParams | undefined) => void;
   bodyFilter: BodyFilterParams | undefined;
   onBodyFilterChange: (next: BodyFilterParams | undefined) => void;
+  inputGainDb: number | undefined;
+  onInputGainChange: (next: number | undefined) => void;
   level: VoiceLevel;
   onLevelChange: (next: VoiceLevel) => void;
   masterReverb: ReverbSettings;
@@ -1001,6 +1007,10 @@ function EffectControls({
   //     → Voice Level (always-on output stage) → Master Reverb (global)
   return (
     <>
+      <InputGainSection
+        inputGainDb={inputGainDb}
+        onChange={onInputGainChange}
+      />
       <BodyFilterSection
         params={bodyFilter}
         onChange={onBodyFilterChange}
@@ -1633,6 +1643,54 @@ function FinalEqSection({
   );
 }
 
+// Input gain — first stage in the audio chain, after the synth/sampler
+// mixer and BEFORE bodyFilter / compressor / effects / amp. Lets the user
+// attenuate hot samples (or boost quiet ones) without driving the amp's
+// saturators harder. At slider min (-80 dB) the signal is perceptually
+// grounded — useful for verifying the chain end-to-end is muted.
+function InputGainSection({
+  inputGainDb,
+  onChange,
+}: {
+  inputGainDb: number | undefined;
+  onChange: (next: number | undefined) => void;
+}) {
+  const mode = useViewMode();
+  const value = inputGainDb ?? 0;
+  if (mode === 'graphic') {
+    return (
+      <RackUnit label="Input" enabled accent="slate">
+        <Knob
+          label="Gain"
+          value={value}
+          onChange={(v) => onChange(v === 0 ? undefined : v)}
+          min={-80}
+          max={24}
+          step={0.5}
+          defaultValue={0}
+          size={44}
+          formatValue={(v) => (v <= -80 ? '−∞ dB' : `${v >= 0 ? '+' : ''}${v.toFixed(1)} dB`)}
+        />
+      </RackUnit>
+    );
+  }
+  return (
+    <div className="border border-border/30 rounded-md p-3 space-y-2">
+      <div className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Input gain</div>
+      <ParameterSlider
+        label="Gain"
+        value={value}
+        min={-80}
+        max={24}
+        step={0.5}
+        unit="dB"
+        precision={1}
+        onChange={(v) => onChange(v === 0 ? undefined : v)}
+      />
+    </div>
+  );
+}
+
 // Voice Level — per-voice output stage (volume + pan). Always-on; no toggle.
 // Sits between Final EQ and Master Reverb in the rack — matches the audio
 // chain where `Tone.Volume` + `Tone.Panner` are the last per-voice nodes
@@ -1649,8 +1707,8 @@ function VoiceLevelSection({
     return (
       <RackUnit label="Voice Level" enabled accent="slate">
         <Knob label="Volume" value={level.volumeDb} onChange={(v) => onChange({ ...level, volumeDb: v })}
-          min={-24} max={12} step={0.5} defaultValue={0} size={44}
-          formatValue={(v) => `${v >= 0 ? '+' : ''}${v.toFixed(1)} dB`} />
+          min={-80} max={12} step={0.5} defaultValue={0} size={44}
+          formatValue={(v) => v <= -80 ? '−∞ dB' : `${v >= 0 ? '+' : ''}${v.toFixed(1)} dB`} />
         <Knob label="Pan" value={level.pan} onChange={(v) => onChange({ ...level, pan: v })}
           min={-1} max={1} step={0.05} defaultValue={0} size={44}
           formatValue={(v) => v === 0 ? 'C' : v < 0 ? `L${(Math.abs(v) * 100).toFixed(0)}` : `R${(v * 100).toFixed(0)}`} />
