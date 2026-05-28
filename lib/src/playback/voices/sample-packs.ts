@@ -205,6 +205,20 @@ export const OFFSET_P90: ReadonlyArray<Readonly<Record<string, string>>> = [
   karoryferBank(OFFSET_P90_BASE, 4, OFFSET_P90_NOTES),
 ];
 
+/** OFFSET_P90_V2 — second take of the owner-recorded P90 DI pack. Re-recorded
+ *  at hotter input gain after the first take's noise-floor issues at high
+ *  notes. Same chromatic range (E2 → D#5, 36 notes/bank, 4 RR), same canonical
+ *  "lowest fret per pitch" bundle. Self-hosted on Supabase under
+ *  `samples/offsetp90-2/rr<n>/<note>.mp3` (note the slug differs from the
+ *  original pack's `offsetp-90`). Shares the bank-note list with OFFSET_P90. */
+const OFFSET_P90_V2_BASE = 'https://ssszubkbregwjgkrpqop.supabase.co/storage/v1/object/public/samples/offsetp90-2';
+export const OFFSET_P90_V2: ReadonlyArray<Readonly<Record<string, string>>> = [
+  karoryferBank(OFFSET_P90_V2_BASE, 1, OFFSET_P90_NOTES),
+  karoryferBank(OFFSET_P90_V2_BASE, 2, OFFSET_P90_NOTES),
+  karoryferBank(OFFSET_P90_V2_BASE, 3, OFFSET_P90_NOTES),
+  karoryferBank(OFFSET_P90_V2_BASE, 4, OFFSET_P90_NOTES),
+];
+
 const SALAMANDER_PIANO_DEMO: Readonly<Record<string, string>> = {
   A1: 'https://tonejs.github.io/audio/salamander/A1.mp3',
   A2: 'https://tonejs.github.io/audio/salamander/A2.mp3',
@@ -272,6 +286,13 @@ export const SAMPLE_PACKS: readonly SamplePack[] = [
     description:
       'Owner-recorded offset-body P90 electric, clean DI direct to Cubase. 4 round-robin takes (rr1..rr4) for humanized repeated notes. Full chromatic E2 → D#5 — every pitch in the usable range is an exact sample, no pitch-shifting.',
     samples: OFFSET_P90,
+  },
+  {
+    id: 'offsetp90-2',
+    label: 'offset90-2',
+    description:
+      'Second take of the owner-recorded P90 DI pack — re-recorded at hotter input gain after the first take had noise-floor issues on the high notes. Same coverage as Offset P90 (E2 → D#5, 4 RR).',
+    samples: OFFSET_P90_V2,
   },
 ];
 
