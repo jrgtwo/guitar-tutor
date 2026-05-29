@@ -121,7 +121,7 @@ const FENDER_TWIN: AmpModel = {
   // Quadratic drive ramp: shape = drive*6 means coefficient grows slowly at
   // low drive, then takes off. Stays cleaner for longer than a linear ramp.
   curve: (drive) => symmetricSoftClip(drive, drive * 6),
-  toneStack: { lowFrequency: 80, highFrequency: 4500 },
+  toneStack: { lowFrequency: 150, highFrequency: 4500 },
   presence: { frequency: 4500 },
   defaultCabIrId: 'twin-clean',
 };

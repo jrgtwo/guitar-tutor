@@ -45,9 +45,20 @@ export function CompositionTimeline() {
     let rafId: number | null = null;
     const tick = () => {
       rafId = requestAnimationFrame(tick);
-      const headTick = getTransportTicks(PPQ);
       const el = lanesScrollRef.current;
       if (!el) return;
+      // Transport.ticks climbs forever while looping (the scheduler reschedules
+      // at increasing absolute ticks). Wrap by composition duration so the
+      // scroll target matches the wrapped playhead instead of chasing the
+      // unbounded tick off the right edge.
+      let headTick = getTransportTicks(PPQ);
+      const comp = selectEditingComposition(usePatternsStore.getState());
+      if (comp) {
+        const duration = totalDurationTicks(comp);
+        if (duration > 0 && comp.loop) {
+          headTick = ((headTick % duration) + duration) % duration;
+        }
+      }
       const playheadX = TRACK_SIDEBAR_WIDTH + tickToPx(headTick, pxPerBeat);
       const visibleStart = el.scrollLeft + TRACK_SIDEBAR_WIDTH; // sidebar is sticky
       const visibleEnd = el.scrollLeft + el.clientWidth;

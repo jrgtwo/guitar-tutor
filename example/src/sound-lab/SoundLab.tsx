@@ -2043,7 +2043,7 @@ function AmpSection({
             value={current.bass}
             onChange={(v) => updateField('bass', v)}
             min={-12}
-            max={12}
+            max={0}
             step={0.5}
             defaultValue={0}
             disabled={!enabled}
@@ -2054,7 +2054,7 @@ function AmpSection({
             value={current.mid}
             onChange={(v) => updateField('mid', v)}
             min={-12}
-            max={12}
+            max={0}
             step={0.5}
             defaultValue={0}
             disabled={!enabled}
@@ -2065,7 +2065,7 @@ function AmpSection({
             value={current.treble}
             onChange={(v) => updateField('treble', v)}
             min={-12}
-            max={12}
+            max={0}
             step={0.5}
             defaultValue={0}
             disabled={!enabled}
@@ -2118,9 +2118,9 @@ function AmpSection({
           {modelPicker}
           <ParameterSlider label="Pre Gain" value={amp.preGainDb} min={-12} max={24} step={0.5} unit="dB" precision={1} onChange={(preGainDb) => onChange({ ...amp, preGainDb })} />
           <ParameterSlider label="Pre Drive" value={amp.preDrive} min={0} max={1} step={0.01} onChange={(preDrive) => onChange({ ...amp, preDrive })} />
-          <ParameterSlider label="Bass" value={amp.bass} min={-12} max={12} step={0.5} unit="dB" precision={1} onChange={(bass) => onChange({ ...amp, bass })} />
-          <ParameterSlider label="Mid" value={amp.mid} min={-12} max={12} step={0.5} unit="dB" precision={1} onChange={(mid) => onChange({ ...amp, mid })} />
-          <ParameterSlider label="Treble" value={amp.treble} min={-12} max={12} step={0.5} unit="dB" precision={1} onChange={(treble) => onChange({ ...amp, treble })} />
+          <ParameterSlider label="Bass" value={amp.bass} min={-12} max={0} step={0.5} unit="dB" precision={1} onChange={(bass) => onChange({ ...amp, bass })} />
+          <ParameterSlider label="Mid" value={amp.mid} min={-12} max={0} step={0.5} unit="dB" precision={1} onChange={(mid) => onChange({ ...amp, mid })} />
+          <ParameterSlider label="Treble" value={amp.treble} min={-12} max={0} step={0.5} unit="dB" precision={1} onChange={(treble) => onChange({ ...amp, treble })} />
           <ParameterSlider label="Presence" value={amp.presence} min={-12} max={12} step={0.5} unit="dB" precision={1} onChange={(presence) => onChange({ ...amp, presence })} />
           <ParameterSlider label="Power Drive" value={amp.powerDrive} min={0} max={1} step={0.01} onChange={(powerDrive) => onChange({ ...amp, powerDrive })} />
           <ParameterSlider label="Output" value={amp.outputDb} min={-12} max={12} step={0.5} unit="dB" precision={1} onChange={(outputDb) => onChange({ ...amp, outputDb })} />

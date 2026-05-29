@@ -283,8 +283,8 @@ export const BLUES_PRESET: VoicePreset = {
   effects: {
     amp: {
       modelId: 'fender-champ',
-      preGainDb: -4.5, preDrive: 0, bass: -3.5, mid: 5.5, treble: 3,
-      presence: 1, powerDrive: 0.83, outputDb: -2,
+      preGainDb: -4.5, preDrive: 0, bass: -9, mid: 0, treble: -2.5,
+      presence: 1, powerDrive: 0.83, outputDb: 3.5,
     },
     cabIR: BLUES_CAB ? { url: BLUES_CAB } : undefined,
     finalEq: { low: 0, mid: 1, high: 0, lowFrequency: 250, highFrequency: 2500 },
@@ -303,8 +303,8 @@ export const CRUNCH_PRESET: VoicePreset = {
   effects: {
     amp: {
       modelId: 'marshall-plexi',
-      preGainDb: 6, preDrive: 0.4, bass: 2, mid: 4, treble: 1,
-      presence: 3, powerDrive: 0.1, outputDb: -3,
+      preGainDb: 6, preDrive: 0.4, bass: -2, mid: 0, treble: -3,
+      presence: 3, powerDrive: 0.1, outputDb: 1,
     },
     cabIR: TEST_CRUNCH_CAB ? { url: TEST_CRUNCH_CAB } : undefined,
     finalEq: { low: -2, mid: 0, high: 0, lowFrequency: 200, highFrequency: 2500 },
@@ -324,8 +324,8 @@ export const LEAD_PRESET: VoicePreset = {
     delay: { delayTime: 0.32, feedback: 0.25, wet: 0.12 },
     amp: {
       modelId: 'marshall-plexi',
-      preGainDb: 7, preDrive: 0.6, bass: 1, mid: 5, treble: 2,
-      presence: 4, powerDrive: 0.2, outputDb: -4,
+      preGainDb: 7, preDrive: 0.6, bass: -4, mid: 0, treble: -3,
+      presence: 4, powerDrive: 0.2, outputDb: 1,
     },
     cabIR: TEST_CRUNCH_CAB ? { url: TEST_CRUNCH_CAB } : undefined,
     finalEq: { low: -1, mid: 2, high: 1, lowFrequency: 200, highFrequency: 3000 },
@@ -344,8 +344,8 @@ export const METAL_PRESET: VoicePreset = {
   effects: {
     amp: {
       modelId: 'modern-high-gain',
-      preGainDb: 9, preDrive: 0.85, bass: 4, mid: -4, treble: 4,
-      presence: 4, powerDrive: 0.3, outputDb: -6,
+      preGainDb: 9, preDrive: 0.85, bass: 0, mid: -8, treble: 0,
+      presence: 4, powerDrive: 0.3, outputDb: -2,
     },
     cabIR: TEST_METAL_CAB ? { url: TEST_METAL_CAB } : undefined,
     finalEq: { low: 3, mid: -1, high: -3, lowFrequency: 150, highFrequency: 4000 },
@@ -365,8 +365,8 @@ export const SURF_PRESET: VoicePreset = {
   effects: {
     amp: {
       modelId: 'fender-twin',
-      preGainDb: 0, preDrive: 0, bass: 0, mid: -1, treble: 4,
-      presence: 2, powerDrive: 0, outputDb: 0,
+      preGainDb: 0, preDrive: 0, bass: -4, mid: -5, treble: 0,
+      presence: 2, powerDrive: 0, outputDb: 4,
     },
     reverb: { roomSize: 0.9, wet: 0.55 },   // BIG spring reverb
     cabIR: TEST_CLEAN_CAB ? { url: TEST_CLEAN_CAB } : undefined,
@@ -388,8 +388,8 @@ export const AMBIENT_PRESET: VoicePreset = {
     delay: { delayTime: 0.45, feedback: 0.4, wet: 0.25 },
     amp: {
       modelId: 'fender-twin',
-      preGainDb: 0, preDrive: 0.05, bass: 1, mid: -1, treble: 2,
-      presence: 1, powerDrive: 0, outputDb: 0,
+      preGainDb: 0, preDrive: 0.05, bass: -1, mid: -3, treble: 0,
+      presence: 1, powerDrive: 0, outputDb: 2,
     },
     reverb: { roomSize: 0.95, wet: 0.55 },
     cabIR: TEST_CLEAN_CAB ? { url: TEST_CLEAN_CAB } : undefined,
