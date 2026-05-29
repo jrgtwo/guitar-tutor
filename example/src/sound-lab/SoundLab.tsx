@@ -8,7 +8,7 @@
  *
  * Reach this page via `?lab=1` (handled in `main.tsx`).
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Button,
   Switch,
@@ -132,6 +132,15 @@ export function SoundLab() {
   // ─── Voice audition + master bus ─────────────────────────────────────────
   const [voice, setVoice] = useState<Voice | null>(null);
 
+  // Identity for sampler-source rebuilds: the samples-array reference is
+  // stable per registered SAMPLE_PACK entry, so this changes iff the user
+  // picks a different pack. Tracked separately from `source.kind` because
+  // switching packs WITHIN sampler kind doesn't change kind. Synth-kind
+  // changes are handled by the mirror effect below via updateSynthParams.
+  const samplerSamples = pendingPreset.source.kind === 'sampler'
+    ? pendingPreset.source.samples
+    : null;
+
   useEffect(() => {
     const v = new Voice(pendingPreset);
     // Eager build: constructs the audio chain immediately so any sampler banks
@@ -143,7 +152,7 @@ export function SoundLab() {
       v.dispose();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [labInstrumentId, pendingPreset.source.kind]);
+  }, [labInstrumentId, pendingPreset.source.kind, samplerSamples]);
 
   useEffect(() => {
     if (!voice) return;
@@ -151,6 +160,7 @@ export function SoundLab() {
       voice.updateSynthParams(pendingPreset.source.params);
     }
     voice.updateLayer(pendingPreset.layer);
+    voice.updateInputGain(pendingPreset.inputGainDb);
     voice.updateLevel(pendingPreset.level);
     voice.updateBodyFilter(pendingPreset.bodyFilter);
     voice.updateCompressor(pendingPreset.compressor);
@@ -396,6 +406,7 @@ export function SoundLab() {
             onLevelChange={(level) => updateActive((p) => ({ ...p, level }))}
             masterReverb={pendingReverb}
             onMasterReverbChange={(r) => updateReverb(r)}
+            voice={voice}
           />
         </Section>
 
@@ -987,6 +998,7 @@ function EffectControls({
   onLevelChange,
   masterReverb,
   onMasterReverbChange,
+  voice,
 }: {
   effects: EffectsConfig;
   onChange: (next: EffectsConfig) => void;
@@ -1000,6 +1012,7 @@ function EffectControls({
   onLevelChange: (next: VoiceLevel) => void;
   masterReverb: ReverbSettings;
   onMasterReverbChange: (next: ReverbSettings) => void;
+  voice: Voice | null;
 }) {
   // Section order mirrors the audio chain — top to bottom in the rack.
   //   BodyFilter → Compressor → Distortion → Chorus → Delay → AutoWah
@@ -1010,6 +1023,7 @@ function EffectControls({
       <InputGainSection
         inputGainDb={inputGainDb}
         onChange={onInputGainChange}
+        voice={voice}
       />
       <BodyFilterSection
         params={bodyFilter}
@@ -1055,7 +1069,7 @@ function EffectControls({
         finalEq={effects.finalEq}
         onChange={(finalEq) => onChange({ ...effects, finalEq })}
       />
-      <VoiceLevelSection level={level} onChange={onLevelChange} />
+      <VoiceLevelSection level={level} onChange={onLevelChange} voice={voice} />
       <MasterReverbSection
         reverb={masterReverb}
         onChange={onMasterReverbChange}
@@ -1643,6 +1657,73 @@ function FinalEqSection({
   );
 }
 
+// Clip meter — small horizontal level bar + clip LED that latches red for
+// ~1s after any peak ≥ -0.5 dBFS. Polls a level-getter function at ~60 fps
+// via rAF. Designed to be drop-in next to whatever audio stage the caller
+// wants to monitor.
+function ClipMeter({
+  getLevelDb,
+  label,
+  width = 64,
+}: {
+  getLevelDb: () => number;
+  label?: string;
+  width?: number;
+}) {
+  const [levelDb, setLevelDb] = useState<number>(-Infinity);
+  const [clipped, setClipped] = useState(false);
+  const clipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    let raf = 0;
+    const tick = () => {
+      const v = getLevelDb();
+      setLevelDb(v);
+      if (v >= -0.5) {
+        setClipped(true);
+        if (clipTimeoutRef.current) clearTimeout(clipTimeoutRef.current);
+        clipTimeoutRef.current = setTimeout(() => setClipped(false), 1000);
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(raf);
+      if (clipTimeoutRef.current) clearTimeout(clipTimeoutRef.current);
+    };
+  }, [getLevelDb]);
+
+  // Map -60..0 dB → 0..100% bar width. Below -60 dB displays as nothing.
+  const pct = Math.max(0, Math.min(100, ((levelDb + 60) / 60) * 100));
+  // Color: green up to -12 dB, yellow -12..-3, orange -3..-0.5, red ≥ -0.5.
+  const barColor =
+    levelDb >= -0.5 ? 'bg-red-500'
+    : levelDb >= -3 ? 'bg-orange-400'
+    : levelDb >= -12 ? 'bg-yellow-400'
+    : 'bg-green-500';
+
+  return (
+    <div className="flex items-center gap-1.5">
+      {label && (
+        <span className="text-[9px] font-mono uppercase tracking-wider text-muted-foreground">
+          {label}
+        </span>
+      )}
+      <div
+        className="h-1.5 bg-black/40 rounded overflow-hidden"
+        style={{ width: `${width}px` }}
+        title={`${levelDb === -Infinity ? '−∞' : levelDb.toFixed(1)} dBFS`}
+      >
+        <div className={`h-full transition-[width] duration-75 ${barColor}`} style={{ width: `${pct}%` }} />
+      </div>
+      <div
+        className={`w-2 h-2 rounded-full ${clipped ? 'bg-red-500 shadow-[0_0_4px_rgba(239,68,68,0.8)]' : 'bg-red-500/15'}`}
+        title={clipped ? 'CLIPPING' : 'no clip'}
+      />
+    </div>
+  );
+}
+
 // Input gain — first stage in the audio chain, after the synth/sampler
 // mixer and BEFORE bodyFilter / compressor / effects / amp. Lets the user
 // attenuate hot samples (or boost quiet ones) without driving the amp's
@@ -1651,12 +1732,19 @@ function FinalEqSection({
 function InputGainSection({
   inputGainDb,
   onChange,
+  voice,
 }: {
   inputGainDb: number | undefined;
   onChange: (next: number | undefined) => void;
+  voice: Voice | null;
 }) {
   const mode = useViewMode();
   const value = inputGainDb ?? 0;
+  // Stable getter — wraps the voice ref so re-renders don't reset the meter's
+  // rAF loop. When voice is null (chain not built yet), getter returns -∞.
+  const voiceRef = useRef(voice);
+  voiceRef.current = voice;
+  const getLevelDb = useMemo(() => () => voiceRef.current?.getInputLevelDb() ?? -Infinity, []);
   if (mode === 'graphic') {
     return (
       <RackUnit label="Input" enabled accent="slate">
@@ -1671,12 +1759,18 @@ function InputGainSection({
           size={44}
           formatValue={(v) => (v <= -80 ? '−∞ dB' : `${v >= 0 ? '+' : ''}${v.toFixed(1)} dB`)}
         />
+        <div className="flex flex-col items-center gap-1 pt-1">
+          <ClipMeter getLevelDb={getLevelDb} label="In" width={56} />
+        </div>
       </RackUnit>
     );
   }
   return (
     <div className="border border-border/30 rounded-md p-3 space-y-2">
-      <div className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Input gain</div>
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Input gain</div>
+        <ClipMeter getLevelDb={getLevelDb} label="In" />
+      </div>
       <ParameterSlider
         label="Gain"
         value={value}
@@ -1698,11 +1792,16 @@ function InputGainSection({
 function VoiceLevelSection({
   level,
   onChange,
+  voice,
 }: {
   level: VoiceLevel;
   onChange: (next: VoiceLevel) => void;
+  voice: Voice | null;
 }) {
   const mode = useViewMode();
+  const voiceRef = useRef(voice);
+  voiceRef.current = voice;
+  const getLevelDb = useMemo(() => () => voiceRef.current?.getOutputLevelDb() ?? -Infinity, []);
   if (mode === 'graphic') {
     return (
       <RackUnit label="Voice Level" enabled accent="slate">
@@ -1712,12 +1811,18 @@ function VoiceLevelSection({
         <Knob label="Pan" value={level.pan} onChange={(v) => onChange({ ...level, pan: v })}
           min={-1} max={1} step={0.05} defaultValue={0} size={44}
           formatValue={(v) => v === 0 ? 'C' : v < 0 ? `L${(Math.abs(v) * 100).toFixed(0)}` : `R${(v * 100).toFixed(0)}`} />
+        <div className="flex flex-col items-center gap-1 pt-1">
+          <ClipMeter getLevelDb={getLevelDb} label="Out" width={56} />
+        </div>
       </RackUnit>
     );
   }
   return (
     <div className="border border-border/30 rounded-md p-3 space-y-2">
-      <div className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Voice level</div>
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Voice level</div>
+        <ClipMeter getLevelDb={getLevelDb} label="Out" />
+      </div>
       <VoiceLevelControls level={level} onChange={onChange} />
     </div>
   );

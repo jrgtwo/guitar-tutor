@@ -129,8 +129,15 @@ interface ChainNodes {
    *  processes the signal. Always built so the chain has a consistent entry
    *  point regardless of whether the preset specifies inputGainDb. */
   inputGain?: Tone.Gain;
+  /** Tap on the inputGain output — measures what's actually entering the
+   *  amp/effects chain after the input-gain stage. */
+  inputMeter?: Tone.Meter;
   volume?: Tone.Volume;
   panner?: Tone.Panner;
+  /** Tap on the panner output — measures the per-voice signal right before
+   *  it hits MasterBus. Catches clipping introduced by the saturators / cab
+   *  IR / makeup gain / Voice Level. */
+  outputMeter?: Tone.Meter;
 }
 
 type SynthNode = Tone.PluckSynth | Tone.FMSynth | Tone.Sampler;
@@ -222,6 +229,12 @@ export class Voice implements GuitarInstrument {
       this._samplerBanks = nonEmpty.map((urls) => new Tone.Sampler({
         urls: urls as Record<string, string>,
         release: samplerSrc.release ?? 1,
+        // 5 ms fade-in envelope on every trigger. Smooths the BufferSource
+        // start so any noise-floor wobble or mp3 encoder-delay edge in the
+        // first samples of the decoded buffer doesn't produce an audible
+        // click. 5 ms is below the perceptual threshold for "soft attack" —
+        // real guitar pluck attacks are 5-20 ms anyway.
+        attack: 0.005,
       }));
       this._synth = this._samplerBanks[0];
       this._mixer = new Tone.Gain(1);
@@ -449,6 +462,23 @@ export class Voice implements GuitarInstrument {
     if (this._chain.inputGain) {
       this._chain.inputGain.gain.rampTo(dbToGain(inputGainDb ?? 0), 0.02);
     }
+  }
+
+  /** Current peak level (dBFS) at the input tap — after the user's input-gain
+   *  knob, before bodyFilter / amp / etc. Returns `-Infinity` if the chain
+   *  isn't built yet (no audio flowing). Designed for ~60 fps UI polling. */
+  getInputLevelDb(): number {
+    if (!this._chain.inputMeter) return -Infinity;
+    const v = this._chain.inputMeter.getValue();
+    return typeof v === 'number' ? v : v[0] ?? -Infinity;
+  }
+
+  /** Current peak level (dBFS) at the output tap — the per-voice signal as it
+   *  hits MasterBus. Returns `-Infinity` if the chain isn't built yet. */
+  getOutputLevelDb(): number {
+    if (!this._chain.outputMeter) return -Infinity;
+    const v = this._chain.outputMeter.getValue();
+    return typeof v === 'number' ? v : v[0] ?? -Infinity;
   }
 
   /** Update / add / remove the sub-body layer. Source-kind changes (or
@@ -747,6 +777,7 @@ function buildSynth(source: VoiceSource): SynthNode {
   return new Tone.Sampler({
     urls: bank0 as Record<string, string>,
     release: source.release ?? 1,
+    attack: 0.005,
   });
 }
 
@@ -906,6 +937,11 @@ function buildChain(preset: VoicePreset): ChainNodes {
   // Always present: volume + pan at the end of the chain.
   nodes.volume = new Tone.Volume(preset.level.volumeDb);
   nodes.panner = new Tone.Panner(preset.level.pan);
+  // Input + output meters — parallel taps for clip detection in the lab UI.
+  // Tone.Meter uses an internal AnalyserNode and adds negligible CPU. Always
+  // built; consumers poll getValue() at their own cadence.
+  nodes.inputMeter = new Tone.Meter();
+  nodes.outputMeter = new Tone.Meter();
   return nodes;
 }
 
@@ -977,6 +1013,12 @@ function wireChain(
   for (let i = 0; i < order.length - 1; i++) {
     order[i].connect(order[i + 1]);
   }
+  // Parallel taps for the input + output level meters. These are sinks (no
+  // downstream connection from the meter), so they don't affect the main
+  // signal flow. Tap inputMeter on inputGain output (post user attenuation);
+  // tap outputMeter on the final per-voice node before MasterBus.
+  if (c.inputGain && c.inputMeter) c.inputGain.connect(c.inputMeter);
+  if (order.length > 0 && c.outputMeter) order[order.length - 1].connect(c.outputMeter);
   return order[order.length - 1];
 }
 
@@ -1006,7 +1048,9 @@ function disposeChain(c: ChainNodes): void {
   c.cabIRMakeup?.dispose();
   c.finalEq?.dispose();
   c.inputGain?.dispose();
+  c.inputMeter?.dispose();
   c.volume?.dispose();
+  c.outputMeter?.dispose();
   c.panner?.dispose();
 }
 
