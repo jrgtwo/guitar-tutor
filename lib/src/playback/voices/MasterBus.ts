@@ -32,11 +32,11 @@ export const MASTER_GAIN_MAX_DB = 24;
  *  aggressively. Standard "mastering bus glue" settings: gentle ratio, slow
  *  attack to preserve transients, medium release for smoothness. Hidden
  *  from the UI — set-and-forget. */
-const BUS_COMP_THRESHOLD_DB = -28;
-const BUS_COMP_RATIO = 4;
+const BUS_COMP_THRESHOLD_DB = -32;
+const BUS_COMP_RATIO = 6;
 const BUS_COMP_ATTACK_S = 0.005;
 const BUS_COMP_RELEASE_S = 0.080;
-const BUS_COMP_KNEE_DB = 8;
+const BUS_COMP_KNEE_DB = 10;
 /** Limiter ceiling (dBFS) on the fast-attack compressor stage. -1 dB leaves
  *  headroom for intersample peaks so output stays clean through Bluetooth
  *  codecs and cheap DAC reconstruction filters. Hidden from the UI —

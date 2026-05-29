@@ -27,7 +27,7 @@ import { VerticalSliderPopover } from '@/components/playback/controls/VerticalSl
 const VOLUME_MIN = 0;
 const VOLUME_MAX = 100;
 const VOLUME_FLOOR_DB = -60; // slider value 1 ≈ this (just barely audible)
-const VOLUME_CEILING_DB = 9; // slider value 100 ≈ this (TUNE ME)
+const VOLUME_CEILING_DB = 7; // slider value 100 ≈ this (TUNE ME)
 
 const SCROLL_STEP_NORMAL = 2;   // scroll wheel: ±2% per notch
 const SCROLL_STEP_FINE = 1;     // scroll + Shift: ±1% per notch
