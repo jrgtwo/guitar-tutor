@@ -25,7 +25,7 @@ import { audioNow, startAudio } from '../../playback/audio-context';
 import { noteAt } from '../../lib/theory';
 import { PPQ, secondsPerTick } from '../timebase';
 import { MasterBus } from '../../playback/voices/MasterBus';
-import { selectIterationEvents, currentIterationOffset } from './loop-region';
+import { selectIterationEvents, currentIterationOffset, wrapTick } from './loop-region';
 
 export interface ScheduledEvent {
   id: string;
@@ -127,6 +127,11 @@ export class EventScheduler {
   /** Absolute tick the next start() should begin scheduling/playback from.
    *  Set via setStartTick before metronome.start; reset to 0 on stop. */
   private _startTick = 0;
+  /** Loop region (Wave 2). `null` = loop the whole stream [0, durationTicks)
+   *  (the default / Wave 1 behavior). When set + looping, only this tick range
+   *  repeats. The caller is responsible for clamping the start cursor into the
+   *  region; the scheduler just loops whatever range it's given. */
+  private _loopRegion: { start: number; end: number } | null = null;
   private _activeNow = new Map<string, ScheduledEvent>();
   private _scheduledId: number | null = null;
   /** Tone.Transport.scheduleOnce IDs for events pre-scheduled at play start.
@@ -178,16 +183,20 @@ export class EventScheduler {
     // reading Tone.Transport.ticks directly. Starting an orphan loop here
     // would just burn CPU without any subscribers.
     this._unsubStart = this._metronome.on('start', () => {
-      this._headTick = this._startTick;
       this._activeNow.clear();
       this._activeKey = '';
       this._emitActive();
-      this._emitHead(this._startTick);
       // Pre-schedule iteration 0, skipping events behind the start cursor so
-      // playback can begin mid-stream. Subsequent loop iterations re-schedule
-      // themselves (full content) via the boundary callback inside
-      // _scheduleAllEvents.
-      this._scheduleAllEvents(0, this._startTick - 1);
+      // playback can begin mid-stream. When a loop region is active the start
+      // is clamped into it; subsequent loop iterations re-schedule themselves
+      // (region content) via the boundary callback inside _scheduleAllEvents.
+      const region = this._loop
+        ? this._resolveRegion()
+        : { start: 0, end: this._stream?.durationTicks ?? 0 };
+      const start = Math.min(Math.max(this._startTick, region.start), region.end);
+      this._headTick = start;
+      this._emitHead(start);
+      this._scheduleAllEvents(region.start, start - 1, region.start, region.end);
       // Start the active-tracking rAF loop on the primary scheduler only.
       // Followers don't drive UI; their active set has no consumers.
       if (this._role === 'primary') {
@@ -282,6 +291,26 @@ export class EventScheduler {
     this._loop = loop;
   }
 
+  /** Set the loop region (Wave 2 DAW loop brace). Pass `null` to loop the whole
+   *  stream. A zero/negative-length or degenerate region also falls back to the
+   *  full stream. Takes effect on the next start / loop boundary. */
+  setLoopRegion(region: { start: number; end: number } | null): void {
+    if (!region || region.end - region.start <= 0) {
+      this._loopRegion = null;
+      return;
+    }
+    this._loopRegion = { start: Math.max(0, Math.round(region.start)), end: Math.round(region.end) };
+  }
+
+  /** Resolve the active loop window against the current stream. With no region
+   *  set (or no stream) this is [0, durationTicks) — identical to Wave 1. */
+  private _resolveRegion(): { start: number; end: number } {
+    const dur = this._stream?.durationTicks ?? 0;
+    const r = this._loopRegion;
+    if (!r) return { start: 0, end: dur };
+    return { start: Math.min(r.start, dur), end: Math.min(r.end, dur) };
+  }
+
   /** Tick the next start() begins from (the blue cursor). */
   setStartTick(tick: number): void {
     this._startTick = Math.max(0, Math.round(tick));
@@ -316,8 +345,11 @@ export class EventScheduler {
       return;
     }
     const now = transport.ticks;
-    const offset = currentIterationOffset(now, 0, stream.durationTicks);
-    this._scheduleAllEvents(offset, now);
+    const region = this._loop
+      ? this._resolveRegion()
+      : { start: 0, end: stream.durationTicks };
+    const offset = currentIterationOffset(now, region.start, region.end);
+    this._scheduleAllEvents(offset, now, region.start, region.end);
   }
 
   setTuning(tuning: TuningDef, capo: number): void {
@@ -465,28 +497,47 @@ export class EventScheduler {
   /** Swung absolute transport ticks for one iteration's events, in stream
    *  order (matches `eventsInRange(0, durationTicks)`). Pure read of the
    *  current stream + metronome groove; no transport interaction. */
-  private _computeAbsoluteTicks(loopOffset: number): number[] {
+  private _computeAbsoluteTicks(
+    loopOffset: number,
+    regionStart = 0,
+    regionEnd?: number,
+  ): number[] {
     const stream = this._stream;
     if (!stream || stream.durationTicks <= 0) return [];
+    const rEnd = regionEnd ?? stream.durationTicks;
     const subdivision = this._metronome.subdivision;
     const swing = this._metronome.swing;
-    const events = stream.eventsInRange(0, stream.durationTicks);
-    return events.map((e) => {
-      const swungStart = applySwingToTick(e.startTick, subdivision, swing, PPQ);
-      return loopOffset + Math.max(0, Math.round(swungStart));
-    });
+    const out: number[] = [];
+    for (const e of stream.eventsInRange(regionStart, rEnd)) {
+      const swung = Math.max(0, Math.round(applySwingToTick(e.startTick, subdivision, swing, PPQ)));
+      if (swung < regionStart || swung >= rEnd) continue;
+      out.push(loopOffset + (swung - regionStart));
+    }
+    return out;
   }
 
   /** Test-only seam: the absolute ticks `_scheduleAllEvents` would schedule for
    *  this iteration after applying the `fromTick` floor. No transport interaction. */
-  _scheduleForTest(loopOffset: number, fromTick = -Infinity): number[] {
-    const abs = this._computeAbsoluteTicks(loopOffset);
+  _scheduleForTest(
+    loopOffset: number,
+    fromTick = -Infinity,
+    regionStart = 0,
+    regionEnd?: number,
+  ): number[] {
+    const abs = this._computeAbsoluteTicks(loopOffset, regionStart, regionEnd);
     return selectIterationEvents(abs, fromTick).map((i) => abs[i]);
   }
 
-  private _scheduleAllEvents(loopOffset: number, fromTick: number = -Infinity): void {
+  private _scheduleAllEvents(
+    loopOffset: number,
+    fromTick: number = -Infinity,
+    regionStart: number = 0,
+    regionEnd?: number,
+  ): void {
     const stream = this._stream;
     if (!stream || stream.durationTicks <= 0) return;
+    const rEnd = regionEnd ?? stream.durationTicks;
+    const regionLen = rEnd - regionStart;
 
     const transport = Tone.getTransport();
     const sec = secondsPerTick(this._metronome.bpm);
@@ -494,7 +545,7 @@ export class EventScheduler {
     const swing = this._metronome.swing;
     const openStrings = effectiveOpenStrings(this._tuning, this._capo);
 
-    const events = stream.eventsInRange(0, stream.durationTicks);
+    const events = stream.eventsInRange(regionStart, rEnd);
     for (const e of events) {
       const openString = openStrings[e.stringIndex];
       if (!openString) continue;
@@ -531,7 +582,13 @@ export class EventScheduler {
       // Absolute transport tick at which this event should fire. Tone's
       // tick-time syntax ('${N}i') uses transport.PPQ which we aligned to
       // our PPQ in the constructor.
-      const absoluteTick = loopOffset + Math.max(0, Math.round(swungStart));
+      const swung = Math.max(0, Math.round(swungStart));
+      // Skip events outside the loop region (swing can nudge one past an edge).
+      if (swung < regionStart || swung >= rEnd) continue;
+      // Region-relative placement: event at region position (swung - regionStart)
+      // fires at loopOffset + that offset. With the default full region
+      // (regionStart=0) this is just loopOffset + swung — i.e. Wave 1 behavior.
+      const absoluteTick = loopOffset + (swung - regionStart);
       // Live-reschedule guard: events at or behind the playhead were already
       // played this pass — skip them (they return on the next loop iteration).
       if (absoluteTick <= fromTick) continue;
@@ -558,20 +615,33 @@ export class EventScheduler {
     // its standard lookahead so the next iteration's events have time to be
     // registered before they need to play.
     if (this._loop) {
-      const boundary = loopOffset + stream.durationTicks;
+      const boundary = loopOffset + regionLen;
+      // Fire the reschedule callback slightly BEFORE the boundary. The next
+      // iteration's first events land exactly on `boundary`; scheduling them
+      // from a callback that fires AT `boundary` is too late (Tone only fires
+      // events strictly in the future, so the loop's first note(s) get dropped
+      // every repeat). A small lead gives those events runway to register.
+      const lead = Math.min(PPQ, Math.max(1, Math.floor(regionLen / 2)));
+      const rescheduleAt = boundary - lead;
       try {
         const id = transport.scheduleOnce(() => {
           const idx = this._scheduledIds.indexOf(id);
           if (idx >= 0) this._scheduledIds.splice(idx, 1);
-          this._scheduleAllEvents(boundary);
-        }, `${boundary}i`);
+          // Re-resolve the region so a live brace edit takes effect on the next
+          // loop (the boundary chain must NOT reuse captured region params).
+          // Phase-align the new iteration to `boundary` so audio + the head wrap
+          // agree. For an unchanged region this reduces to the prior behavior.
+          const r = this._resolveRegion();
+          const offset = currentIterationOffset(boundary, r.start, r.end);
+          this._scheduleAllEvents(offset, boundary - 1, r.start, r.end);
+        }, `${rescheduleAt}i`);
         this._scheduledIds.push(id);
       } catch {
         // No-op.
       }
     } else {
       // Non-looping: notify completion at the end of the iteration.
-      const end = loopOffset + stream.durationTicks;
+      const end = loopOffset + regionLen;
       try {
         const id = transport.scheduleOnce(() => {
           const idx = this._scheduledIds.indexOf(id);
@@ -611,7 +681,8 @@ export class EventScheduler {
       const transportPpq = transport.PPQ || PPQ;
       let tickPos = (transport.ticks * PPQ) / transportPpq;
       if (this._loop) {
-        tickPos = ((tickPos % stream.durationTicks) + stream.durationTicks) % stream.durationTicks;
+        const region = this._resolveRegion();
+        tickPos = wrapTick(tickPos, region.start, region.end);
       }
 
       // Compute active set + a comparison key in one pass.

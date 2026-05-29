@@ -222,6 +222,26 @@ export class MultiTrackPlayback {
     }
   }
 
+  /** Sync the loop region (Wave 2 brace) across every track scheduler. */
+  setLoopRegion(region: { start: number; end: number } | null): void {
+    for (const entry of this._entries) {
+      entry.scheduler.setLoopRegion(region);
+    }
+  }
+
+  /** Live-reschedule every track from the current transport position — used
+   *  when the loop region changes mid-playback so the new region takes effect
+   *  immediately rather than at the next (possibly far-off) loop boundary.
+   *  Call setLoopRegion first. */
+  restreamAll(): void {
+    const boundary = totalDurationTicks(this._composition);
+    for (const entry of this._entries) {
+      entry.scheduler.restream(
+        new CompositionTrackSource(this._composition, entry.trackId, boundary),
+      );
+    }
+  }
+
   /** Subscribe to active events on a specific track. Useful for the
    *  arranger UI that wants per-lane highlighting (Phase 4). */
   onTrackActive(

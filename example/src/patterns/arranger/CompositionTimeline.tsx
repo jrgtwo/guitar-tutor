@@ -52,11 +52,17 @@ export function CompositionTimeline() {
       // scroll target matches the wrapped playhead instead of chasing the
       // unbounded tick off the right edge.
       let headTick = getTransportTicks(PPQ);
-      const comp = selectEditingComposition(usePatternsStore.getState());
+      const state = usePatternsStore.getState();
+      const comp = selectEditingComposition(state);
       if (comp) {
         const duration = totalDurationTicks(comp);
         if (duration > 0 && comp.loop) {
-          headTick = wrapTick(headTick, 0, duration);
+          const r = state.compositionLoopRegion;
+          if (r && r.end > r.start) {
+            headTick = wrapTick(headTick, Math.min(r.start, duration), Math.min(r.end, duration));
+          } else {
+            headTick = wrapTick(headTick, 0, duration);
+          }
         }
       }
       const playheadX = TRACK_SIDEBAR_WIDTH + tickToPx(headTick, pxPerBeat);

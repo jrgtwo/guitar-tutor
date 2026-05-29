@@ -8,6 +8,7 @@ import {
   useFretworkStore,
   getInstrument,
   getTransportTicks,
+  wrapTick,
   DEFAULT_INSTRUMENT_ID,
 } from '@fretwork/lib';
 import { EventBar } from './EventBar';
@@ -111,7 +112,13 @@ export function PatternTimeline() {
     let rafId: number | null = null;
     const tick = () => {
       rafId = requestAnimationFrame(tick);
-      const headTick = getTransportTicks(PPQ);
+      // Transport.ticks climbs forever while looping (the scheduler reschedules
+      // at increasing absolute ticks; the transport never resets). Wrap by the
+      // pattern's duration so the playhead loops back instead of running off the
+      // right edge and disappearing.
+      let headTick = getTransportTicks(PPQ);
+      const dur = pattern?.durationTicks ?? 0;
+      if (dur > 0) headTick = wrapTick(headTick, 0, dur);
       const playheadX = STRING_LABEL_WIDTH + (headTick / PPQ) * PX_PER_QUARTER;
       // Position the playhead <line> via ref + setAttribute — avoids React
       // re-render per frame.
@@ -143,7 +150,7 @@ export function PatternTimeline() {
     return () => {
       if (rafId !== null) cancelAnimationFrame(rafId);
     };
-  }, [playback.isPlaying]);
+  }, [playback.isPlaying, pattern?.durationTicks]);
 
   // Reset the lockout when playback stops so the next play-start can scroll
   // immediately if needed.

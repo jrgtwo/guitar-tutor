@@ -230,6 +230,21 @@ describe('EventScheduler._scheduleAllEvents fromTick selection', () => {
     // No floor: all three scheduled.
     expect(scheduler._scheduleForTest(0)).toEqual([0, PPQ, PPQ * 2]);
   });
+
+  it('maps events region-relative when a loop region is given', () => {
+    let p = createEmptyPattern();
+    p = stampEvent({ pattern: p, stringIndex: 0, fret: 0, startTick: 0, durationTicks: PPQ }).pattern;
+    p = stampEvent({ pattern: p, stringIndex: 1, fret: 0, startTick: PPQ, durationTicks: PPQ }).pattern;
+    p = stampEvent({ pattern: p, stringIndex: 2, fret: 0, startTick: PPQ * 2, durationTicks: PPQ }).pattern;
+
+    const { scheduler } = makeScheduler();
+    scheduler.setStream(new PatternSource(p));
+
+    // Loop region [PPQ, PPQ*3): only the events at PPQ and 2*PPQ are in-region.
+    // At loopOffset 1000 they map to 1000+(PPQ-PPQ)=1000 and 1000+(2PPQ-PPQ)=1000+PPQ.
+    expect(scheduler._scheduleForTest(1000, -Infinity, PPQ, PPQ * 3)).toEqual([1000, 1000 + PPQ]);
+    // The event at tick 0 is below the region and excluded.
+  });
 });
 
 describe('EventScheduler.restream', () => {

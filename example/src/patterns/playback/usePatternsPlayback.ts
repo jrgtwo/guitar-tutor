@@ -385,6 +385,29 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
     });
   }, [scheduler]);
 
+  // Live-update the composition loop region (Wave 2 brace drag) during playback.
+  // Pushes the new region to every scheduler; it takes effect on the next loop
+  // boundary (the current iteration was already scheduled with the old region).
+  useEffect(() => {
+    if (!scheduler) return;
+    let lastRegion: { start: number; end: number } | null | undefined = undefined;
+    return usePatternsStore.subscribe((state) => {
+      if (!isCompositionMode) return;
+      const region = state.compositionLoopRegion;
+      if (region === lastRegion) return; // reference unchanged
+      lastRegion = region;
+      if (!useMetronomeStore.getState().isRunning) return;
+      const comp = selectEditingComposition(state);
+      // Apply the new region AND reschedule from the live playhead so it takes
+      // effect immediately (not at the next full-comp boundary). setLoopRegion
+      // must precede restream — restream re-resolves the region internally.
+      scheduler.setLoopRegion(region);
+      if (comp) scheduler.restream(new CompositionSource(comp));
+      currentMultiTrack?.setLoopRegion(region);
+      currentMultiTrack?.restreamAll();
+    });
+  }, [scheduler]);
+
   // On placement change in inherit-groove mode, push the placement's
   // groove (swing) into the metronome. Tempo / TS in inherit mode is
   // covered by the merged automation scheduled at play start. In all-
@@ -662,8 +685,17 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
       // 'global' mode that's correct (constant tempo). In 'inherit' mode with
       // mid-song tempo changes, starting mid-stream uses the base tempo rather
       // than the value in effect at startTick — a documented caveat for now.
-      const startTick = usePatternsStore.getState().compositionCursorTick;
+      const st = usePatternsStore.getState();
+      // Wave 2 loop region: when set + looping, clamp the start cursor into it
+      // and tell every scheduler to loop just that range.
+      const region = composition.loop ? st.compositionLoopRegion : null;
+      const cursor = st.compositionCursorTick;
+      const startTick = region
+        ? Math.min(Math.max(cursor, region.start), region.end)
+        : cursor;
+      scheduler.setLoopRegion(region);
       scheduler.setStartTick(startTick);
+      currentMultiTrack?.setLoopRegion(region);
       currentMultiTrack?.schedulers.forEach((s) => s.setStartTick(startTick));
       usePatternsStore.getState().setHeadTick(startTick);
       setIsStarting(true);

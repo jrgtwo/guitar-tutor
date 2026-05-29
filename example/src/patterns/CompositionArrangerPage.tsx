@@ -42,6 +42,20 @@ export function CompositionArrangerPage() {
     usePatternsStore.getState().ensureEditingComposition();
   }, [editingCompositionId, libraryCount]);
 
+  // The loop region + start cursor are transient per-composition editing state.
+  // Clear them when the active composition changes or we leave the arranger, so
+  // a band/cursor from one composition doesn't carry over to another (or persist
+  // after navigating away to the pattern editor).
+  useEffect(() => {
+    const reset = () => {
+      const st = usePatternsStore.getState();
+      st.setCompositionLoopRegion(null);
+      st.setCompositionCursorTick(0);
+    };
+    reset();
+    return reset;
+  }, [editingCompositionId]);
+
   useEffect(() => {
     return () => {
       usePatternsStore.getState().discardUnpersistedDraft();

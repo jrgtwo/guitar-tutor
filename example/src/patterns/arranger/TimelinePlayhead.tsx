@@ -57,9 +57,14 @@ export function TimelinePlayhead() {
       if (comp) {
         const duration = totalDurationTicks(comp);
         if (duration > 0 && comp.loop) {
-          // Loop region is the whole timeline [0, duration) in Wave 1; wrapTick
-          // generalizes to [loopStart, loopEnd) for the Wave 2 loop brace.
-          tickPos = wrapTick(tickPos, 0, duration);
+          // Wrap by the active loop region (Wave 2 brace) if set, else the whole
+          // timeline. Matches what the scheduler actually loops.
+          const r = state.compositionLoopRegion;
+          if (r && r.end > r.start) {
+            tickPos = wrapTick(tickPos, Math.min(r.start, duration), Math.min(r.end, duration));
+          } else {
+            tickPos = wrapTick(tickPos, 0, duration);
+          }
         }
       } else {
         const pat = selectEditingPattern(state);
