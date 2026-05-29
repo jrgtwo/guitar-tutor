@@ -32,9 +32,13 @@ import ffmpegPath from 'ffmpeg-static';
 // window (default 20ms) so tonal content stays consistently above threshold
 // once the note starts, even for quiet samples like G5 (peak ~-22dB).
 //
-// `keepSilenceS` preserves a few ms of pre-attack quiet before the detected
-// onset so the file starts near zero amplitude — without it, the hard cut
-// lands mid-cycle and creates an audible click at the start of playback.
+// We intentionally do NOT use silenceremove's `start_silence`/`stop_silence`
+// ("keep N seconds of silence") options. They make ffmpeg stamp a single-sample
+// splice discontinuity at exactly the kept-silence boundary (e.g. 100 ms) — an
+// audible click baked into the file, mid-note, that survives all playback
+// processing. (This was the long-standing "sample click"; see the
+// project_sample_click_root_cause memory.) Instead we cut at the onset and rely
+// on a short FADE_S to declick the cut edges.
 //
 // Start vs stop thresholds are intentionally asymmetric:
 //   - Start: aggressive (-32dB), cuts the leading silence cleanly before the
@@ -48,28 +52,27 @@ const TRIM_ATTEMPTS = [
   {
     startThresholdDb: -32, startDurationS: 0.030,
     stopThresholdDb:  -55, stopDurationS:  0.250,
-    detection: 'rms', keepSilenceS: 0.100,
+    detection: 'rms',
     label: 'rms (start -32dB / stop -55dB)',
   },
   {
     startThresholdDb: -38, startDurationS: 0.020,
     stopThresholdDb:  -60, stopDurationS:  0.250,
-    detection: 'rms', keepSilenceS: 0.100,
+    detection: 'rms',
     label: 'rms loose (start -38dB / stop -60dB)',
   },
   {
     startThresholdDb: -45, startDurationS: 0.020,
     stopThresholdDb:  -65, stopDurationS:  0.250,
-    detection: 'rms', keepSilenceS: 0.100,
+    detection: 'rms',
     label: 'rms gentle (start -45dB / stop -65dB)',
   },
 ];
-// Linear fade applied AFTER trim, at both ends. Pairs with `keepSilenceS` for
-// robustness against click artifacts — even if the trim cut lands at a
-// non-zero amplitude sample, the fade absorbs the discontinuity. Short enough
-// (~25ms) that the attack still feels sharp; the trailing fade smooths the
-// post-release cut.
-const FADE_S = 0.025;
+// Linear fade applied AFTER trim, at both ends — declicks the silenceremove cut
+// edges. Cut now lands at the onset (no kept silence), so this fade lands on
+// real audio; 6 ms is short enough to keep the pluck attack snappy (the Sampler
+// adds its own 5 ms attack on playback) while absorbing any cut discontinuity.
+const FADE_S = 0.006;
 const OUTPUT_BITRATE = '192k';
 // If trim output is smaller than this fraction of the input, treat it as
 // over-trimmed and try the next attempt.
@@ -104,7 +107,7 @@ console.log(`  from: ${inputDir}`);
 console.log(`  to:   ${outputDir}\n`);
 
 function runTrim(input, output, attempt) {
-  const { startThresholdDb, startDurationS, stopThresholdDb, stopDurationS, detection, keepSilenceS } = attempt;
+  const { startThresholdDb, startDurationS, stopThresholdDb, stopDurationS, detection } = attempt;
   // Trailing fade uses the reverse-trick (areverse,afade=t=in,areverse): a plain
   // `afade=t=out:d=X` without `start_time` defaults to fading out starting at time 0,
   // which silences everything past the first X ms. Reversing twice applies the
@@ -112,8 +115,8 @@ function runTrim(input, output, attempt) {
   const filter = [
     `silenceremove=start_periods=1`,
     `:start_duration=${startDurationS}:start_threshold=${startThresholdDb}dB`,
-    `:detection=${detection}:start_silence=${keepSilenceS}`,
-    `:stop_periods=1:stop_duration=${stopDurationS}:stop_threshold=${stopThresholdDb}dB:stop_silence=${keepSilenceS}`,
+    `:detection=${detection}`,
+    `:stop_periods=1:stop_duration=${stopDurationS}:stop_threshold=${stopThresholdDb}dB`,
     `,afade=t=in:d=${FADE_S}`,
     `,areverse,afade=t=in:d=${FADE_S},areverse`,
   ].join('');
