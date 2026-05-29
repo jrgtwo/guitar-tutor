@@ -25,6 +25,7 @@ import { audioNow, startAudio } from '../../playback/audio-context';
 import { noteAt } from '../../lib/theory';
 import { PPQ, secondsPerTick } from '../timebase';
 import { MasterBus } from '../../playback/voices/MasterBus';
+import { selectIterationEvents, currentIterationOffset } from './loop-region';
 
 export interface ScheduledEvent {
   id: string;
@@ -123,6 +124,9 @@ export class EventScheduler {
   private _stream: EventStream | null = null;
   private _loop = true;
   private _headTick = 0;
+  /** Absolute tick the next start() should begin scheduling/playback from.
+   *  Set via setStartTick before metronome.start; reset to 0 on stop. */
+  private _startTick = 0;
   private _activeNow = new Map<string, ScheduledEvent>();
   private _scheduledId: number | null = null;
   /** Tone.Transport.scheduleOnce IDs for events pre-scheduled at play start.
@@ -174,14 +178,16 @@ export class EventScheduler {
     // reading Tone.Transport.ticks directly. Starting an orphan loop here
     // would just burn CPU without any subscribers.
     this._unsubStart = this._metronome.on('start', () => {
-      this._headTick = 0;
+      this._headTick = this._startTick;
       this._activeNow.clear();
       this._activeKey = '';
       this._emitActive();
-      this._emitHead(0);
-      // Pre-schedule all events for iteration 0. Subsequent loop iterations
-      // re-schedule themselves via a boundary callback inside _scheduleAllEvents.
-      this._scheduleAllEvents(0);
+      this._emitHead(this._startTick);
+      // Pre-schedule iteration 0, skipping events behind the start cursor so
+      // playback can begin mid-stream. Subsequent loop iterations re-schedule
+      // themselves (full content) via the boundary callback inside
+      // _scheduleAllEvents.
+      this._scheduleAllEvents(0, this._startTick - 1);
       // Start the active-tracking rAF loop on the primary scheduler only.
       // Followers don't drive UI; their active set has no consumers.
       if (this._role === 'primary') {
@@ -200,6 +206,9 @@ export class EventScheduler {
         try { cleanupTransport.clear(id); } catch { /* noop */ }
       }
       this._scheduledIds = [];
+      // Reset the start cursor so the next plain start() begins at 0 unless a
+      // caller explicitly sets it again.
+      this._startTick = 0;
       this._activeNow.clear();
       this._activeKey = '';
       this._emitActive();
@@ -271,6 +280,44 @@ export class EventScheduler {
 
   setLoop(loop: boolean): void {
     this._loop = loop;
+  }
+
+  /** Tick the next start() begins from (the blue cursor). */
+  setStartTick(tick: number): void {
+    this._startTick = Math.max(0, Math.round(tick));
+  }
+
+  get startTick(): number {
+    return this._startTick;
+  }
+
+  /**
+   * Live stream replacement DURING playback. Unlike setStream (which clears the
+   * schedule and waits for the next metronome.start to repopulate it), restream
+   * reschedules the CURRENT loop iteration from the live playhead forward so
+   * audio never drops out. Events at or behind the playhead are skipped this
+   * pass — they return on the next loop iteration via the boundary callback,
+   * which reads the new stream. If the transport isn't running, falls back to
+   * setStream's deferred behavior.
+   */
+  restream(stream: EventStream | null): void {
+    const transport = Tone.getTransport();
+    for (const id of this._scheduledIds) {
+      try { transport.clear(id); } catch { /* noop */ }
+    }
+    this._scheduledIds = [];
+    this._stream = stream;
+    this._activeNow.clear();
+    this._activeKey = '';
+    this._emitActive();
+    if (!stream || stream.durationTicks <= 0) return;
+    if (transport.state !== 'started') {
+      this._headTick = 0;
+      return;
+    }
+    const now = transport.ticks;
+    const offset = currentIterationOffset(now, 0, stream.durationTicks);
+    this._scheduleAllEvents(offset, now);
   }
 
   setTuning(tuning: TuningDef, capo: number): void {
@@ -415,7 +462,29 @@ export class EventScheduler {
    *  Each scheduled callback fires `instrument.play(note, dur, audioTime)`
    *  exactly once at its event time. Tone handles the audio scheduling via
    *  AudioContext.currentTime — no per-slice JS work needed during playback. */
-  private _scheduleAllEvents(loopOffset: number): void {
+  /** Swung absolute transport ticks for one iteration's events, in stream
+   *  order (matches `eventsInRange(0, durationTicks)`). Pure read of the
+   *  current stream + metronome groove; no transport interaction. */
+  private _computeAbsoluteTicks(loopOffset: number): number[] {
+    const stream = this._stream;
+    if (!stream || stream.durationTicks <= 0) return [];
+    const subdivision = this._metronome.subdivision;
+    const swing = this._metronome.swing;
+    const events = stream.eventsInRange(0, stream.durationTicks);
+    return events.map((e) => {
+      const swungStart = applySwingToTick(e.startTick, subdivision, swing, PPQ);
+      return loopOffset + Math.max(0, Math.round(swungStart));
+    });
+  }
+
+  /** Test-only seam: the absolute ticks `_scheduleAllEvents` would schedule for
+   *  this iteration after applying the `fromTick` floor. No transport interaction. */
+  _scheduleForTest(loopOffset: number, fromTick = -Infinity): number[] {
+    const abs = this._computeAbsoluteTicks(loopOffset);
+    return selectIterationEvents(abs, fromTick).map((i) => abs[i]);
+  }
+
+  private _scheduleAllEvents(loopOffset: number, fromTick: number = -Infinity): void {
     const stream = this._stream;
     if (!stream || stream.durationTicks <= 0) return;
 
@@ -463,6 +532,9 @@ export class EventScheduler {
       // tick-time syntax ('${N}i') uses transport.PPQ which we aligned to
       // our PPQ in the constructor.
       const absoluteTick = loopOffset + Math.max(0, Math.round(swungStart));
+      // Live-reschedule guard: events at or behind the playhead were already
+      // played this pass — skip them (they return on the next loop iteration).
+      if (absoluteTick <= fromTick) continue;
       try {
         const id = transport.scheduleOnce((audioTime) => {
           // Self-remove our id from the tracking array so stop()'s cleanup

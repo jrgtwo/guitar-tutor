@@ -23,7 +23,7 @@ import { TrackLane } from './TrackLane';
 import { ArrangerDragProvider } from './ArrangerDragContext';
 import { TimelineRuler } from './TimelineRuler';
 import { TimelinePlayhead } from './TimelinePlayhead';
-import { totalDurationTicks } from '@fretwork/lib';
+import { totalDurationTicks, wrapTick } from '@fretwork/lib';
 import { TRACK_SIDEBAR_WIDTH, tickToPx } from './timeline-math';
 import { useArrangerView } from './ArrangerViewContext';
 
@@ -56,7 +56,7 @@ export function CompositionTimeline() {
       if (comp) {
         const duration = totalDurationTicks(comp);
         if (duration > 0 && comp.loop) {
-          headTick = ((headTick % duration) + duration) % duration;
+          headTick = wrapTick(headTick, 0, duration);
         }
       }
       const playheadX = TRACK_SIDEBAR_WIDTH + tickToPx(headTick, pxPerBeat);

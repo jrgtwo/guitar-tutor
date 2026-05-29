@@ -134,6 +134,9 @@ export interface PatternsState {
   editingPlacementId: string | null;
   editingCompositionId: string | null;
   cursorTick: Tick;
+  /** Blue start cursor for the composition arranger — where composition
+   *  playback begins (analogous to `cursorTick` for the pattern editor). */
+  compositionCursorTick: Tick;
   selectedEventIds: string[];
   pendingChordStamp: PendingStamp[];
   selectedPlacementId: string | null;
@@ -223,6 +226,7 @@ export interface PatternsActions {
 
   // Editor state
   setCursorTick(t: Tick): void;
+  setCompositionCursorTick(t: Tick): void;
   setStepLength(s: StepLength): void;
 
   // Editor mutations (operate on whichever target is currently open)
@@ -316,6 +320,7 @@ export const DEFAULT_PATTERNS_STATE: PatternsState = {
   editingPlacementId: null,
   editingCompositionId: null,
   cursorTick: 0,
+  compositionCursorTick: 0,
   selectedEventIds: [],
   pendingChordStamp: [],
   selectedPlacementId: null,
@@ -1048,6 +1053,9 @@ export const usePatternsStore = create<PatternsStoreState>()(
       // ─── Editor state ────────────────────────────────────────────────────────
       setCursorTick(t) {
         set({ cursorTick: Math.max(0, t) });
+      },
+      setCompositionCursorTick(t) {
+        set({ compositionCursorTick: Math.max(0, t) });
       },
       setStepLength(s) {
         set({ stepLength: s });

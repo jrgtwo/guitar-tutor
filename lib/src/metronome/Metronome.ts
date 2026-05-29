@@ -152,7 +152,7 @@ export class Metronome {
     await Tone.loaded();
   }
 
-  async start(): Promise<void> {
+  async start(startTick = 0): Promise<void> {
     if (this._isRunning) return;
     // Reserve the running slot immediately so a concurrent call to start()
     // that arrives while we await Tone.start() is rejected by the guard
@@ -184,7 +184,9 @@ export class Metronome {
 
       const transport = Tone.getTransport();
       transport.bpm.value = this._bpm;
-      transport.position = 0;
+      // Begin at the requested content tick (the blue cursor); 0 = the start.
+      // Setting ticks (not position) keeps us in our PPQ-aligned tick domain.
+      transport.ticks = Math.max(0, Math.round(startTick));
       this._tickIndex = 0;
 
       const interval = tickSubdivision(this._timeSignature);

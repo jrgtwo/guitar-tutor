@@ -28,6 +28,7 @@ import type { TuningDef } from '../../types';
 import type { Metronome } from '../../metronome';
 import { EventScheduler, type ScheduledEvent } from './EventScheduler';
 import { CompositionTrackSource } from './CompositionTrackSource';
+import { diffTracks } from './track-diff';
 import { totalDurationTicks } from '../composition-ops';
 import type { GuitarInstrument } from '../../playback/types';
 import { MasterBus } from '../../playback/voices/MasterBus';
@@ -67,10 +68,13 @@ export class MultiTrackPlayback {
   /** The track whose scheduler drives onHead / onActive / onPlacementChange
    *  in the UI. Defaults to the first track. */
   private _primaryTrackId: string;
+  /** Stored so voices can be rebuilt live on a per-track voice/instrument change. */
+  private readonly _buildVoice: BuildVoiceForTrack;
 
   constructor(opts: MultiTrackPlaybackOpts) {
     this._composition = opts.composition;
     this._primaryTrackId = opts.composition.tracks[0]?.id ?? '';
+    this._buildVoice = opts.buildVoice;
 
     // Master gain sits between every per-track gain and MasterBus. Hosts the
     // composition.masterVolumeDb fader.
@@ -137,6 +141,30 @@ export class MultiTrackPlayback {
     }
   }
 
+  /** Swap a track's voice live. New notes use the new voice; notes already
+   *  ringing finish on the old voice, which is disposed after a release tail
+   *  so the swap is click-free. No-op if the track isn't found. */
+  setTrackVoice(trackId: string): void {
+    const entry = this._entries.find((e) => e.trackId === trackId);
+    if (!entry) return;
+    const track = this._composition.tracks.find((t) => t.id === trackId);
+    if (!track) return;
+    const next = this._buildVoice(track);
+    // Match constructor wiring order: route to the per-track gain BEFORE
+    // building, so the chain exit connects to the gain on build.
+    next.setRoutingTarget(entry.gain);
+    next.ensureBuilt();
+    entry.scheduler.setInstrument(next);
+    const old = entry.voice;
+    entry.voice = next;
+    // Keep the old voice alive long enough for sustaining notes to ring out,
+    // then dispose. A fixed tail is fine for v1 (see design doc).
+    const TAIL_MS = 4000;
+    setTimeout(() => {
+      try { old.dispose(); } catch { /* already disposed */ }
+    }, TAIL_MS);
+  }
+
   /** Update the in-memory composition snapshot (e.g. after a store mutation
    *  added a new placement or changed a track's volume). Returns true if
    *  the structural shape changed and the caller should rebuild. */
@@ -144,18 +172,26 @@ export class MultiTrackPlayback {
     const sameTracks =
       next.tracks.length === this._composition.tracks.length &&
       next.tracks.every((t, i) => t.id === this._composition.tracks[i]?.id);
+    const prev = this._composition;
     this._composition = next;
     // Master volume:
     this._masterGain.gain.rampTo(dbToLinearGain(next.masterVolumeDb ?? 0), 0.02);
     if (!sameTracks) return true;
-    // Refresh each scheduler's stream so newly-edited placements take
-    // effect on the next play. Recompute the composition-wide loop boundary
-    // here too in case edits changed the longest-track end.
+    // Per-track live update. Crucially we do NOT blanket-setStream every track:
+    // setStream cancels the running schedule without rescheduling, which
+    // silenced tracks on any edit (the audio-stops-on-edit bug). Instead each
+    // track gets only the op it needs.
     const compositionLoopBoundary = totalDurationTicks(next);
-    for (const entry of this._entries) {
-      entry.scheduler.setStream(
-        new CompositionTrackSource(next, entry.trackId, compositionLoopBoundary),
-      );
+    for (const { trackId, action } of diffTracks(prev, next)) {
+      if (action === 'restream') {
+        const entry = this._entries.find((e) => e.trackId === trackId);
+        entry?.scheduler.restream(
+          new CompositionTrackSource(next, trackId, compositionLoopBoundary),
+        );
+      } else if (action === 'voice') {
+        this.setTrackVoice(trackId);
+      }
+      // 'gain' and 'none' are handled by applyTrackState below.
     }
     this.applyTrackState();
     return false;

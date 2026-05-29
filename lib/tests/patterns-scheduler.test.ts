@@ -214,3 +214,37 @@ describe('EventScheduler placement-change emission', () => {
     }
   });
 });
+
+describe('EventScheduler._scheduleAllEvents fromTick selection', () => {
+  it('skips events whose absolute tick is at or behind fromTick', () => {
+    let p = createEmptyPattern();
+    p = stampEvent({ pattern: p, stringIndex: 0, fret: 0, startTick: 0, durationTicks: PPQ }).pattern;
+    p = stampEvent({ pattern: p, stringIndex: 1, fret: 0, startTick: PPQ, durationTicks: PPQ }).pattern;
+    p = stampEvent({ pattern: p, stringIndex: 2, fret: 0, startTick: PPQ * 2, durationTicks: PPQ }).pattern;
+
+    const { scheduler } = makeScheduler();
+    scheduler.setStream(new PatternSource(p));
+
+    // loopOffset 0, fromTick = PPQ: only events with absolute tick > PPQ survive.
+    expect(scheduler._scheduleForTest(0, PPQ)).toEqual([PPQ * 2]);
+    // No floor: all three scheduled.
+    expect(scheduler._scheduleForTest(0)).toEqual([0, PPQ, PPQ * 2]);
+  });
+});
+
+describe('EventScheduler.restream', () => {
+  it('when the transport is not started, resets head and defers (no throw)', () => {
+    const p = createEmptyPattern();
+    const { scheduler } = makeScheduler();
+    scheduler.restream(new PatternSource(p));
+    expect(scheduler.headTick).toBe(0);
+  });
+
+  it('setStartTick clamps negatives to 0', () => {
+    const { scheduler } = makeScheduler();
+    scheduler.setStartTick(-50);
+    expect(scheduler.startTick).toBe(0);
+    scheduler.setStartTick(480);
+    expect(scheduler.startTick).toBe(480);
+  });
+});

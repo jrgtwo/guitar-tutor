@@ -288,6 +288,7 @@ export type {
 } from './patterns/scheduler/EventScheduler';
 export { PatternSource } from './patterns/scheduler/PatternSource';
 export { CompositionSource } from './patterns/scheduler/CompositionSource';
+export { wrapTick, currentIterationOffset } from './patterns/scheduler/loop-region';
 
 export type {
   Mode,

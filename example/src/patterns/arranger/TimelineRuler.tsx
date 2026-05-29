@@ -7,8 +7,8 @@
  */
 
 import { useArrangerView } from './ArrangerViewContext';
-import { TRACK_SIDEBAR_WIDTH, tickToPx } from './timeline-math';
-import { ticksPerBar } from '@fretwork/lib';
+import { TRACK_SIDEBAR_WIDTH, tickToPx, snapTick } from './timeline-math';
+import { ticksPerBar, PPQ, usePatternsStore } from '@fretwork/lib';
 import type { PatternTimeSignature } from '@fretwork/lib';
 
 interface Props {
@@ -19,7 +19,9 @@ interface Props {
 const MAJOR_DIVISION_BARS = 4;
 
 export function TimelineRuler({ timeSignature, totalTicks }: Props) {
-  const { pxPerBeat } = useArrangerView();
+  const { pxPerBeat, snapMode } = useArrangerView();
+  const compositionCursorTick = usePatternsStore((s) => s.compositionCursorTick);
+  const setCompositionCursorTick = usePatternsStore((s) => s.setCompositionCursorTick);
   const tpb = ticksPerBar(timeSignature);
   const totalBars = Math.max(16, Math.ceil(totalTicks / tpb) + 4);
   const width = tickToPx(totalBars * tpb, pxPerBeat);
@@ -40,12 +42,22 @@ export function TimelineRuler({ timeSignature, totalTicks }: Props) {
       >
         Bar
       </div>
-      <div className="relative" style={{ width }}>
+      <div
+        className="relative cursor-pointer"
+        style={{ width }}
+        onClick={(e) => {
+          const rect = e.currentTarget.getBoundingClientRect();
+          const x = e.clientX - rect.left;
+          const rawTick = Math.max(0, Math.round((x / pxPerBeat) * PPQ));
+          setCompositionCursorTick(snapTick(rawTick, snapMode, timeSignature));
+        }}
+        title="Click to set the playback start position"
+      >
         {markers.map(({ bar, major, left }) => (
           <div
             key={bar}
             className={
-              'absolute top-0 bottom-0 text-[9px] font-mono select-none ' +
+              'absolute top-0 bottom-0 text-[9px] font-mono select-none pointer-events-none ' +
               (major
                 ? 'border-l border-border/60 text-foreground/80 pl-1.5'
                 : 'border-l border-border/15 text-muted-foreground/40 pl-1.5')
@@ -55,6 +67,23 @@ export function TimelineRuler({ timeSignature, totalTicks }: Props) {
             {major ? bar : ''}
           </div>
         ))}
+        {/* Blue start cursor — where composition playback begins. */}
+        <div
+          className="absolute top-0 bottom-0 w-px bg-sky-400 pointer-events-none z-10"
+          style={{ left: tickToPx(compositionCursorTick, pxPerBeat), boxShadow: '0 0 6px rgba(56,189,248,0.9)' }}
+          aria-hidden
+        >
+          <div
+            className="absolute -top-px left-1/2 -translate-x-1/2"
+            style={{
+              width: 0,
+              height: 0,
+              borderLeft: '4px solid transparent',
+              borderRight: '4px solid transparent',
+              borderTop: '6px solid rgb(56,189,248)',
+            }}
+          />
+        </div>
       </div>
     </div>
   );

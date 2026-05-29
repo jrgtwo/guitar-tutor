@@ -134,6 +134,7 @@ export type { EffectivePlayback } from './scheduler/resolvePlayback';
 
 export { MultiTrackPlayback } from './scheduler/MultiTrackPlayback';
 export { CompositionTrackSource } from './scheduler/CompositionTrackSource';
+export { wrapTick, currentIterationOffset } from './scheduler/loop-region';
 export { applyTempoAutomation } from './scheduler/tempoAutomation';
 export type { BpmSetter } from './scheduler/tempoAutomation';
 export { applyTimeSignatureAutomation } from './scheduler/timeSignatureAutomation';

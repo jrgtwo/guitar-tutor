@@ -24,6 +24,7 @@ import {
   totalDurationTicks,
   useMetronomeStore,
   usePatternsStore,
+  wrapTick,
 } from '@fretwork/lib';
 import { useArrangerView } from './ArrangerViewContext';
 import { TRACK_SIDEBAR_WIDTH, tickToPx } from './timeline-math';
@@ -56,12 +57,14 @@ export function TimelinePlayhead() {
       if (comp) {
         const duration = totalDurationTicks(comp);
         if (duration > 0 && comp.loop) {
-          tickPos = ((tickPos % duration) + duration) % duration;
+          // Loop region is the whole timeline [0, duration) in Wave 1; wrapTick
+          // generalizes to [loopStart, loopEnd) for the Wave 2 loop brace.
+          tickPos = wrapTick(tickPos, 0, duration);
         }
       } else {
         const pat = selectEditingPattern(state);
         if (pat && pat.durationTicks > 0) {
-          tickPos = ((tickPos % pat.durationTicks) + pat.durationTicks) % pat.durationTicks;
+          tickPos = wrapTick(tickPos, 0, pat.durationTicks);
         }
       }
 

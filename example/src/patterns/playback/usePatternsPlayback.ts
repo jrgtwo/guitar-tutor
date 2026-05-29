@@ -185,6 +185,15 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
       setActiveEventIds([]);
       setActiveCells([]);
     });
+    // Reconcile to the live state right after attaching. `isPlaying` was seeded
+    // from metronome.isRunning at render time, but a start/stop can fire between
+    // that render and this subscription attaching — most notably a route swap,
+    // where the previous page's unmount cleanup calls metronome.stop() after the
+    // new page has rendered but before this effect runs. Without this, the new
+    // instance misses that stop event and the play button stays stuck "playing"
+    // while the transport is idle.
+    setIsPlaying(metronome.isRunning);
+    if (!metronome.isRunning) setIsStarting(false);
     return () => {
       offStart();
       offStop();
@@ -356,6 +365,26 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
     });
   }, []);
 
+  // Live-update single-pattern playback when the editing pattern's note content
+  // changes mid-play. Mirrors the composition subscription: bails in composition
+  // mode (that path owns the schedulers), and only re-streams when the events
+  // array reference actually changes (skips metadata-only / headTick writes).
+  // restream reschedules from the live playhead, so notes added ahead of it ring
+  // this pass and audio never drops out.
+  useEffect(() => {
+    if (!scheduler) return;
+    let lastEvents: unknown = null;
+    return usePatternsStore.subscribe((state) => {
+      if (isCompositionMode) return;
+      const pat = selectEditingPattern(state);
+      if (!pat) return;
+      if (pat.events === lastEvents) return; // content unchanged
+      lastEvents = pat.events;
+      if (!useMetronomeStore.getState().isRunning) return; // not playing: next play picks it up
+      scheduler.restream(new PatternSource(pat));
+    });
+  }, [scheduler]);
+
   // On placement change in inherit-groove mode, push the placement's
   // groove (swing) into the metronome. Tempo / TS in inherit mode is
   // covered by the merged automation scheduled at play start. In all-
@@ -478,15 +507,15 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
     preRollCancelRef.current?.();
     const startContent = () => {
       preRollCancelRef.current = null;
-      // Reset the playhead before content starts so the timeline begins
-      // from tick 0.
-      usePatternsStore.getState().setHeadTick(0);
+      // Begin at the blue cursor (0 = the start). The scheduler schedules the
+      // first pass from here; the transport position is set in metronome.start.
+      const startTick = usePatternsStore.getState().cursorTick;
+      scheduler.setStartTick(startTick);
+      usePatternsStore.getState().setHeadTick(startTick);
       // Spinner on Play button while metronome.start() awaits Tone.start +
       // Tone.loaded + voice build. Cleared by the 'start' event handler.
       setIsStarting(true);
-      // Start the transport — Metronome.start() resets transport.position
-      // to 0 internally, so all automation events fire from tick 0.
-      void metronome.start().catch(() => setIsStarting(false));
+      void metronome.start(startTick).catch(() => setIsStarting(false));
     };
     if (!usePatternsStore.getState().preRollEnabled) {
       startContent();
@@ -626,9 +655,19 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
     preRollCancelRef.current?.();
     const startContent = () => {
       preRollCancelRef.current = null;
-      usePatternsStore.getState().setHeadTick(0);
+      // Begin at the blue arranger cursor (0 = the start). Set it on the shared
+      // (silent, UI-driving) scheduler AND every per-track scheduler so audio
+      // and the visual playhead begin from the same tick.
+      // NOTE(inherit-start-seed): tempo/TS were seeded from tick 0 above. In
+      // 'global' mode that's correct (constant tempo). In 'inherit' mode with
+      // mid-song tempo changes, starting mid-stream uses the base tempo rather
+      // than the value in effect at startTick — a documented caveat for now.
+      const startTick = usePatternsStore.getState().compositionCursorTick;
+      scheduler.setStartTick(startTick);
+      currentMultiTrack?.schedulers.forEach((s) => s.setStartTick(startTick));
+      usePatternsStore.getState().setHeadTick(startTick);
       setIsStarting(true);
-      void metronome.start().catch(() => setIsStarting(false));
+      void metronome.start(startTick).catch(() => setIsStarting(false));
     };
     if (!usePatternsStore.getState().preRollEnabled) {
       startContent();
