@@ -5,6 +5,7 @@ import {
 } from '@fretwork/lib';
 import { SignInButton } from '@/auth/SignInButton';
 import { Link, useLocation } from '@/router';
+import { MasterGainControl } from '@/components/MasterGainControl';
 
 export function TopBar() {
   // Active route detection for nav highlighting. Anything that isn't an
@@ -69,6 +70,7 @@ export function TopBar() {
         </Link>
       </nav>
       <div className="flex items-center gap-2 shrink-0">
+        <MasterGainControl />
         <SettingsDialog audioSection={<SoundLabLink />} />
         <SignInButton />
       </div>

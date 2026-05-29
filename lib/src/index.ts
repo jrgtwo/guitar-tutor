@@ -368,6 +368,8 @@ export {
   clearTransportSchedule,
   Voice,
   MasterBus,
+  MASTER_GAIN_MIN_DB,
+  MASTER_GAIN_MAX_DB,
   VOICE_PRESETS,
   ACOUSTIC_GUITAR_PRESET,
   ELECTRIC_GUITAR_PRESET,

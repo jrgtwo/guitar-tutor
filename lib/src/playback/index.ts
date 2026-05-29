@@ -45,6 +45,7 @@ export {
   type AmpModel,
   type AmpModelCategory,
 } from './voices/amp-models';
+export { MASTER_GAIN_MIN_DB, MASTER_GAIN_MAX_DB } from './voices/MasterBus';
 export {
   Voice,
   MasterBus,
