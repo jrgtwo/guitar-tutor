@@ -141,6 +141,9 @@ export interface PatternsState {
    *  loop the whole composition. When set + loop on, only this tick range
    *  repeats; playback start is clamped into it. */
   compositionLoopRegion: { start: Tick; end: Tick } | null;
+  /** DAW loop-brace region for the pattern editor. Mirrors
+   *  `compositionLoopRegion`. `null` = loop the whole pattern. */
+  patternLoopRegion: { start: Tick; end: Tick } | null;
   selectedEventIds: string[];
   pendingChordStamp: PendingStamp[];
   selectedPlacementId: string | null;
@@ -238,6 +241,9 @@ export interface PatternsActions {
   /** Set or clear the composition loop-brace region. Pass null (or a zero/
    *  negative-length range) to clear → loops the whole composition. */
   setCompositionLoopRegion(region: { start: Tick; end: Tick } | null): void;
+  /** Set or clear the pattern-editor loop-brace region. Pass null (or a zero/
+   *  negative-length range) to clear → loops the whole pattern. */
+  setPatternLoopRegion(region: { start: Tick; end: Tick } | null): void;
   setStepLength(s: StepLength): void;
 
   // Editor mutations (operate on whichever target is currently open)
@@ -333,6 +339,7 @@ export const DEFAULT_PATTERNS_STATE: PatternsState = {
   cursorTick: 0,
   compositionCursorTick: 0,
   compositionLoopRegion: null,
+  patternLoopRegion: null,
   selectedEventIds: [],
   pendingChordStamp: [],
   selectedPlacementId: null,
@@ -1090,6 +1097,13 @@ export const usePatternsStore = create<PatternsStoreState>()(
           return;
         }
         set({ compositionLoopRegion: { start: Math.max(0, region.start), end: region.end } });
+      },
+      setPatternLoopRegion(region) {
+        if (!region || region.end - region.start <= 0) {
+          set({ patternLoopRegion: null });
+          return;
+        }
+        set({ patternLoopRegion: { start: Math.max(0, region.start), end: region.end } });
       },
       setStepLength(s) {
         set({ stepLength: s });

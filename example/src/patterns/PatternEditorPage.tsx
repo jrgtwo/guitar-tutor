@@ -44,6 +44,15 @@ export function PatternEditorPage() {
   useEffect(() => { usePatternsStore.getState().ensureEditingPattern(); }, [editingPatternId, libraryCount]);
   useEffect(() => () => usePatternsStore.getState().discardUnpersistedDraft(), []);
 
+  // The loop-brace region is transient per-pattern editing state — clear it when
+  // the active pattern changes or we leave the editor, so a region from one
+  // pattern doesn't carry over to another (or persist after navigating away).
+  useEffect(() => {
+    const reset = () => usePatternsStore.getState().setPatternLoopRegion(null);
+    reset();
+    return reset;
+  }, [editingPatternId]);
+
   const compsUsingCount = usePatternsStore(
     (s) => pattern ? selectCompositionsUsingPattern(s, pattern.id).length : 0,
   );

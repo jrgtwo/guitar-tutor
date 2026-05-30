@@ -419,6 +419,25 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
     });
   }, [scheduler]);
 
+  // Live-update the pattern loop region (brace drag) during single-pattern
+  // playback. Mirrors the composition region subscription above; bails in
+  // composition mode (that path owns the schedulers). Reschedules from the live
+  // playhead so the new region takes effect immediately, not at the next loop.
+  useEffect(() => {
+    if (!scheduler) return;
+    let lastRegion: { start: number; end: number } | null | undefined = undefined;
+    return usePatternsStore.subscribe((state) => {
+      if (isCompositionMode) return;
+      const region = state.patternLoopRegion;
+      if (region === lastRegion) return; // reference unchanged
+      lastRegion = region;
+      if (!useMetronomeStore.getState().isRunning) return;
+      const pat = selectEditingPattern(state);
+      scheduler.setLoopRegion(region);
+      if (pat) scheduler.restream(new PatternSource(pat));
+    });
+  }, [scheduler]);
+
   // On placement change in inherit-groove mode, push the placement's
   // groove (swing) into the metronome. Tempo / TS in inherit mode is
   // covered by the merged automation scheduled at play start. In all-
@@ -547,9 +566,18 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
       preRollCancelRef.current = null;
       // Begin at the blue cursor (0 = the start). The scheduler schedules the
       // first pass from here; the transport position is set in metronome.start.
-      const startTick = usePatternsStore.getState().cursorTick;
+      const st = usePatternsStore.getState();
+      // Pattern loop-brace region (if set): clamp the start cursor into it and
+      // tell the scheduler to loop just that range. Passing the region (possibly
+      // null) also resets any region left over from a prior composition play.
+      const region = st.patternLoopRegion;
+      const cursor = st.cursorTick;
+      const startTick = region
+        ? Math.min(Math.max(cursor, region.start), region.end)
+        : cursor;
+      scheduler.setLoopRegion(region);
       scheduler.setStartTick(startTick);
-      usePatternsStore.getState().setHeadTick(startTick);
+      st.setHeadTick(startTick);
       // Spinner on Play button while metronome.start() awaits Tone.start +
       // Tone.loaded + voice build. Cleared by the 'start' event handler.
       setIsStarting(true);

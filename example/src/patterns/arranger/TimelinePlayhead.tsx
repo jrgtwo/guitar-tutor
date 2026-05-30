@@ -82,7 +82,14 @@ export function TimelinePlayhead({
       } else {
         const pat = selectEditingPattern(state);
         if (pat && pat.durationTicks > 0) {
-          tickPos = wrapTick(tickPos, 0, pat.durationTicks);
+          // Wrap by the active loop-brace region (if set) so the visible head
+          // matches the audio loop, else by the whole pattern.
+          const r = state.patternLoopRegion;
+          if (r && r.end > r.start) {
+            tickPos = wrapTick(tickPos, Math.min(r.start, pat.durationTicks), Math.min(r.end, pat.durationTicks));
+          } else {
+            tickPos = wrapTick(tickPos, 0, pat.durationTicks);
+          }
         }
       }
 

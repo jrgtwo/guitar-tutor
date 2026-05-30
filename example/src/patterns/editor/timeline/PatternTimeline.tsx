@@ -28,6 +28,8 @@ export function PatternTimeline({ framed = true }: { framed?: boolean } = {}) {
   const pattern = usePatternsStore(selectEditingPattern);
   const cursorTick = usePatternsStore((s) => s.cursorTick);
   const setCursorTick = usePatternsStore((s) => s.setCursorTick);
+  const patternLoopRegion = usePatternsStore((s) => s.patternLoopRegion);
+  const setPatternLoopRegion = usePatternsStore((s) => s.setPatternLoopRegion);
   const selectedEventIds = usePatternsStore((s) => s.selectedEventIds);
   const selectEvents = usePatternsStore((s) => s.selectEvents);
   const moveEventsBy = usePatternsStore((s) => s.moveEventsBy);
@@ -128,7 +130,16 @@ export function PatternTimeline({ framed = true }: { framed?: boolean } = {}) {
       // right edge and disappearing.
       let headTick = getTransportTicks(PPQ);
       const dur = pattern?.durationTicks ?? 0;
-      if (dur > 0) headTick = wrapTick(headTick, 0, dur);
+      // Wrap by the active loop-brace region (if set) to match the audio loop,
+      // else by the whole pattern. Read via getState() each frame so a live
+      // brace drag is reflected without re-subscribing (same pattern the shared
+      // TimelinePlayhead uses).
+      const region = usePatternsStore.getState().patternLoopRegion;
+      if (region && region.end > region.start) {
+        headTick = wrapTick(headTick, Math.min(region.start, dur), Math.min(region.end, dur));
+      } else if (dur > 0) {
+        headTick = wrapTick(headTick, 0, dur);
+      }
       // The visible playhead line is the shared <TimelinePlayhead>; this loop
       // only computes playheadX to drive auto-scroll.
       const playheadX = STRING_LABEL_WIDTH + (headTick / PPQ) * pxPerBeat;
@@ -305,6 +316,8 @@ export function PatternTimeline({ framed = true }: { framed?: boolean } = {}) {
         totalTicks={pattern.durationTicks}
         cursorTick={cursorTick}
         setCursor={setCursorTick}
+        region={patternLoopRegion}
+        setRegion={setPatternLoopRegion}
         leftGutter={STRING_LABEL_WIDTH}
         minBars={4}
         trailingBars={1}
