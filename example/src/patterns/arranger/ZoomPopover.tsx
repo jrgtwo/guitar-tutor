@@ -1,12 +1,12 @@
 /**
- * Combined zoom popover for the composition arranger. One trigger in the
- * toolbar opens a panel with two discrete sliders (Bar width / Track height)
- * and a Fit-to-window button. Replaces the previous inline cluster of eight
- * controls that read as two near-identical magnifier groups.
+ * Zoom popover for the composition arranger. One trigger in the toolbar opens
+ * a panel with a Bar width slider and a Fit-to-window button. (The Track
+ * height slider was removed along with the vertical-zoom feature — lanes are
+ * now a fixed height.)
  */
 import { ZoomIn, ChevronDown, Maximize2 } from 'lucide-react';
 import { useArrangerView } from './ArrangerViewContext';
-import { ZOOM_LEVELS, LANE_HEIGHTS } from './timeline-math';
+import { ZOOM_LEVELS } from './timeline-math';
 import { SimplePopover } from '../../components/ui/SimplePopover';
 
 export function ZoomPopover() {
@@ -14,9 +14,6 @@ export function ZoomPopover() {
     pxPerBeat,
     zoomIndex,
     setZoomIndex,
-    laneHeight,
-    vZoomIndex,
-    setVZoomIndex,
   } = useArrangerView();
 
   return (
@@ -40,13 +37,6 @@ export function ZoomPopover() {
           max={ZOOM_LEVELS.length - 1}
           display={`${pxPerBeat}px/♩`}
           onChange={setZoomIndex}
-        />
-        <SliderRow
-          label="Track height"
-          value={vZoomIndex}
-          max={LANE_HEIGHTS.length - 1}
-          display={`${laneHeight}px`}
-          onChange={setVZoomIndex}
         />
         <button
           type="button"

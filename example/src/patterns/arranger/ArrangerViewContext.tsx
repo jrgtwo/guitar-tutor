@@ -11,9 +11,6 @@ import { createContext, useContext, useMemo, useState, type ReactNode } from 're
 import {
   DEFAULT_ZOOM_INDEX,
   ZOOM_LEVELS,
-  DEFAULT_LANE_HEIGHT_INDEX,
-  LANE_HEIGHTS,
-  type LaneHeight,
   type SnapMode,
   type ZoomLevel,
 } from './timeline-math';
@@ -25,11 +22,6 @@ interface ArrangerViewContextValue {
   zoomIn(): void;
   zoomOut(): void;
   resetZoom(): void;
-  laneHeight: LaneHeight;
-  vZoomIndex: number;
-  setVZoomIndex(next: number): void;
-  vZoomIn(): void;
-  vZoomOut(): void;
   snapMode: SnapMode;
   setSnapMode(next: SnapMode): void;
 }
@@ -38,12 +30,10 @@ const ArrangerViewContext = createContext<ArrangerViewContextValue | null>(null)
 
 export function ArrangerViewProvider({ children }: { children: ReactNode }) {
   const [zoomIndex, setZoomIndex] = useState(DEFAULT_ZOOM_INDEX);
-  const [vZoomIndex, setVZoomIndex] = useState(DEFAULT_LANE_HEIGHT_INDEX);
   const [snapMode, setSnapMode] = useState<SnapMode>('bar');
 
   const value = useMemo<ArrangerViewContextValue>(() => {
     const clampIndex = (i: number) => Math.max(0, Math.min(ZOOM_LEVELS.length - 1, i));
-    const clampVIndex = (i: number) => Math.max(0, Math.min(LANE_HEIGHTS.length - 1, i));
     return {
       pxPerBeat: ZOOM_LEVELS[zoomIndex],
       zoomIndex,
@@ -51,15 +41,10 @@ export function ArrangerViewProvider({ children }: { children: ReactNode }) {
       zoomIn: () => setZoomIndex((i) => clampIndex(i + 1)),
       zoomOut: () => setZoomIndex((i) => clampIndex(i - 1)),
       resetZoom: () => setZoomIndex(DEFAULT_ZOOM_INDEX),
-      laneHeight: LANE_HEIGHTS[vZoomIndex],
-      vZoomIndex,
-      setVZoomIndex: (next) => setVZoomIndex(clampVIndex(next)),
-      vZoomIn: () => setVZoomIndex((i) => clampVIndex(i + 1)),
-      vZoomOut: () => setVZoomIndex((i) => clampVIndex(i - 1)),
       snapMode,
       setSnapMode,
     };
-  }, [zoomIndex, vZoomIndex, snapMode]);
+  }, [zoomIndex, snapMode]);
 
   return <ArrangerViewContext.Provider value={value}>{children}</ArrangerViewContext.Provider>;
 }

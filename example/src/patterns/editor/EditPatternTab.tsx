@@ -2,6 +2,7 @@ import { usePatternsStore, selectEditingPattern } from '@fretwork/lib';
 import { EditorToolbar } from './EditorToolbar';
 import { FretboardInput } from './FretboardInput';
 import { PatternTimeline } from './timeline/PatternTimeline';
+import { PatternLaneSidebar } from './PatternLaneSidebar';
 import { NoteInspectorBar } from './timeline/NoteInspectorBar';
 import { useEditorKeybinds } from '../hooks/useEditorKeybinds';
 import { PlaybackRibbon } from '../../components/playback/PlaybackRibbon';
@@ -30,7 +31,14 @@ export function EditPatternTab() {
         <EditorToolbar />
         <NoteInspectorBar />
         <section aria-label="Pattern timeline">
-          <PatternTimeline />
+          <div className="border border-border/40 rounded-md overflow-hidden bg-charcoal-deep/20">
+            <div className="flex items-stretch">
+              <PatternLaneSidebar />
+              <div className="flex-1 min-w-0">
+                <PatternTimeline framed={false} />
+              </div>
+            </div>
+          </div>
         </section>
         <section aria-label="Playback ribbon" className="relative z-30">
           <PlaybackRibbon sections={ribbonSections} />

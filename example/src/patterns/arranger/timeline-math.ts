@@ -16,13 +16,11 @@ export type ZoomLevel = typeof ZOOM_LEVELS[number];
 /** Default zoom: 48 px/beat — comfortable bar-level work. */
 export const DEFAULT_ZOOM_INDEX = 2;
 
-/** Discrete lane heights in pixels. Default index 0 (64px) preserves today's
- *  look. Stepping up makes the pattern visualization easier to read, and the
- *  sidebar progressively reveals more controls (voice at >=192, instrument
- *  at >=128, volume at >=96). M/S/delete + name stay visible at every step. */
-export const LANE_HEIGHTS = [64, 96, 128, 192] as const;
-export type LaneHeight = typeof LANE_HEIGHTS[number];
-export const DEFAULT_LANE_HEIGHT_INDEX = 0;
+/** Fixed track lane height in pixels. The vertical-zoom feature was removed;
+ *  lanes always render at this (formerly the tallest) height so the full
+ *  control sidebar — name, instrument, voice, volume, M/S — is always shown
+ *  and the pattern visualization is as readable as possible. */
+export const TRACK_LANE_HEIGHT = 192;
 
 /** Width of the per-track sidebar (instrument controls). Shared by the
  *  ruler header and every lane. */

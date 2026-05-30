@@ -14,12 +14,12 @@
  * Layout uses fixed pixel widths so multiple lanes align horizontally.
  */
 
-import { useEffect, useMemo, useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useArrangerDrag } from './ArrangerDragContext';
 import { useArrangerView } from './ArrangerViewContext';
-import { snapTick, tickToPx, TRACK_SIDEBAR_WIDTH } from './timeline-math';
+import { snapTick, tickToPx, TRACK_SIDEBAR_WIDTH, TRACK_LANE_HEIGHT } from './timeline-math';
 import { Trash2, Volume2, VolumeX } from 'lucide-react';
-import type { Track, Composition, VariantRef, FretInstrumentId, SlotId } from '@fretwork/lib';
+import type { Track, Composition, VariantRef, FretInstrumentId } from '@fretwork/lib';
 import {
   INSTRUMENTS,
   PPQ,
@@ -28,12 +28,10 @@ import {
   getTransportTicks,
   usePatternsStore,
   useMetronomeStore,
-  useVoiceStore,
-  getSlotsForInstrument,
-  getDefaultPresetForSlot,
 } from '@fretwork/lib';
 import { BlockCard } from './BlockCard';
 import { CascadeGhost } from './CascadeGhost';
+import { VoiceSelect } from '../shared/VoiceSelect';
 
 const MIN_BLOCK_WIDTH = 80;
 
@@ -82,12 +80,13 @@ interface Props {
 }
 
 export function TrackLane({ composition, track, anySoloed }: Props) {
-  const { pxPerBeat, snapMode, laneHeight } = useArrangerView();
-  // Progressive sidebar reveal — voice (least-edited) hides first, then
-  // instrument, then volume. M/S/delete + name stay visible at every step.
-  const showVoice = laneHeight >= 192;
-  const showInstrument = laneHeight >= 128;
-  const showVolume = laneHeight >= 96;
+  const { pxPerBeat, snapMode } = useArrangerView();
+  // Vertical zoom was removed; lanes are a fixed height and the full control
+  // sidebar (name, instrument, voice, volume, M/S) is always shown.
+  const laneHeight = TRACK_LANE_HEIGHT;
+  const showVoice = true;
+  const showInstrument = true;
+  const showVolume = true;
   const selectedPlacementId = usePatternsStore((s) => s.selectedPlacementId);
   const selectPlacement = usePatternsStore((s) => s.selectPlacement);
   const removePlacement = usePatternsStore((s) => s.removePlacement);
@@ -104,43 +103,10 @@ export function TrackLane({ composition, track, anySoloed }: Props) {
   const trackCount = composition.tracks.length;
   const canDelete = trackCount > 1;
 
-  // Voice variants available for this track's instrument: built-in slot
-  // defaults + any user-created variants. Two tracks of the same
-  // instrument can pick different voices via this dropdown.
+  // Per-track voice override. `null` = inherit the global active variant.
+  // The picker UI lives in the shared <VoiceSelect>.
   const instId = track.instrumentId as FretInstrumentId;
-  const slotIds = getSlotsForInstrument(instId);
-  // IMPORTANT: select the stable underlying `variants` array. Filtering
-  // inside the selector returns a fresh array on every render, which
-  // breaks Zustand's `useSyncExternalStore` equality check and causes an
-  // infinite re-render loop. Filter in render via useMemo instead.
-  const allVariants = useVoiceStore((s) => s.variants);
-  const userVariants = useMemo(
-    () => allVariants.filter((v) => v.instrumentId === instId),
-    [allVariants, instId],
-  );
   const voiceRef = (track.voiceRef ?? null) as VariantRef | null;
-  // Compose dropdown value: '' = inherit (use global active),
-  //   'default:<slotId>' for a built-in slot, 'user:<id>' for a variant.
-  const voiceSelectValue = voiceRef
-    ? voiceRef.kind === 'default'
-      ? `default:${voiceRef.slotId}`
-      : `user:${voiceRef.id}`
-    : '';
-  function onVoiceSelectChange(value: string) {
-    if (value === '') {
-      setTrackVoiceRef(track.id, null);
-      return;
-    }
-    if (value.startsWith('default:')) {
-      const slotId = value.slice('default:'.length) as SlotId;
-      setTrackVoiceRef(track.id, { kind: 'default', slotId });
-      return;
-    }
-    if (value.startsWith('user:')) {
-      const id = value.slice('user:'.length);
-      setTrackVoiceRef(track.id, { kind: 'user', id });
-    }
-  }
 
   // Shared drag state lives in the arranger context — every lane needs to
   // know what's being dragged so it can render drop hints and accept the
@@ -393,34 +359,14 @@ export function TrackLane({ composition, track, anySoloed }: Props) {
             variants for the track's instrument. */}
         {showVoice && (
           <div className="flex items-center gap-1">
-            <select
-              value={voiceSelectValue}
-              onChange={(e) => onVoiceSelectChange(e.target.value)}
-              className="flex-1 h-6 px-1 bg-charcoal-deep/60 border border-border/60 rounded text-[10px] font-mono text-foreground outline-none focus:border-degree-root/80"
+            <VoiceSelect
+              instrumentId={instId}
+              value={voiceRef}
+              onChange={(next) => setTrackVoiceRef(track.id, next)}
+              className="flex-1"
               aria-label="Track voice"
               title="Voice variant for this track (independent of global active variant)"
-            >
-              <option value="">Inherit (global)</option>
-              <optgroup label="Built-in">
-                {slotIds.map((slotId) => {
-                  const preset = getDefaultPresetForSlot(slotId);
-                  return (
-                    <option key={slotId} value={`default:${slotId}`}>
-                      {preset.name}
-                    </option>
-                  );
-                })}
-              </optgroup>
-              {userVariants.length > 0 && (
-                <optgroup label="Your variants">
-                  {userVariants.map((v) => (
-                    <option key={v.id} value={`user:${v.id}`}>
-                      {v.name}
-                    </option>
-                  ))}
-                </optgroup>
-              )}
-            </select>
+            />
           </div>
         )}
         {showVolume && (

@@ -163,11 +163,16 @@ export function addPlacementToTrack(
     transposeSemitones: 0,
     lengthTicks: null,
   };
+  // Voice inheritance: a track with no voice of its own adopts the source
+  // pattern's voice when its first such pattern is placed. A track that
+  // already has an explicit voice is never overwritten.
+  const inheritedVoiceRef = track.voiceRef ?? sourcePattern.voiceRef ?? null;
   return {
     composition: {
       ...comp,
       tracks: replaceTrack(comp.tracks, trackId, (t) => ({
         ...t,
+        voiceRef: inheritedVoiceRef,
         placements: sortTrackPlacements([...t.placements, placement]),
       })),
       updatedAt: Date.now(),

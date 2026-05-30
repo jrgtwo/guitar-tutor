@@ -206,6 +206,10 @@ export interface PatternsActions {
   setEditingPatternTimeSignature(ts: PatternTimeSignature): void;
   setEditingPatternGroove(groove: GrooveSpec | null): void;
   setEditingPatternSubdivision(subdivision: import('../../metronome/types').SubdivisionId | null): void;
+  /** Set (or clear, with null) the editing pattern's voice. Cast `voiceRef` to
+   *  `VariantRef | null` at the call site; stored loose to avoid a voices-module
+   *  dependency from the patterns model. */
+  setEditingPatternVoiceRef(voiceRef: unknown | null): void;
   setEditingCompositionTempoMode(mode: 'global' | 'inherit'): void;
   setEditingCompositionGroove(groove: GrooveSpec | null): void;
   setEditingCompositionGrooveMode(mode: 'global' | 'inherit'): void;
@@ -807,6 +811,21 @@ export const usePatternsStore = create<PatternsStoreState>()(
               ...s.library,
               patterns: s.library.patterns.map((p) =>
                 p.id === id ? { ...p, subdivision, updatedAt: Date.now() } : p,
+              ),
+            },
+            ...clearDraftIf(s, id),
+          };
+        });
+      },
+      setEditingPatternVoiceRef(voiceRef) {
+        set((s) => {
+          const id = s.editingPatternId;
+          if (!id) return s;
+          return {
+            library: {
+              ...s.library,
+              patterns: s.library.patterns.map((p) =>
+                p.id === id ? { ...p, voiceRef, updatedAt: Date.now() } : p,
               ),
             },
             ...clearDraftIf(s, id),

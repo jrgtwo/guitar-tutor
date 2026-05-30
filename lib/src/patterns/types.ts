@@ -246,6 +246,18 @@ export interface Pattern {
    *  rhythmic concept (e.g. "Swung 8ths" = subdivision '8ths' + groove with
    *  appliedTo 'eighths' and swing > 0.5). */
   subdivision: import('../metronome/types').SubdivisionId | null;
+  /**
+   * Optional voice / variant for this pattern. When null / undefined, the
+   * global `activeVariants[instrumentId]` setting is used. When set, the
+   * pattern plays through this specific voice in the editor, and a track
+   * receives it as its default voice when the pattern is first placed onto a
+   * track that has no voice of its own (see `addPlacementToTrack`).
+   *
+   * Loose-typed (`unknown`) to avoid a hard dependency from the patterns
+   * model to the voices module — mirrors `Track.voiceRef`. Cast to
+   * `VariantRef` at consumption.
+   */
+  voiceRef?: unknown | null;
   /** Optional musical key (note name like 'A', 'C#'). null = no key set,
    *  free-form chromatic editing. Invariant: key and scaleType are either
    *  both set or both null. */

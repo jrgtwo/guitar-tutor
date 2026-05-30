@@ -2,7 +2,6 @@ import { usePatternsStore, selectEditingComposition } from '@fretwork/lib';
 import { AddPlacementPopover } from './AddPlacementPopover';
 import { CompositionTimeline } from './CompositionTimeline';
 import { BlockInspector } from './BlockInspector';
-import { FretboardInput } from '../editor/FretboardInput';
 import { PlaybackRibbon } from '../../components/playback/PlaybackRibbon';
 import { usePatternsArrangeRibbonSections } from '../playback/patternsArrangeRibbonSections';
 import { ArrangerToolbar } from './ArrangerToolbar';
@@ -51,10 +50,7 @@ export function ArrangeCompositionTab() {
         </div>
         <ArrangerToolbar />
 
-        <div className="flex-1 overflow-auto flex flex-col gap-3">
-          <section className="px-3 pt-3" aria-label="Currently playing">
-            <FretboardInput />
-          </section>
+        <div className="flex-1 overflow-auto flex flex-col gap-3 pt-3">
           <section aria-label="Composition timeline">
             <CompositionTimeline />
           </section>

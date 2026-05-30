@@ -117,7 +117,8 @@ function ensureScheduler(metronome: ReturnType<typeof useMetronome>['metronome']
   if (sharedScheduler) return sharedScheduler;
   if (!metronome) return null;
   const initial = usePatternsStore.getState();
-  void initial;
+  const initialVoiceRef =
+    (selectEditingPattern(initial)?.voiceRef ?? null) as VariantRef | null;
   const fretState = useFretworkStore.getState();
   const tuning = getTuning(fretState.tuning);
   if (!tuning) {
@@ -125,7 +126,9 @@ function ensureScheduler(metronome: ReturnType<typeof useMetronome>['metronome']
   }
   let instrument: GuitarInstrument;
   try {
-    instrument = buildEffectiveVoice(asFretInstrumentId(fretState.instrumentId)).voice;
+    instrument = buildEffectiveVoice(asFretInstrumentId(fretState.instrumentId), {
+      voiceRef: initialVoiceRef,
+    }).voice;
   } catch {
     // Fallback to a no-frills PluckSynth so the scheduler can still construct.
     instrument = new PluckSynthInstrument();
@@ -256,6 +259,12 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
   const tuningId = useFretworkStore((s) => s.tuning);
   const capo = useFretworkStore((s) => s.capo);
   const instrumentId = useFretworkStore((s) => s.instrumentId);
+  // The editing pattern's own voice override (null = use the global active
+  // variant for the instrument). Serialized for a stable effect dependency.
+  const editingVoiceRef = usePatternsStore(
+    (s) => (selectEditingPattern(s)?.voiceRef ?? null) as VariantRef | null,
+  );
+  const editingVoiceRefKey = JSON.stringify(editingVoiceRef ?? null);
 
   useEffect(() => {
     if (!scheduler) return;
@@ -291,13 +300,15 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
     // exactly the "previous pattern bleeds" symptom we're fixing.
     if (isCompositionMode) return;
     try {
-      const { voice } = buildEffectiveVoice(asFretInstrumentId(instrumentId));
+      const { voice } = buildEffectiveVoice(asFretInstrumentId(instrumentId), {
+        voiceRef: editingVoiceRef,
+      });
       scheduler.setInstrument(voice);
     } catch {
       // Voice construction can throw if the audio context isn't ready — that's fine,
       // we'll try again on the next render.
     }
-  }, [scheduler, instrumentId, voiceVersion]);
+  }, [scheduler, instrumentId, voiceVersion, editingVoiceRef, editingVoiceRefKey]);
 
   // Auto-load: when the editing pattern changes (different pattern opens, or
   // the user edits suggestedBpm/groove on the current pattern), push those
@@ -480,7 +491,11 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
     isCompositionMode = false;
     try {
       const fretState = useFretworkStore.getState();
-      const { voice } = buildEffectiveVoice(asFretInstrumentId(fretState.instrumentId));
+      const patternVoiceRef =
+        (selectEditingPattern(usePatternsStore.getState())?.voiceRef ?? null) as VariantRef | null;
+      const { voice } = buildEffectiveVoice(asFretInstrumentId(fretState.instrumentId), {
+        voiceRef: patternVoiceRef,
+      });
       // Build the voice's synth + chain eagerly so any async-loading nodes
       // (notably the cabinet IR Tone.Convolver, which outputs silence until
       // its IR buffer fetches + decodes) begin loading NOW rather than on

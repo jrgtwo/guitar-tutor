@@ -19,7 +19,7 @@ const ROW_HEIGHT = 28;
 const RULER_HEIGHT = 22;
 const STRING_LABEL_WIDTH = 28;
 
-export function PatternTimeline() {
+export function PatternTimeline({ framed = true }: { framed?: boolean } = {}) {
   const pattern = usePatternsStore(selectEditingPattern);
   const cursorTick = usePatternsStore((s) => s.cursorTick);
   const setCursorTick = usePatternsStore((s) => s.setCursorTick);
@@ -283,7 +283,13 @@ export function PatternTimeline() {
   if (!pattern) return null;
 
   return (
-    <div ref={scrollRef} className="overflow-auto bg-charcoal-deep/40 border border-border/40 rounded-md relative select-none">
+    <div
+      ref={scrollRef}
+      className={
+        'overflow-auto bg-charcoal-deep/40 relative select-none' +
+        (framed ? ' border border-border/40 rounded-md' : '')
+      }
+    >
       <svg
         ref={svgRef}
         width={STRING_LABEL_WIDTH + widthPx + 12}
