@@ -1,28 +1,51 @@
 /**
- * Sticky bar-numbered ruler at the top of the lane stack. Reads pxPerBeat from
- * ArrangerViewContext. Renders bar numbers, the blue start cursor, and the
- * Wave 2 loop-brace region.
+ * Sticky bar-numbered ruler, shared by the composition arranger and the
+ * pattern editor. Reads pxPerBeat from ArrangerViewContext. Renders bar
+ * numbers, a start cursor, and (optionally) the loop-brace region.
+ *
+ * Store-agnostic: the host passes the cursor value + setter, and — when it
+ * supports a loop brace — the region value + setter. The pattern editor passes
+ * only the cursor (no brace yet); the composition passes both.
  *
  * Ruler interactions:
- *   - click            → set the blue start cursor (where playback begins)
- *   - drag             → create a loop region (the amber brace)
+ *   - click            → set the start cursor (where playback begins)
+ *   - drag             → create a loop region (only when `setRegion` given)
  *   - drag brace edges → resize the region
  *   - drag brace body  → move the region
- *   - double-click brace → clear the region (back to looping the whole comp)
+ *   - double-click brace → clear the region
  *
- * Click vs drag is disambiguated by a 4px threshold (same idea as the pattern
- * editor's marquee). All edits snap to the active snap granularity.
+ * Click vs drag is disambiguated by a 4px threshold. All edits snap to the
+ * active snap granularity.
+ *
+ * `leftGutter` insets the marker lane by N px so the bar lines align with a
+ * host that has a fixed left gutter inside the scroll area (the pattern grid's
+ * string-label column). The composition passes 0.
  */
 
 import { useRef } from 'react';
 import { useArrangerView } from './ArrangerViewContext';
-import { TRACK_SIDEBAR_WIDTH, tickToPx, snapTick } from './timeline-math';
-import { ticksPerBar, PPQ, usePatternsStore } from '@fretwork/lib';
+import { tickToPx, snapTick } from './timeline-math';
+import { ticksPerBar, PPQ } from '@fretwork/lib';
 import type { PatternTimeSignature } from '@fretwork/lib';
+
+interface LoopRegion {
+  start: number;
+  end: number;
+}
 
 interface Props {
   timeSignature: PatternTimeSignature;
   totalTicks: number;
+  cursorTick: number;
+  setCursor(tick: number): void;
+  region?: LoopRegion | null;
+  setRegion?(region: LoopRegion | null): void;
+  /** Left inset in px so bar lines align with a host's internal gutter. */
+  leftGutter?: number;
+  /** Minimum bars to render when content is short (keeps a usable canvas). */
+  minBars?: number;
+  /** Empty bars to leave past the content (drop room / breathing space). */
+  trailingBars?: number;
 }
 
 const MAJOR_DIVISION_BARS = 4;
@@ -37,18 +60,24 @@ type Drag =
   | { kind: 'resize'; fixedTick: number }
   | { kind: 'move'; grabOffset: number; len: number };
 
-export function TimelineRuler({ timeSignature, totalTicks }: Props) {
+export function TimelineRuler({
+  timeSignature,
+  totalTicks,
+  cursorTick,
+  setCursor,
+  region = null,
+  setRegion,
+  leftGutter = 0,
+  minBars = 8,
+  trailingBars = 2,
+}: Props) {
   const { pxPerBeat, snapMode } = useArrangerView();
-  const cursorTick = usePatternsStore((s) => s.compositionCursorTick);
-  const setCursor = usePatternsStore((s) => s.setCompositionCursorTick);
-  const region = usePatternsStore((s) => s.compositionLoopRegion);
-  const setRegion = usePatternsStore((s) => s.setCompositionLoopRegion);
 
   const laneRef = useRef<HTMLDivElement | null>(null);
   const drag = useRef<Drag>({ kind: 'idle' });
 
   const tpb = ticksPerBar(timeSignature);
-  const totalBars = Math.max(16, Math.ceil(totalTicks / tpb) + 4);
+  const totalBars = Math.max(minBars, Math.ceil(totalTicks / tpb) + trailingBars);
   const width = tickToPx(totalBars * tpb, pxPerBeat);
   const maxTick = totalBars * tpb;
 
@@ -67,12 +96,12 @@ export function TimelineRuler({ timeSignature, totalTicks }: Props) {
     }
     const t = xToTick(e.clientX);
     if (d.kind === 'create') {
-      setRegion({ start: Math.min(d.anchorTick, t), end: Math.max(d.anchorTick, t) });
+      setRegion?.({ start: Math.min(d.anchorTick, t), end: Math.max(d.anchorTick, t) });
     } else if (d.kind === 'resize') {
-      setRegion({ start: Math.min(d.fixedTick, t), end: Math.max(d.fixedTick, t) });
+      setRegion?.({ start: Math.min(d.fixedTick, t), end: Math.max(d.fixedTick, t) });
     } else if (d.kind === 'move') {
       const start = Math.max(0, Math.min(maxTick - d.len, t - d.grabOffset));
-      setRegion({ start, end: start + d.len });
+      setRegion?.({ start, end: start + d.len });
     }
   };
 
@@ -99,22 +128,27 @@ export function TimelineRuler({ timeSignature, totalTicks }: Props) {
 
   return (
     <div className="flex items-stretch h-7 bg-charcoal-raised/30 border-b border-border/40 sticky top-0 z-10">
-      <div
-        className="shrink-0 sticky left-0 z-10 border-r border-border/30 flex items-center px-3 text-[9px] uppercase tracking-wider text-muted-foreground/70 bg-charcoal-raised"
-        style={{ width: TRACK_SIDEBAR_WIDTH }}
-      >
-        Bar
-      </div>
+      {leftGutter > 0 && <div className="shrink-0" style={{ width: leftGutter }} />}
       <div
         ref={laneRef}
-        className="relative cursor-pointer select-none"
+        className="relative h-full cursor-pointer select-none"
         style={{ width }}
         onMouseDown={(e) => {
           if (e.button !== 0) return;
           const clickTick = xToTick(e.clientX);
-          begin({ kind: 'maybe', startX: e.clientX, clickTick, toDrag: () => ({ kind: 'create', anchorTick: clickTick }) });
+          begin({
+            kind: 'maybe',
+            startX: e.clientX,
+            clickTick,
+            // Drag creates a region only when the host supports one.
+            toDrag: () => (setRegion ? { kind: 'create', anchorTick: clickTick } : { kind: 'idle' }),
+          });
         }}
-        title="Click to set the start cursor · drag to set a loop region"
+        title={
+          setRegion
+            ? 'Click to set the start cursor · drag to set a loop region'
+            : 'Click to set the start cursor'
+        }
       >
         {markers(totalBars, tpb, pxPerBeat).map(({ bar, major, left }) => (
           <div
@@ -147,7 +181,7 @@ export function TimelineRuler({ timeSignature, totalTicks }: Props) {
             }}
             onDoubleClick={(e) => {
               e.stopPropagation();
-              setRegion(null);
+              setRegion?.(null);
             }}
           >
             <div
@@ -171,7 +205,7 @@ export function TimelineRuler({ timeSignature, totalTicks }: Props) {
           </div>
         )}
 
-        {/* Blue start cursor — where composition playback begins. */}
+        {/* Start cursor — where playback begins. */}
         <div
           className="absolute top-0 bottom-0 w-px bg-sky-400 pointer-events-none z-10"
           style={{ left: tickToPx(cursorTick, pxPerBeat), boxShadow: '0 0 6px rgba(56,189,248,0.9)' }}

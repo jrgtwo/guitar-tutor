@@ -40,31 +40,35 @@ export function PatternLaneSidebar() {
 
   return (
     <aside
-      className="shrink-0 flex flex-col gap-2 px-2 py-2 border-r border-border/30 bg-charcoal-deep"
+      className="shrink-0 flex flex-col border-r border-border/30 bg-charcoal-deep"
       style={{ width: TRACK_SIDEBAR_WIDTH }}
       aria-label="Pattern lane controls"
     >
-      <div
-        className="h-6 px-1.5 flex items-center bg-charcoal-deep/60 border border-border/60 rounded text-xs font-mono text-foreground truncate"
-        title={pattern.name}
-      >
-        {pattern.name || 'Untitled'}
-      </div>
-      <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/70 px-0.5">
-        {instrumentName}
-      </div>
-      <div className="flex flex-col gap-1">
-        <span className="text-[9px] uppercase tracking-wider text-muted-foreground/60 px-0.5">
-          Voice
-        </span>
-        <VoiceSelect
-          instrumentId={instrumentId}
-          value={voiceRef}
-          onChange={setVoiceRef}
-          className="w-full"
-          aria-label="Pattern voice"
-          title="Voice for this pattern (a track adopts it when the pattern is first placed)"
-        />
+      {/* Spacer aligning the controls with the lane below the shared ruler. */}
+      <div className="h-7 shrink-0 border-b border-border/30 bg-charcoal-raised/30" aria-hidden />
+      <div className="flex flex-col gap-2 px-2 py-2">
+        <div
+          className="h-6 px-1.5 flex items-center bg-charcoal-deep/60 border border-border/60 rounded text-xs font-mono text-foreground truncate"
+          title={pattern.name}
+        >
+          {pattern.name || 'Untitled'}
+        </div>
+        <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/70 px-0.5">
+          {instrumentName}
+        </div>
+        <div className="flex flex-col gap-1">
+          <span className="text-[9px] uppercase tracking-wider text-muted-foreground/60 px-0.5">
+            Voice
+          </span>
+          <VoiceSelect
+            instrumentId={instrumentId}
+            value={voiceRef}
+            onChange={setVoiceRef}
+            className="w-full"
+            aria-label="Pattern voice"
+            title="Voice for this pattern (a track adopts it when the pattern is first placed)"
+          />
+        </div>
       </div>
     </aside>
   );

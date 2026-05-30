@@ -29,7 +29,20 @@ import {
 import { useArrangerView } from './ArrangerViewContext';
 import { TRACK_SIDEBAR_WIDTH, tickToPx } from './timeline-math';
 
-export function TimelinePlayhead() {
+/**
+ * @param offset  Left gutter in px before tick 0 — the composition lane's
+ *   sidebar width, or the pattern grid's string-label gutter. Lets the one
+ *   playhead serve both timelines.
+ * @param mode    Which stream's duration to wrap by while looping. `'auto'`
+ *   (default) detects composition-vs-pattern by whether an editing composition
+ *   exists — fine for the arranger, but unreliable on the patterns page where a
+ *   stale editing composition can linger, so the pattern editor passes
+ *   `'pattern'` explicitly.
+ */
+export function TimelinePlayhead({
+  offset = TRACK_SIDEBAR_WIDTH,
+  mode = 'auto',
+}: { offset?: number; mode?: 'auto' | 'composition' | 'pattern' } = {}) {
   const playheadRef = useRef<HTMLDivElement | null>(null);
   const isPlaying = useMetronomeStore((s) => s.isRunning);
   const preRollActive = usePatternsStore((s) => s.preRollState !== null);
@@ -53,7 +66,7 @@ export function TimelinePlayhead() {
       // Wrap by the appropriate stream's duration when looping so the
       // displayed head matches the audio loop.
       const state = usePatternsStore.getState();
-      const comp = selectEditingComposition(state);
+      const comp = mode !== 'pattern' ? selectEditingComposition(state) : null;
       if (comp) {
         const duration = totalDurationTicks(comp);
         if (duration > 0 && comp.loop) {
@@ -75,7 +88,7 @@ export function TimelinePlayhead() {
 
       // Round to integer pixels — at 1px width, sub-pixel positions cause
       // visible shimmer as the rasterizer picks between adjacent columns.
-      const x = Math.round(TRACK_SIDEBAR_WIDTH + tickToPx(tickPos, pxPerBeat));
+      const x = Math.round(offset + tickToPx(tickPos, pxPerBeat));
       el.style.transform = `translate3d(${x}px, 0, 0)`;
     };
 
@@ -84,7 +97,7 @@ export function TimelinePlayhead() {
     return () => {
       if (rafId !== null) cancelAnimationFrame(rafId);
     };
-  }, [visible, pxPerBeat]);
+  }, [visible, pxPerBeat, offset, mode]);
 
   if (!visible) return null;
 

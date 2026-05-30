@@ -17,11 +17,9 @@
 import { useEffect, useState, useRef } from 'react';
 import { useArrangerDrag } from './ArrangerDragContext';
 import { useArrangerView } from './ArrangerViewContext';
-import { snapTick, tickToPx, TRACK_SIDEBAR_WIDTH, TRACK_LANE_HEIGHT } from './timeline-math';
-import { Trash2, Volume2, VolumeX } from 'lucide-react';
-import type { Track, Composition, VariantRef, FretInstrumentId } from '@fretwork/lib';
+import { snapTick, tickToPx, TRACK_LANE_HEIGHT } from './timeline-math';
+import type { Track, Composition } from '@fretwork/lib';
 import {
-  INSTRUMENTS,
   PPQ,
   ticksPerBar,
   placementEffectiveLength,
@@ -31,7 +29,6 @@ import {
 } from '@fretwork/lib';
 import { BlockCard } from './BlockCard';
 import { CascadeGhost } from './CascadeGhost';
-import { VoiceSelect } from '../shared/VoiceSelect';
 
 const MIN_BLOCK_WIDTH = 80;
 
@@ -81,32 +78,17 @@ interface Props {
 
 export function TrackLane({ composition, track, anySoloed }: Props) {
   const { pxPerBeat, snapMode } = useArrangerView();
-  // Vertical zoom was removed; lanes are a fixed height and the full control
-  // sidebar (name, instrument, voice, volume, M/S) is always shown.
+  // Vertical zoom was removed; lanes render at a fixed height. Track-level
+  // controls (name/instrument/voice/volume/M/S) now live in the fixed
+  // <TrackHeader> column outside the scroll area — this component is only the
+  // scrolling lane canvas.
   const laneHeight = TRACK_LANE_HEIGHT;
-  const showVoice = true;
-  const showInstrument = true;
-  const showVolume = true;
   const selectedPlacementId = usePatternsStore((s) => s.selectedPlacementId);
   const selectPlacement = usePatternsStore((s) => s.selectPlacement);
   const removePlacement = usePatternsStore((s) => s.removePlacement);
   const openPlacementForEditing = usePatternsStore((s) => s.openPlacementForEditing);
   const resizePlacement = usePatternsStore((s) => s.resizePlacement);
-  const setTrackName = usePatternsStore((s) => s.setCompositionTrackName);
-  const setTrackInstrument = usePatternsStore((s) => s.setCompositionTrackInstrument);
-  const setTrackVoiceRef = usePatternsStore((s) => s.setCompositionTrackVoiceRef);
-  const setTrackVolume = usePatternsStore((s) => s.setCompositionTrackVolumeDb);
-  const setTrackMuted = usePatternsStore((s) => s.setCompositionTrackMuted);
-  const setTrackSoloed = usePatternsStore((s) => s.setCompositionTrackSoloed);
-  const removeTrack = usePatternsStore((s) => s.removeCompositionTrack);
   const movePlacement = usePatternsStore((s) => s.movePlacement);
-  const trackCount = composition.tracks.length;
-  const canDelete = trackCount > 1;
-
-  // Per-track voice override. `null` = inherit the global active variant.
-  // The picker UI lives in the shared <VoiceSelect>.
-  const instId = track.instrumentId as FretInstrumentId;
-  const voiceRef = (track.voiceRef ?? null) as VariantRef | null;
 
   // Shared drag state lives in the arranger context — every lane needs to
   // know what's being dragged so it can render drop hints and accept the
@@ -318,126 +300,7 @@ export function TrackLane({ composition, track, anySoloed }: Props) {
   }
 
   return (
-    <div
-      className={
-        'flex items-stretch border-b border-border/30 last:border-b-0 ' +
-        (dimmed ? 'opacity-50' : '')
-      }
-    >
-      {/* Sidebar — track-level controls. Sticky-left so it stays anchored while
-          the lane scrolls horizontally. Opaque bg occludes scrolling content. */}
-      <div
-        className="shrink-0 sticky left-0 z-10 flex flex-col gap-1 px-2 py-2 border-r border-border/30 bg-charcoal-deep"
-        style={{ width: TRACK_SIDEBAR_WIDTH }}
-      >
-        <input
-          type="text"
-          value={track.name}
-          onChange={(e) => setTrackName(track.id, e.target.value)}
-          className="h-6 px-1.5 bg-charcoal-deep/60 border border-border/60 rounded text-xs font-mono text-foreground outline-none focus:border-degree-root/80"
-          aria-label="Track name"
-        />
-        {showInstrument && (
-          <div className="flex items-center gap-1">
-            <select
-              value={track.instrumentId}
-              onChange={(e) => setTrackInstrument(track.id, e.target.value)}
-              className="flex-1 h-6 px-1 bg-charcoal-deep/60 border border-border/60 rounded text-[11px] font-mono text-foreground outline-none focus:border-degree-root/80"
-              aria-label="Track instrument"
-            >
-              {INSTRUMENTS.map((inst) => (
-                <option key={inst.id} value={inst.id}>
-                  {inst.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-        {/* Voice picker: per-track override of which voice variant plays.
-            Inherit (blank) follows the global active variant for the
-            instrument; otherwise lists built-in slot defaults + user
-            variants for the track's instrument. */}
-        {showVoice && (
-          <div className="flex items-center gap-1">
-            <VoiceSelect
-              instrumentId={instId}
-              value={voiceRef}
-              onChange={(next) => setTrackVoiceRef(track.id, next)}
-              className="flex-1"
-              aria-label="Track voice"
-              title="Voice variant for this track (independent of global active variant)"
-            />
-          </div>
-        )}
-        {showVolume && (
-          <div className="flex items-center gap-1">
-            {track.muted ? (
-              <VolumeX size={12} className="text-muted-foreground/70 shrink-0" />
-            ) : (
-              <Volume2 size={12} className="text-muted-foreground shrink-0" />
-            )}
-            <input
-              type="range"
-              min={-30}
-              max={6}
-              step={0.5}
-              value={track.volumeDb}
-              onChange={(e) => setTrackVolume(track.id, Number.parseFloat(e.target.value))}
-              className="flex-1 accent-current"
-              aria-label="Track volume (dB)"
-            />
-            <span className="text-[9px] font-mono tabular-nums text-muted-foreground w-8 text-right">
-              {track.volumeDb > 0 ? '+' : ''}
-              {track.volumeDb.toFixed(0)}
-            </span>
-          </div>
-        )}
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => setTrackMuted(track.id, !track.muted)}
-            aria-pressed={track.muted}
-            title="Mute"
-            className={
-              'h-6 w-6 inline-flex items-center justify-center rounded border text-[10px] font-mono font-bold transition-colors ' +
-              (track.muted
-                ? 'border-degree-root/60 bg-degree-root/20 text-foreground'
-                : 'border-border/60 text-muted-foreground hover:bg-white/5')
-            }
-          >
-            M
-          </button>
-          <button
-            type="button"
-            onClick={() => setTrackSoloed(track.id, !track.soloed)}
-            aria-pressed={track.soloed}
-            title="Solo"
-            className={
-              'h-6 w-6 inline-flex items-center justify-center rounded border text-[10px] font-mono font-bold transition-colors ' +
-              (track.soloed
-                ? 'border-amber-400/70 bg-amber-400/30 text-foreground'
-                : 'border-border/60 text-muted-foreground hover:bg-white/5')
-            }
-          >
-            S
-          </button>
-          <button
-            type="button"
-            onClick={() => removeTrack(track.id)}
-            disabled={!canDelete}
-            title={canDelete ? 'Delete track' : 'Cannot delete the last remaining track'}
-            className={
-              'h-6 w-6 ml-auto inline-flex items-center justify-center rounded border transition-colors ' +
-              (canDelete
-                ? 'border-red-500/40 hover:bg-red-500/10 text-red-300'
-                : 'border-border/30 text-muted-foreground/40 cursor-not-allowed')
-            }
-          >
-            <Trash2 size={11} />
-          </button>
-        </div>
-      </div>
-
+    <div className={'border-b border-border/30 last:border-b-0 ' + (dimmed ? 'opacity-50' : '')}>
       {/* Lane — placements packed left-to-right. The lane container is itself
           a drop target: empty lanes accept a drop (cross-lane move into a
           fresh track), and dropping on the trailing whitespace appends to

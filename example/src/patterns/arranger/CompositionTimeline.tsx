@@ -20,6 +20,7 @@ import {
   MAX_COMPOSITION_TRACKS,
 } from '@fretwork/lib';
 import { TrackLane } from './TrackLane';
+import { TrackHeader } from './TrackHeader';
 import { ArrangerDragProvider } from './ArrangerDragContext';
 import { TimelineRuler } from './TimelineRuler';
 import { TimelinePlayhead } from './TimelinePlayhead';
@@ -30,6 +31,10 @@ import { useArrangerView } from './ArrangerViewContext';
 export function CompositionTimeline() {
   const composition = usePatternsStore(selectEditingComposition);
   const addTrack = usePatternsStore((s) => s.addCompositionTrack);
+  const cursorTick = usePatternsStore((s) => s.compositionCursorTick);
+  const setCursor = usePatternsStore((s) => s.setCompositionCursorTick);
+  const loopRegion = usePatternsStore((s) => s.compositionLoopRegion);
+  const setLoopRegion = usePatternsStore((s) => s.setCompositionLoopRegion);
   const { pxPerBeat } = useArrangerView();
 
   // Auto-scroll: keep the playhead visible as it moves right.
@@ -65,8 +70,10 @@ export function CompositionTimeline() {
           }
         }
       }
-      const playheadX = TRACK_SIDEBAR_WIDTH + tickToPx(headTick, pxPerBeat);
-      const visibleStart = el.scrollLeft + TRACK_SIDEBAR_WIDTH; // sidebar is sticky
+      // The sidebar now lives in a separate fixed column, so the scroll
+      // container's content starts at x=0 (no sidebar offset).
+      const playheadX = tickToPx(headTick, pxPerBeat);
+      const visibleStart = el.scrollLeft;
       const visibleEnd = el.scrollLeft + el.clientWidth;
       const margin = 80; // keep some headroom on the right
       if (playheadX < visibleStart || playheadX > visibleEnd - margin) {
@@ -97,28 +104,28 @@ export function CompositionTimeline() {
         </p>
       )}
 
-      {/* Track lanes — horizontally scrollable as a unit so all lanes share the
-          same scrollLeft / playhead alignment. */}
-      <div ref={lanesScrollRef} className="relative border border-border/40 rounded-md overflow-x-auto bg-charcoal-deep/20">
-        <TimelineRuler
-          timeSignature={composition.timeSignature}
-          totalTicks={totalDurationTicks(composition)}
-        />
-        {composition.tracks.map((track) => (
-          <TrackLane
-            key={track.id}
-            composition={composition}
-            track={track}
-            anySoloed={anySoloed}
-          />
-        ))}
-
-        {/* Footer row: + Add track */}
-        <div className="flex items-stretch border-t border-border/40">
-          <div
-            className="shrink-0 sticky left-0 z-10 flex items-center px-2 py-1 bg-charcoal-deep"
-            style={{ width: TRACK_SIDEBAR_WIDTH }}
-          >
+      {/* Two-column timeline: a FIXED left column of track headers (outside the
+          horizontal scroll, like the pattern editor's lane sidebar) and a
+          horizontally-scrolling right column holding the shared ruler, the lane
+          canvases, and the playhead. Rows line up because headers and lanes are
+          both TRACK_LANE_HEIGHT tall and the ruler / spacer are both h-7. */}
+      <div className="flex border border-border/40 rounded-md overflow-hidden bg-charcoal-deep/20">
+        {/* Fixed left column — track controls. */}
+        <div
+          className="shrink-0 flex flex-col border-r border-border/40 bg-charcoal-deep"
+          style={{ width: TRACK_SIDEBAR_WIDTH }}
+        >
+          <div className="h-7 shrink-0 flex items-center px-3 border-b border-border/40 bg-charcoal-raised/30 text-[9px] uppercase tracking-wider text-muted-foreground/70">
+            Bar
+          </div>
+          {composition.tracks.map((track) => (
+            <TrackHeader
+              key={track.id}
+              track={track}
+              canDelete={composition.tracks.length > 1}
+            />
+          ))}
+          <div className="h-9 shrink-0 flex items-center px-2 border-t border-border/40">
             <button
               type="button"
               onClick={() => addTrack()}
@@ -143,9 +150,30 @@ export function CompositionTimeline() {
               </span>
             )}
           </div>
-          <div className="flex-1" />
         </div>
-        <TimelinePlayhead />
+
+        {/* Scrolling right column — ruler + lanes + playhead. */}
+        <div ref={lanesScrollRef} className="relative flex-1 min-w-0 overflow-x-scroll">
+          <TimelineRuler
+            timeSignature={composition.timeSignature}
+            totalTicks={totalDurationTicks(composition)}
+            cursorTick={cursorTick}
+            setCursor={setCursor}
+            region={loopRegion}
+            setRegion={setLoopRegion}
+          />
+          {composition.tracks.map((track) => (
+            <TrackLane
+              key={track.id}
+              composition={composition}
+              track={track}
+              anySoloed={anySoloed}
+            />
+          ))}
+          {/* Filler row aligning with the left column's + Add track row. */}
+          <div className="h-9 border-t border-border/40" />
+          <TimelinePlayhead offset={0} />
+        </div>
       </div>
 
       <p className="text-[10px] font-mono text-muted-foreground/60">

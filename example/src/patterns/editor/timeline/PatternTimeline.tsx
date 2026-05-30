@@ -13,10 +13,15 @@ import {
 } from '@fretwork/lib';
 import { EventBar } from './EventBar';
 import { usePatternsPlayback } from '../../playback/usePatternsPlayback';
+import { useArrangerView } from '../../arranger/ArrangerViewContext';
+import { TimelineRuler } from '../../arranger/TimelineRuler';
+import { TimelinePlayhead } from '../../arranger/TimelinePlayhead';
 
-const PX_PER_QUARTER = 60;
 const ROW_HEIGHT = 28;
-const RULER_HEIGHT = 22;
+// The bar-number ruler is now the shared DOM <TimelineRuler> mounted above the
+// grid, so the SVG reserves no top band (rows start at y=0). Kept as a named
+// 0 so the row/event/cursor y-offset arithmetic below stays self-documenting.
+const RULER_HEIGHT = 0;
 const STRING_LABEL_WIDTH = 28;
 
 export function PatternTimeline({ framed = true }: { framed?: boolean } = {}) {
@@ -35,13 +40,19 @@ export function PatternTimeline({ framed = true }: { framed?: boolean } = {}) {
   const inst = getInstrument(instrumentId) ?? getInstrument(DEFAULT_INSTRUMENT_ID)!;
   const stringCount = inst.stringCount;
 
-  const ticksToPx = (t: number) => (t / PPQ) * PX_PER_QUARTER;
-  const pxToTicks = (px: number) => (px / PX_PER_QUARTER) * PPQ;
+  // Horizontal zoom shared with the composition arranger (px per quarter-note
+  // beat). Replaces the old fixed 60px scale so small note blocks can be
+  // zoomed up. All px<->tick math funnels through ticksToPx / pxToTicks, so
+  // every grid line, event bar, and drag gesture scales with this value.
+  const { pxPerBeat } = useArrangerView();
+
+  const ticksToPx = (t: number) => (t / PPQ) * pxPerBeat;
+  const pxToTicks = (px: number) => (px / pxPerBeat) * PPQ;
 
   const widthPx = useMemo(() => {
     const dur = pattern?.durationTicks ?? PPQ * 16;
-    return ticksToPx(dur);
-  }, [pattern?.durationTicks]);
+    return (dur / PPQ) * pxPerBeat;
+  }, [pattern?.durationTicks, pxPerBeat]);
 
   const heightPx = RULER_HEIGHT + stringCount * ROW_HEIGHT;
 
@@ -58,7 +69,7 @@ export function PatternTimeline({ framed = true }: { framed?: boolean } = {}) {
       lines.push({ x: ticksToPx(tick), label: b + 1, isBar });
     }
     return lines;
-  }, [beatsTotal, ts]);
+  }, [beatsTotal, ts, pxPerBeat]);
 
   // Sixteenth-note subdivision lines for visual snap reference.
   const subLines = useMemo(() => {
@@ -69,7 +80,7 @@ export function PatternTimeline({ framed = true }: { framed?: boolean } = {}) {
       lines.push(ticksToPx(t));
     }
     return lines;
-  }, [pattern?.durationTicks]);
+  }, [pattern?.durationTicks, pxPerBeat]);
 
   // Get tuning's open-string names for the string label column.
   const openStringNames = useMemo(() => {
@@ -83,7 +94,6 @@ export function PatternTimeline({ framed = true }: { framed?: boolean } = {}) {
   const svgRef = useRef<SVGSVGElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const lastScrollAtRef = useRef(0);
-  const playheadLineRef = useRef<SVGLineElement | null>(null);
   const stampAt = usePatternsStore((s) => s.stampAt);
 
   const marqueeRef = useRef<
@@ -119,15 +129,9 @@ export function PatternTimeline({ framed = true }: { framed?: boolean } = {}) {
       let headTick = getTransportTicks(PPQ);
       const dur = pattern?.durationTicks ?? 0;
       if (dur > 0) headTick = wrapTick(headTick, 0, dur);
-      const playheadX = STRING_LABEL_WIDTH + (headTick / PPQ) * PX_PER_QUARTER;
-      // Position the playhead <line> via ref + setAttribute — avoids React
-      // re-render per frame.
-      const line = playheadLineRef.current;
-      if (line) {
-        const xStr = String(Math.round(playheadX));
-        line.setAttribute('x1', xStr);
-        line.setAttribute('x2', xStr);
-      }
+      // The visible playhead line is the shared <TimelinePlayhead>; this loop
+      // only computes playheadX to drive auto-scroll.
+      const playheadX = STRING_LABEL_WIDTH + (headTick / PPQ) * pxPerBeat;
       // Auto-scroll into view.
       const el = scrollRef.current;
       if (!el) return;
@@ -150,7 +154,7 @@ export function PatternTimeline({ framed = true }: { framed?: boolean } = {}) {
     return () => {
       if (rafId !== null) cancelAnimationFrame(rafId);
     };
-  }, [playback.isPlaying, pattern?.durationTicks]);
+  }, [playback.isPlaying, pattern?.durationTicks, pxPerBeat]);
 
   // Reset the lockout when playback stops so the next play-start can scroll
   // immediately if needed.
@@ -215,8 +219,9 @@ export function PatternTimeline({ framed = true }: { framed?: boolean } = {}) {
       window.removeEventListener('mouseup', onUp);
     };
     // marqueeRect is read inside onUp to recover the final rect — include it as a dep
-    // so onUp closes over the latest value when it fires.
-  }, [marqueeRect, pattern, stringCount, selectEvents]);
+    // so onUp closes over the latest value when it fires. pxPerBeat is a dep so the
+    // hit-test math (via ticksToPx) reflects the current zoom.
+  }, [marqueeRect, pattern, stringCount, selectEvents, pxPerBeat]);
 
   // Most-recently-used fret across the pattern's events — used as the default fret
   // when the user clicks on a timeline row to stamp directly. Falls back to 0.
@@ -286,10 +291,24 @@ export function PatternTimeline({ framed = true }: { framed?: boolean } = {}) {
     <div
       ref={scrollRef}
       className={
-        'overflow-auto bg-charcoal-deep/40 relative select-none' +
+        // overflow-x-scroll (not -auto) keeps the horizontal scrollbar always
+        // present so the playback ribbon below never shifts when the bar does
+        // / doesn't overflow.
+        'overflow-x-scroll overflow-y-hidden bg-charcoal-deep/40 relative select-none' +
         (framed ? ' border border-border/40 rounded-md' : '')
       }
     >
+      {/* Shared bar-number ruler — same component the composition arranger
+          uses. leftGutter aligns its bars with the SVG's string-label gutter. */}
+      <TimelineRuler
+        timeSignature={ts}
+        totalTicks={pattern.durationTicks}
+        cursorTick={cursorTick}
+        setCursor={setCursorTick}
+        leftGutter={STRING_LABEL_WIDTH}
+        minBars={4}
+        trailingBars={1}
+      />
       <svg
         ref={svgRef}
         width={STRING_LABEL_WIDTH + widthPx + 12}
@@ -299,30 +318,19 @@ export function PatternTimeline({ framed = true }: { framed?: boolean } = {}) {
         onMouseDown={handleBackgroundMouseDown}
         style={{ display: 'block' }}
       >
-        {/* Ruler */}
+        {/* Bar / beat gridlines. Bar numbers live in the shared DOM ruler
+            mounted above this grid, so only the lines are drawn here. */}
         <g>
           {beatLines.map((b, i) => (
-            <g key={i}>
-              <line
-                x1={STRING_LABEL_WIDTH + b.x}
-                y1={0}
-                x2={STRING_LABEL_WIDTH + b.x}
-                y2={heightPx}
-                stroke={b.isBar ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.07)'}
-                strokeWidth={b.isBar ? 1.2 : 0.8}
-              />
-              {b.isBar && (
-                <text
-                  x={STRING_LABEL_WIDTH + b.x + 4}
-                  y={14}
-                  fontSize={10}
-                  fontFamily="ui-monospace, monospace"
-                  fill="rgba(255,255,255,0.45)"
-                >
-                  {Math.floor(b.label / ts.numerator) + 1}
-                </text>
-              )}
-            </g>
+            <line
+              key={i}
+              x1={STRING_LABEL_WIDTH + b.x}
+              y1={0}
+              x2={STRING_LABEL_WIDTH + b.x}
+              y2={heightPx}
+              stroke={b.isBar ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.07)'}
+              strokeWidth={b.isBar ? 1.2 : 0.8}
+            />
           ))}
           {subLines.map((x, i) => (
             <line
@@ -496,26 +504,12 @@ export function PatternTimeline({ framed = true }: { framed?: boolean } = {}) {
           />
         </g>
 
-        {/* Playhead — position is driven by the rAF loop above via
-            playheadLineRef + setAttribute, NOT by re-render. */}
-        {playback.isPlaying && (
-          <line
-            ref={playheadLineRef}
-            x1={STRING_LABEL_WIDTH}
-            y1={RULER_HEIGHT}
-            x2={STRING_LABEL_WIDTH}
-            y2={heightPx}
-            stroke="rgba(250, 204, 21, 0.7)"
-            strokeWidth={1.4}
-            pointerEvents="none"
-          />
-        )}
-
-        {/* Bar numbers floating along top */}
-        <text x={4} y={14} fontSize={10} fontFamily="ui-monospace, monospace" fill="rgba(255,255,255,0.45)">
-          BARS
-        </text>
       </svg>
+
+      {/* Shared playback line — same component the composition arranger uses.
+          mode="pattern" forces wrap-by-pattern-duration regardless of any
+          stale editing composition. offset matches the SVG string gutter. */}
+      <TimelinePlayhead offset={STRING_LABEL_WIDTH} mode="pattern" />
 
       <div className="text-[10px] font-mono text-muted-foreground px-2 py-1 border-t border-border/30">
         {pattern.durationTicks / PPQ} beats · {barsTotal} bars · {pattern.events.length} note{pattern.events.length === 1 ? '' : 's'}

@@ -23,8 +23,13 @@ export const DEFAULT_ZOOM_INDEX = 2;
 export const TRACK_LANE_HEIGHT = 192;
 
 /** Width of the per-track sidebar (instrument controls). Shared by the
- *  ruler header and every lane. */
+ *  fixed left header column and the lane stack so rows line up. */
 export const TRACK_SIDEBAR_WIDTH = 200;
+
+/** Height of the ruler strip, in px. Matches the ruler's `h-7` (1.75rem).
+ *  The fixed left header column reserves this much space at the top so its
+ *  track headers line up with the scrolling lanes below the ruler. */
+export const RULER_HEIGHT = 28;
 
 /** Snap modes drive how a raw tick from a drag gesture is quantized. */
 export type SnapMode = 'bar' | 'beat' | 'off';
