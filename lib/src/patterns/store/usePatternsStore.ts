@@ -209,6 +209,8 @@ export interface PatternsActions {
   setEditingPatternTimeSignature(ts: PatternTimeSignature): void;
   setEditingPatternGroove(groove: GrooveSpec | null): void;
   setEditingPatternSubdivision(subdivision: import('../../metronome/types').SubdivisionId | null): void;
+  /** Toggle whether editor playback loops the editing pattern. */
+  setEditingPatternLoop(loop: boolean): void;
   /** Set (or clear, with null) the editing pattern's voice. Cast `voiceRef` to
    *  `VariantRef | null` at the call site; stored loose to avoid a voices-module
    *  dependency from the patterns model. */
@@ -376,6 +378,7 @@ const persistOptions: PersistOptions<PatternsStoreState, Pick<PatternsStoreState
         key: p.key ?? null,
         scaleType: p.scaleType ?? null,
         subdivision: p.subdivision ?? null,
+        loop: p.loop ?? true,
         // Music-import expansion (v2): legacy rows have no automation tracks
         // or sourceIR. Empty tracks = "no automation"; existing playback paths
         // continue consulting the static `suggestedBpm` and `timeSignature`.
@@ -833,6 +836,21 @@ export const usePatternsStore = create<PatternsStoreState>()(
               ...s.library,
               patterns: s.library.patterns.map((p) =>
                 p.id === id ? { ...p, voiceRef, updatedAt: Date.now() } : p,
+              ),
+            },
+            ...clearDraftIf(s, id),
+          };
+        });
+      },
+      setEditingPatternLoop(loop) {
+        set((s) => {
+          const id = s.editingPatternId;
+          if (!id) return s;
+          return {
+            library: {
+              ...s.library,
+              patterns: s.library.patterns.map((p) =>
+                p.id === id ? { ...p, loop, updatedAt: Date.now() } : p,
               ),
             },
             ...clearDraftIf(s, id),

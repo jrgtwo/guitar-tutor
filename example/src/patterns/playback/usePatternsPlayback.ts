@@ -102,6 +102,25 @@ let cancelTimeSignatureAutomation: (() => void) | null = null;
  *  one-shot used when loop=false. Cleared on stop so a re-play doesn't fire
  *  a stale boundary callback. */
 let endBoundaryScheduleId: number | null = null;
+
+/** The per-source description handed to the shared `playTimeline` driver. The
+ *  pattern and composition play paths differ only in this config: what source
+ *  to install (single voice vs multi-track), which store fields hold the
+ *  loop/region/cursor, and the pre-roll tempo. Everything else (preWarm/stop,
+ *  end-stop, region gating, start clamp, head seed, pre-roll) is shared. */
+interface TimelinePlayConfig {
+  loop: boolean;
+  durationTicks: number;
+  /** Raw store loop-region. The loop gate is applied centrally in playTimeline. */
+  resolveRegionRaw: () => { start: number; end: number } | null;
+  resolveCursor: () => number;
+  /** Source-specific setup, run while the transport is stopped. */
+  prepare: () => void;
+  /** Push region + start tick onto every relevant scheduler. */
+  applyStart: (region: { start: number; end: number } | null, startTick: number) => void;
+  preRollBpm: number;
+  beatsPerBar: number;
+}
 /** True while the shared scheduler is parked with SilentInstrument because a
  *  composition is the active stream — real audio comes from per-track
  *  schedulers inside currentMultiTrack. The voice useEffect MUST NOT replace
@@ -433,7 +452,8 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
       lastRegion = region;
       if (!useMetronomeStore.getState().isRunning) return;
       const pat = selectEditingPattern(state);
-      scheduler.setLoopRegion(region);
+      // Region only loops when the pattern's loop is on; otherwise ignore it.
+      scheduler.setLoopRegion(pat?.loop ? region : null);
       if (pat) scheduler.restream(new PatternSource(pat));
     });
   }, [scheduler]);
@@ -469,293 +489,243 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
     }
   }, [scheduler, currentPlacementId]);
 
-  const playEditingPattern = useCallback(() => {
-    if (!scheduler || !metronome) {
-      return;
-    }
-    const state = usePatternsStore.getState();
-    const pattern = selectEditingPattern(state);
-    if (!pattern) {
-      return;
-    }
-    // Fire-and-forget warmup so the AudioContext is unlocked and click voices
-    // are built before pre-roll completes. By the time metronome.start() fires
-    // (after the ~4s countdown), Tone.start() and _ensureVoices() inside
-    // start() are no-ops — eliminating the cold-start hiccup on first play.
-    void metronome.preWarm();
-    // Always stop first so the transport position resets to 0 and any in-flight
-    // audio from a previous stream (composition, different pattern) is cut.
-    if (metronome.isRunning) metronome.stop();
+  // ── Unified play driver ─────────────────────────────────────────────────
+  // The orchestration shared by single-pattern and composition playback:
+  // preWarm/stop, the not-looping end-stop, loop-region gating, start-cursor
+  // clamp, head seed, and the pre-roll count-in. The two play functions below
+  // differ only in their `config` — what source to install (single voice vs
+  // multi-track) and which store fields hold the loop/region/cursor. Keeping
+  // this in ONE place is what stops the two pages' loop behavior from drifting.
+  const playTimeline = useCallback(
+    (config: TimelinePlayConfig) => {
+      if (!scheduler || !metronome) return;
+      // Fire-and-forget warmup so the AudioContext is unlocked and voices are
+      // built before pre-roll completes (Tone.start / _ensureVoices become
+      // no-ops by the time metronome.start() fires).
+      void metronome.preWarm();
+      // Always stop first so the transport resets to 0 and any in-flight audio
+      // from a previous stream is cut.
+      if (metronome.isRunning) metronome.stop();
 
-    // ── Setup: run ALL transport-touching work while the transport is stopped ──
-    // This ensures PPQ can be aligned (Tone.js refuses PPQ changes on a running
-    // transport) and that automation events are scheduled from tick 0 before
-    // the transport starts. The pre-roll is visual-only; no metronome click
-    // plays during the countdown.
+      // Source-specific setup. Runs while the transport is stopped so PPQ can be
+      // aligned (Tone refuses PPQ changes on a running transport) and automation
+      // is scheduled from tick 0. The pre-roll below is visual-only.
+      config.prepare();
 
-    // Tear down any live multi-track composition and unconditionally restore
-    // the shared scheduler's real instrument. The instrument must always be
-    // reset here because playEditingComposition parks the singleton scheduler
-    // with a SilentInstrument (so its head/active callbacks fire without
-    // producing audio). If the user stops a composition and then plays a
-    // pattern, currentMultiTrack is null but the scheduler is still silent —
-    // the restore must run regardless of whether currentMultiTrack was set.
-    if (currentMultiTrack) {
-      currentMultiTrack.dispose();
-      currentMultiTrack = null;
-    }
-    // Clear BEFORE setInstrument so any voice useEffect triggered by a
-    // concurrent state change in the same render sees the right value and
-    // doesn't bail incorrectly on what is now pattern playback.
-    isCompositionMode = false;
-    try {
-      const fretState = useFretworkStore.getState();
-      const patternVoiceRef =
-        (selectEditingPattern(usePatternsStore.getState())?.voiceRef ?? null) as VariantRef | null;
-      const { voice } = buildEffectiveVoice(asFretInstrumentId(fretState.instrumentId), {
-        voiceRef: patternVoiceRef,
-      });
-      // Build the voice's synth + chain eagerly so any async-loading nodes
-      // (notably the cabinet IR Tone.Convolver, which outputs silence until
-      // its IR buffer fetches + decodes) begin loading NOW rather than on
-      // the first triggerAttackRelease. Without this, the first slice of
-      // pattern audio routes through a not-yet-loaded Convolver and is
-      // silent for the ~200-500ms it takes to fetch the IR — manifesting
-      // as the first note never playing on cab-IR voices like the Karoryfer
-      // presets. Tone.loaded() inside metronome.start() then waits for the
-      // IR before transport begins. Mirrors the equivalent eager build in
-      // MultiTrackPlayback for composition playback.
-      voice.ensureBuilt();
-      scheduler.setInstrument(voice);
-    } catch {
-      scheduler.setInstrument(new PluckSynthInstrument());
-    }
-
-    // Tempo + TS automation from the pattern itself. The setter callbacks
-    // push every value through the store so the UI stays in sync with the
-    // audio thread — including mid-song tempo/TS changes that fire later
-    // on the transport. Imported patterns carry mid-section tempo / meter
-    // changes in their tracks; without this the editor would only honor
-    // `suggestedBpm` once and ignore every change after tick 0. Falls
-    // back to suggestedBpm / pattern.timeSignature for un-automated
-    // patterns.
-    cancelTempoAutomation?.();
-    cancelTempoAutomation = applyTempoAutomation(
-      pattern.tempoTrack ?? [],
-      pattern.suggestedBpm ?? useMetronomeStore.getState().bpm,
-      setMetronomeBpmViaStore,
-    );
-    cancelTimeSignatureAutomation?.();
-    cancelTimeSignatureAutomation = applyTimeSignatureAutomation(
-      pattern.timeSignatureTrack ?? [],
-      pattern.timeSignature,
-      setMetronomeTimeSignatureViaStore,
-    );
-    // Groove + subdivision also go through the store.
-    useMetronomeStore.getState().setSwing(pattern.groove?.swing ?? 0.5);
-    useMetronomeStore.getState().setSubdivision(pattern.subdivision ?? 'off');
-    scheduler.setStream(new PatternSource(pattern));
-    scheduler.setLoop(true);
-    // ── End setup ──
-
-    // Pre-roll: visual-only count-in. The metronome only starts when the
-    // count-in completes — that guarantees PPQ alignment and automation
-    // scheduling happen while the transport is stopped.
-    preRollCancelRef.current?.();
-    const startContent = () => {
-      preRollCancelRef.current = null;
-      // Begin at the blue cursor (0 = the start). The scheduler schedules the
-      // first pass from here; the transport position is set in metronome.start.
-      const st = usePatternsStore.getState();
-      // Pattern loop-brace region (if set): clamp the start cursor into it and
-      // tell the scheduler to loop just that range. Passing the region (possibly
-      // null) also resets any region left over from a prior composition play.
-      const region = st.patternLoopRegion;
-      const cursor = st.cursorTick;
-      const startTick = region
-        ? Math.min(Math.max(cursor, region.start), region.end)
-        : cursor;
-      scheduler.setLoopRegion(region);
-      scheduler.setStartTick(startTick);
-      st.setHeadTick(startTick);
-      // Spinner on Play button while metronome.start() awaits Tone.start +
-      // Tone.loaded + voice build. Cleared by the 'start' event handler.
-      setIsStarting(true);
-      void metronome.start(startTick).catch(() => setIsStarting(false));
-    };
-    if (!usePatternsStore.getState().preRollEnabled) {
-      startContent();
-    } else {
-      preRollCancelRef.current = startPreRoll({
-        bpm: pattern.suggestedBpm ?? useMetronomeStore.getState().bpm,
-        beatsPerBar: pattern.timeSignature.numerator * (4 / pattern.timeSignature.denominator),
-        onState: (s) => setPreRollState(s),
-        onClear: () => setPreRollState(null),
-        onComplete: startContent,
-      }).cancel;
-    }
-  }, [scheduler, metronome]);
-
-  const playEditingComposition = useCallback(() => {
-    if (!scheduler || !metronome) {
-      return;
-    }
-    const state = usePatternsStore.getState();
-    const composition = selectEditingComposition(state);
-    if (!composition) {
-      return;
-    }
-    // Fire-and-forget warmup (see playEditingPattern for rationale).
-    void metronome.preWarm();
-    if (metronome.isRunning) metronome.stop();
-
-    // ── Setup: run ALL transport-touching work while the transport is stopped ──
-    // This ensures PPQ can be aligned (Tone.js refuses PPQ changes on a running
-    // transport) and that automation events are scheduled from tick 0 before
-    // the transport starts. The pre-roll is visual-only; no metronome click
-    // plays during the countdown.
-
-    // Apply tempo + TS automation. Two modes:
-    //   - 'global' (default): use the composition's STATIC bpm + timeSignature.
-    //     Automation tracks are ignored, so the user's UI choice wins even
-    //     when the source IR populated `composition.timeSignatureTrack` with
-    //     mid-song meter changes from the import. Pass empty event arrays
-    //     so the appliers fall through to the static fallback values.
-    //   - 'inherit': synthesize a merged automation track from track[0]'s
-    //     placements — each placement contributes a boundary event plus
-    //     any mid-pattern automation it carries. The "tempo lead" lane is
-    //     tracks[0] by convention; conflicts from other lanes are ignored
-    //     (tempo is global per Tone.Transport).
-    //
-    // The setter callbacks push every value through the store so UI +
-    // metronome stay in lockstep on initial setup AND on each mid-song
-    // automation event.
-    const leadTrack = composition.tracks[0];
-    const useInherit = composition.tempoMode === 'inherit' && leadTrack !== undefined;
-    const merged = useInherit ? mergeTrackPlacementsAutomation(leadTrack) : null;
-    cancelTempoAutomation?.();
-    cancelTempoAutomation = applyTempoAutomation(
-      merged ? merged.tempoEvents : [],
-      composition.bpm,
-      setMetronomeBpmViaStore,
-    );
-    cancelTimeSignatureAutomation?.();
-    cancelTimeSignatureAutomation = applyTimeSignatureAutomation(
-      merged ? merged.tsEvents : [],
-      composition.timeSignature,
-      setMetronomeTimeSignatureViaStore,
-    );
-    // Groove + subdivision go through the store too.
-    useMetronomeStore.getState().setSwing(composition.groove?.swing ?? 0.5);
-    useMetronomeStore.getState().setSubdivision(composition.subdivision ?? 'off');
-
-    const fretState = useFretworkStore.getState();
-    const tuning = getTuning(fretState.tuning);
-
-    // Tear down any prior multi-track instance, then build a fresh one.
-    // Each track gets its own (Voice, gain, EventScheduler) wired through
-    // the manager's master gain into MasterBus.
-    currentMultiTrack?.dispose();
-    currentMultiTrack = null;
-    if (composition.tracks.length > 0 && tuning) {
-      currentMultiTrack = new MultiTrackPlayback({
-        composition,
-        metronome,
-        tuning,
-        capo: fretState.capo,
-        buildVoice: (track: Track) => {
-          // Per-track voice override: when the track carries an explicit
-          // voiceRef (user picked a specific variant for THIS lane), use
-          // it. Otherwise fall back to the global active variant for the
-          // instrument (legacy behavior).
-          const { voice } = buildEffectiveVoice(
-            asFretInstrumentId(track.instrumentId),
-            {
-              autoConnectToMaster: false,
-              voiceRef: (track.voiceRef ?? null) as VariantRef | null,
-            },
-          );
-          return voice;
-        },
-      });
-      currentMultiTrack.setLoop(composition.loop);
-    }
-
-    // Park the shared scheduler with a Silent instrument so its head /
-    // active / placement-change callbacks still fire (drives the timeline
-    // highlight + fretboard playhead) without producing audio. Real audio
-    // comes from the per-track schedulers inside MultiTrackPlayback.
-    scheduler.setInstrument(new SilentInstrument());
-    scheduler.setStream(new CompositionSource(composition));
-    scheduler.setLoop(composition.loop);
-    // Set AFTER setInstrument so the voice useEffect guard is armed only
-    // once the SilentInstrument is installed. Any voice useEffect that
-    // fires next render will bail and leave the silent state intact.
-    isCompositionMode = true;
-
-    // Auto-stop at boundary when not looping. Without this, the audio
-    // scheduler correctly stops firing events past the composition's end,
-    // but the transport itself keeps advancing — so the visual playhead
-    // walks past the timeline forever and auto-scroll drags the page with
-    // it. Schedule a one-shot on the transport so the stop is audio-clock
-    // accurate, then defer to rAF so any in-flight last-event tail has a
-    // moment to render before teardown.
-    clearTransportSchedule(endBoundaryScheduleId);
-    endBoundaryScheduleId = null;
-    if (!composition.loop) {
-      const endTicks = totalDurationTicks(composition);
-      if (endTicks > 0) {
+      // End-stop (shared): when not looping, stop at content end. Without this
+      // the audio scheduler stops firing past the end but the transport keeps
+      // advancing — so the playhead walks off the timeline forever and
+      // auto-scroll drags the page with it. One-shot on the transport so the
+      // stop is audio-clock accurate; deferred to rAF so the last-event tail
+      // renders before teardown.
+      clearTransportSchedule(endBoundaryScheduleId);
+      endBoundaryScheduleId = null;
+      if (!config.loop && config.durationTicks > 0) {
         endBoundaryScheduleId = scheduleAtTransportTick(
           () => {
             endBoundaryScheduleId = null;
             requestAnimationFrame(() => stopRef.current());
           },
-          endTicks,
+          config.durationTicks,
           PPQ,
         );
       }
-    }
-    // ── End setup ──
 
-    // Pre-roll: visual-only count-in (same shape as playEditingPattern).
-    preRollCancelRef.current?.();
-    const startContent = () => {
-      preRollCancelRef.current = null;
-      // Begin at the blue arranger cursor (0 = the start). Set it on the shared
-      // (silent, UI-driving) scheduler AND every per-track scheduler so audio
-      // and the visual playhead begin from the same tick.
-      // NOTE(inherit-start-seed): tempo/TS were seeded from tick 0 above. In
-      // 'global' mode that's correct (constant tempo). In 'inherit' mode with
-      // mid-song tempo changes, starting mid-stream uses the base tempo rather
-      // than the value in effect at startTick — a documented caveat for now.
-      const st = usePatternsStore.getState();
-      // Wave 2 loop region: when set + looping, clamp the start cursor into it
-      // and tell every scheduler to loop just that range.
-      const region = composition.loop ? st.compositionLoopRegion : null;
-      const cursor = st.compositionCursorTick;
-      const startTick = region
-        ? Math.min(Math.max(cursor, region.start), region.end)
-        : cursor;
-      scheduler.setLoopRegion(region);
-      scheduler.setStartTick(startTick);
-      currentMultiTrack?.setLoopRegion(region);
-      currentMultiTrack?.schedulers.forEach((s) => s.setStartTick(startTick));
-      usePatternsStore.getState().setHeadTick(startTick);
-      setIsStarting(true);
-      void metronome.start(startTick).catch(() => setIsStarting(false));
-    };
-    if (!usePatternsStore.getState().preRollEnabled) {
-      startContent();
-    } else {
-      preRollCancelRef.current = startPreRoll({
-        bpm: composition.bpm,
-        beatsPerBar: composition.timeSignature.numerator * (4 / composition.timeSignature.denominator),
-        onState: (s) => setPreRollState(s),
-        onClear: () => setPreRollState(null),
-        onComplete: startContent,
-      }).cancel;
-    }
-  }, [scheduler, metronome]);
+      // Pre-roll: visual-only count-in. The metronome only starts when the
+      // count-in completes — guaranteeing PPQ alignment + automation happen
+      // while the transport is stopped.
+      preRollCancelRef.current?.();
+      const startContent = () => {
+        preRollCancelRef.current = null;
+        // The loop gate lives here, once: a brace only loops when loop is on.
+        // Passing the resolved region (possibly null) also resets any region
+        // left over from a prior play.
+        const region = config.loop ? config.resolveRegionRaw() : null;
+        const cursor = config.resolveCursor();
+        const startTick = region
+          ? Math.min(Math.max(cursor, region.start), region.end)
+          : cursor;
+        config.applyStart(region, startTick);
+        usePatternsStore.getState().setHeadTick(startTick);
+        // Spinner on Play while metronome.start() awaits Tone.start +
+        // Tone.loaded + voice build. Cleared by the 'start' event handler.
+        setIsStarting(true);
+        void metronome.start(startTick).catch(() => setIsStarting(false));
+      };
+      if (!usePatternsStore.getState().preRollEnabled) {
+        startContent();
+      } else {
+        preRollCancelRef.current = startPreRoll({
+          bpm: config.preRollBpm,
+          beatsPerBar: config.beatsPerBar,
+          onState: (s) => setPreRollState(s),
+          onClear: () => setPreRollState(null),
+          onComplete: startContent,
+        }).cancel;
+      }
+    },
+    [scheduler, metronome],
+  );
+
+  const playEditingPattern = useCallback(() => {
+    if (!scheduler || !metronome) return;
+    const pattern = selectEditingPattern(usePatternsStore.getState());
+    if (!pattern) return;
+    playTimeline({
+      loop: pattern.loop,
+      durationTicks: pattern.durationTicks,
+      resolveRegionRaw: () => usePatternsStore.getState().patternLoopRegion,
+      resolveCursor: () => usePatternsStore.getState().cursorTick,
+      preRollBpm: pattern.suggestedBpm ?? useMetronomeStore.getState().bpm,
+      beatsPerBar:
+        pattern.timeSignature.numerator * (4 / pattern.timeSignature.denominator),
+      prepare: () => {
+        // Tear down any live multi-track composition and restore the shared
+        // scheduler's real instrument (composition playback parks it with a
+        // SilentInstrument). Must run regardless of whether currentMultiTrack
+        // was set — a stopped composition leaves the scheduler silent.
+        if (currentMultiTrack) {
+          currentMultiTrack.dispose();
+          currentMultiTrack = null;
+        }
+        // Clear BEFORE setInstrument so a voice useEffect from a concurrent
+        // state change sees pattern playback and doesn't bail.
+        isCompositionMode = false;
+        try {
+          const fretState = useFretworkStore.getState();
+          const patternVoiceRef = (selectEditingPattern(usePatternsStore.getState())
+            ?.voiceRef ?? null) as VariantRef | null;
+          const { voice } = buildEffectiveVoice(
+            asFretInstrumentId(fretState.instrumentId),
+            { voiceRef: patternVoiceRef },
+          );
+          // Eager build so async nodes (the cab IR Convolver, silent until its
+          // buffer fetches + decodes) load NOW rather than on first trigger —
+          // otherwise the first slice routes through a not-yet-loaded Convolver
+          // and is silent. Tone.loaded() in metronome.start() then waits for the
+          // IR before transport begins.
+          voice.ensureBuilt();
+          scheduler.setInstrument(voice);
+        } catch {
+          scheduler.setInstrument(new PluckSynthInstrument());
+        }
+        // Tempo + TS automation from the pattern (mid-song changes ride the
+        // store setters so UI + audio stay in sync). Falls back to suggestedBpm
+        // / timeSignature for un-automated patterns.
+        cancelTempoAutomation?.();
+        cancelTempoAutomation = applyTempoAutomation(
+          pattern.tempoTrack ?? [],
+          pattern.suggestedBpm ?? useMetronomeStore.getState().bpm,
+          setMetronomeBpmViaStore,
+        );
+        cancelTimeSignatureAutomation?.();
+        cancelTimeSignatureAutomation = applyTimeSignatureAutomation(
+          pattern.timeSignatureTrack ?? [],
+          pattern.timeSignature,
+          setMetronomeTimeSignatureViaStore,
+        );
+        useMetronomeStore.getState().setSwing(pattern.groove?.swing ?? 0.5);
+        useMetronomeStore.getState().setSubdivision(pattern.subdivision ?? 'off');
+        scheduler.setStream(new PatternSource(pattern));
+        scheduler.setLoop(pattern.loop);
+      },
+      applyStart: (region, startTick) => {
+        scheduler.setLoopRegion(region);
+        scheduler.setStartTick(startTick);
+      },
+    });
+  }, [scheduler, metronome, playTimeline]);
+
+  const playEditingComposition = useCallback(() => {
+    if (!scheduler || !metronome) return;
+    const composition = selectEditingComposition(usePatternsStore.getState());
+    if (!composition) return;
+    playTimeline({
+      loop: composition.loop,
+      durationTicks: totalDurationTicks(composition),
+      resolveRegionRaw: () => usePatternsStore.getState().compositionLoopRegion,
+      resolveCursor: () => usePatternsStore.getState().compositionCursorTick,
+      preRollBpm: composition.bpm,
+      beatsPerBar:
+        composition.timeSignature.numerator * (4 / composition.timeSignature.denominator),
+      prepare: () => {
+        // Tempo + TS automation. 'global' (default): static bpm + timeSignature,
+        // automation tracks ignored (empty arrays → static fallback), so the
+        // user's UI choice wins over any imported mid-song changes. 'inherit':
+        // synthesize a merged automation track from track[0]'s placements (the
+        // tempo-lead lane by convention; other lanes' conflicts ignored since
+        // tempo is global per Tone.Transport).
+        const leadTrack = composition.tracks[0];
+        const useInherit =
+          composition.tempoMode === 'inherit' && leadTrack !== undefined;
+        const merged = useInherit ? mergeTrackPlacementsAutomation(leadTrack) : null;
+        cancelTempoAutomation?.();
+        cancelTempoAutomation = applyTempoAutomation(
+          merged ? merged.tempoEvents : [],
+          composition.bpm,
+          setMetronomeBpmViaStore,
+        );
+        cancelTimeSignatureAutomation?.();
+        cancelTimeSignatureAutomation = applyTimeSignatureAutomation(
+          merged ? merged.tsEvents : [],
+          composition.timeSignature,
+          setMetronomeTimeSignatureViaStore,
+        );
+        useMetronomeStore.getState().setSwing(composition.groove?.swing ?? 0.5);
+        useMetronomeStore.getState().setSubdivision(composition.subdivision ?? 'off');
+
+        const fretState = useFretworkStore.getState();
+        const tuning = getTuning(fretState.tuning);
+
+        // Fresh multi-track instance — each track gets its own
+        // (Voice, gain, EventScheduler) wired through the manager's master gain.
+        currentMultiTrack?.dispose();
+        currentMultiTrack = null;
+        if (composition.tracks.length > 0 && tuning) {
+          currentMultiTrack = new MultiTrackPlayback({
+            composition,
+            metronome,
+            tuning,
+            capo: fretState.capo,
+            // Per-track voice override when the track carries an explicit
+            // voiceRef; else the global active variant for the instrument.
+            buildVoice: (track: Track) => {
+              const { voice } = buildEffectiveVoice(
+                asFretInstrumentId(track.instrumentId),
+                {
+                  autoConnectToMaster: false,
+                  voiceRef: (track.voiceRef ?? null) as VariantRef | null,
+                },
+              );
+              return voice;
+            },
+          });
+          currentMultiTrack.setLoop(composition.loop);
+        }
+
+        // Park the shared scheduler with a Silent instrument so its head /
+        // active / placement-change callbacks still drive the UI without
+        // producing audio. Real audio comes from the per-track schedulers.
+        scheduler.setInstrument(new SilentInstrument());
+        scheduler.setStream(new CompositionSource(composition));
+        scheduler.setLoop(composition.loop);
+        // Set AFTER setInstrument so the voice useEffect guard is armed only
+        // once the SilentInstrument is installed.
+        isCompositionMode = true;
+      },
+      applyStart: (region, startTick) => {
+        // Push to the shared (silent, UI-driving) scheduler AND every per-track
+        // scheduler so audio + the visual playhead begin from the same tick.
+        // NOTE(inherit-start-seed): in 'inherit' mode with mid-song tempo
+        // changes, starting mid-stream uses the base tempo rather than the value
+        // in effect at startTick — a documented caveat for now.
+        scheduler.setLoopRegion(region);
+        scheduler.setStartTick(startTick);
+        currentMultiTrack?.setLoopRegion(region);
+        currentMultiTrack?.schedulers.forEach((s) => s.setStartTick(startTick));
+      },
+    });
+  }, [scheduler, metronome, playTimeline]);
 
   const stop = useCallback(() => {
     if (!metronome) return;

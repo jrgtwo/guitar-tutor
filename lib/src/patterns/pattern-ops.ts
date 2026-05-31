@@ -42,6 +42,7 @@ export function createEmptyPattern(
     suggestedBpm: null,
     groove: null,
     subdivision: null,
+    loop: true,
     key: null,
     scaleType: null,
     description: null,

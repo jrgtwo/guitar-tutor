@@ -1,32 +1,25 @@
 /**
- * Multi-track composition timeline. Renders one TrackLane per track with
- * a shared horizontal axis and an "+ Add track" button at the bottom.
+ * Multi-track composition timeline. A FIXED left column of track headers sits
+ * beside the shared <Timeline> (ruler + playhead + auto-scroll) whose lane
+ * content is one TrackLane per track. Rows line up because headers and lanes
+ * are both TRACK_LANE_HEIGHT tall and the ruler / "Bar" spacer are both h-7.
  *
- * Each lane is its own horizontal strip. Drag-drop reorder works within a
- * lane (delegated to TrackLane) and across lanes (shared drag state via
- * ArrangerDragContext). A composition-wide playhead overlay spans all
- * lanes; per-lane block-highlighting tracks the audible placement on
- * that lane.
+ * Drag-drop reorder works within a lane (delegated to TrackLane) and across
+ * lanes (shared drag state via ArrangerDragContext).
  */
 
-import { useRef, useEffect } from 'react';
 import { Plus } from 'lucide-react';
 import {
-  PPQ,
-  getTransportTicks,
-  useMetronomeStore,
   usePatternsStore,
   selectEditingComposition,
   MAX_COMPOSITION_TRACKS,
+  totalDurationTicks,
 } from '@fretwork/lib';
 import { TrackLane } from './TrackLane';
 import { TrackHeader } from './TrackHeader';
 import { ArrangerDragProvider } from './ArrangerDragContext';
-import { TimelineRuler } from './TimelineRuler';
-import { TimelinePlayhead } from './TimelinePlayhead';
-import { totalDurationTicks, wrapTick } from '@fretwork/lib';
-import { TRACK_SIDEBAR_WIDTH, tickToPx } from './timeline-math';
-import { useArrangerView } from './ArrangerViewContext';
+import { TRACK_SIDEBAR_WIDTH } from './timeline-math';
+import { Timeline } from '../shared/Timeline';
 
 export function CompositionTimeline() {
   const composition = usePatternsStore(selectEditingComposition);
@@ -35,60 +28,6 @@ export function CompositionTimeline() {
   const setCursor = usePatternsStore((s) => s.setCompositionCursorTick);
   const loopRegion = usePatternsStore((s) => s.compositionLoopRegion);
   const setLoopRegion = usePatternsStore((s) => s.setCompositionLoopRegion);
-  const { pxPerBeat } = useArrangerView();
-
-  // Auto-scroll: keep the playhead visible as it moves right.
-  //
-  // Runs its OWN rAF loop reading Tone.Transport.ticks directly. Does NOT
-  // subscribe to the patterns store — we removed the 60Hz setHeadTick writes
-  // precisely because cascading Zustand notify cycles were costing ~25ms per
-  // flush (visible in Chrome trace). Reading transport.ticks here is O(1).
-  const lanesScrollRef = useRef<HTMLDivElement | null>(null);
-  const isPlayingForScroll = useMetronomeStore((s) => s.isRunning);
-  useEffect(() => {
-    if (!isPlayingForScroll) return;
-    let rafId: number | null = null;
-    const tick = () => {
-      rafId = requestAnimationFrame(tick);
-      const el = lanesScrollRef.current;
-      if (!el) return;
-      // Transport.ticks climbs forever while looping (the scheduler reschedules
-      // at increasing absolute ticks). Wrap by composition duration so the
-      // scroll target matches the wrapped playhead instead of chasing the
-      // unbounded tick off the right edge.
-      let headTick = getTransportTicks(PPQ);
-      const state = usePatternsStore.getState();
-      const comp = selectEditingComposition(state);
-      if (comp) {
-        const duration = totalDurationTicks(comp);
-        if (duration > 0 && comp.loop) {
-          const r = state.compositionLoopRegion;
-          if (r && r.end > r.start) {
-            headTick = wrapTick(headTick, Math.min(r.start, duration), Math.min(r.end, duration));
-          } else {
-            headTick = wrapTick(headTick, 0, duration);
-          }
-        }
-      }
-      // The sidebar now lives in a separate fixed column, so the scroll
-      // container's content starts at x=0 (no sidebar offset).
-      const playheadX = tickToPx(headTick, pxPerBeat);
-      const visibleStart = el.scrollLeft;
-      const visibleEnd = el.scrollLeft + el.clientWidth;
-      const margin = 80; // keep some headroom on the right
-      if (playheadX < visibleStart || playheadX > visibleEnd - margin) {
-        // Instant page-flip: smooth scroll takes ~300ms during which the
-        // playhead keeps moving, putting it past the new visible-end before
-        // the scroll lands. We snap so the playhead jumps to the center,
-        // giving ~half a page of right-hand headroom before the next snap.
-        el.scrollLeft = Math.max(0, playheadX - el.clientWidth / 2);
-      }
-    };
-    rafId = requestAnimationFrame(tick);
-    return () => {
-      if (rafId !== null) cancelAnimationFrame(rafId);
-    };
-  }, [isPlayingForScroll, pxPerBeat]);
 
   if (!composition) return null;
   const anySoloed = composition.tracks.some((t) => t.soloed);
@@ -105,10 +44,10 @@ export function CompositionTimeline() {
       )}
 
       {/* Two-column timeline: a FIXED left column of track headers (outside the
-          horizontal scroll, like the pattern editor's lane sidebar) and a
-          horizontally-scrolling right column holding the shared ruler, the lane
-          canvases, and the playhead. Rows line up because headers and lanes are
-          both TRACK_LANE_HEIGHT tall and the ruler / spacer are both h-7. */}
+          horizontal scroll, like the pattern editor's lane sidebar) and the
+          shared <Timeline> (ruler + lanes + playhead + auto-scroll) on the
+          right. Rows line up because headers and lanes are both
+          TRACK_LANE_HEIGHT tall and the ruler / "Bar" spacer are both h-7. */}
       <div className="flex border border-border/40 rounded-md overflow-hidden bg-charcoal-deep/20">
         {/* Fixed left column — track controls. */}
         <div
@@ -152,16 +91,25 @@ export function CompositionTimeline() {
           </div>
         </div>
 
-        {/* Scrolling right column — ruler + lanes + playhead. */}
-        <div ref={lanesScrollRef} className="relative flex-1 min-w-0 overflow-x-scroll">
-          <TimelineRuler
-            timeSignature={composition.timeSignature}
-            totalTicks={totalDurationTicks(composition)}
-            cursorTick={cursorTick}
-            setCursor={setCursor}
-            region={loopRegion}
-            setRegion={setLoopRegion}
-          />
+        {/* Scrolling right column — the shared timeline shell. Content starts at
+            x=0 (sidebar is the separate fixed column), so offset = 0. */}
+        <Timeline
+          className="flex-1 min-w-0"
+          timeSignature={composition.timeSignature}
+          durationTicks={totalDurationTicks(composition)}
+          cursorTick={cursorTick}
+          setCursor={setCursor}
+          loopRegion={loopRegion}
+          setLoopRegion={setLoopRegion}
+          resolveScroll={() => {
+            const comp = selectEditingComposition(usePatternsStore.getState());
+            return {
+              loop: !!comp?.loop,
+              durationTicks: comp ? totalDurationTicks(comp) : 0,
+              loopRegion: usePatternsStore.getState().compositionLoopRegion,
+            };
+          }}
+        >
           {composition.tracks.map((track) => (
             <TrackLane
               key={track.id}
@@ -172,8 +120,7 @@ export function CompositionTimeline() {
           ))}
           {/* Filler row aligning with the left column's + Add track row. */}
           <div className="h-9 border-t border-border/40" />
-          <TimelinePlayhead offset={0} />
-        </div>
+        </Timeline>
       </div>
 
       <p className="text-[10px] font-mono text-muted-foreground/60">

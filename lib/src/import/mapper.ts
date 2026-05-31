@@ -706,6 +706,7 @@ function buildPattern(seed: PatternSeed): Pattern {
     suggestedBpm: seed.suggestedBpm,
     groove: null,
     subdivision: null,
+    loop: true,
     key: null,
     scaleType: null,
     events: seed.events,

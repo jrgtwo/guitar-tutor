@@ -5,6 +5,7 @@ import { TimeSignatureSelect } from '../../components/playback/controls/TimeSign
 import { VolumeSlider } from '../../components/playback/controls/VolumeSlider';
 import { FeelPicker } from '../../components/playback/controls/FeelPicker';
 import { PreRollToggle } from '../../components/playback/controls/PreRollToggle';
+import { PatternLoopToggle } from '../../components/playback/controls/PatternLoopToggle';
 import { BeatDots } from '../../components/metronome/BeatDots';
 import { BluetoothCalibration } from '../../components/playback/BluetoothCalibration';
 import type { PlaybackRibbonSection } from '../../components/playback/PlaybackRibbon';
@@ -50,6 +51,7 @@ export function usePatternsEditRibbonSections(): readonly PlaybackRibbonSection[
     />,
     <BeatDots key="beat-dots" />,
     <PreRollToggle key="preroll" />,
+    <PatternLoopToggle key="loop" />,
     <BpmStepper
       key="bpm"
       value={displayedBpm}

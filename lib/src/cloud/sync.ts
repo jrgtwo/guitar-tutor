@@ -203,6 +203,7 @@ function hydratePatternRow(row: Record<string, unknown>): Pattern {
     suggestedBpm: data.suggestedBpm ?? null,
     groove: data.groove ?? null,
     subdivision: data.subdivision ?? null,
+    loop: (data.loop as boolean | undefined) ?? true,
     // Music-import expansion: legacy rows have no automation tracks or sourceIR.
     tempoTrack: data.tempoTrack ?? [],
     timeSignatureTrack: data.timeSignatureTrack ?? [],

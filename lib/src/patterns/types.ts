@@ -246,6 +246,9 @@ export interface Pattern {
    *  rhythmic concept (e.g. "Swung 8ths" = subdivision '8ths' + groove with
    *  appliedTo 'eighths' and swing > 0.5). */
   subdivision: import('../metronome/types').SubdivisionId | null;
+  /** Whether editor playback loops this pattern until stopped. Default true
+   *  (the pattern editor has always looped). Mirrors `Composition.loop`. */
+  loop: boolean;
   /**
    * Optional voice / variant for this pattern. When null / undefined, the
    * global `activeVariants[instrumentId]` setting is used. When set, the

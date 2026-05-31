@@ -7,15 +7,12 @@ import {
   ticksPerBeat,
   useFretworkStore,
   getInstrument,
-  getTransportTicks,
-  wrapTick,
   DEFAULT_INSTRUMENT_ID,
 } from '@fretwork/lib';
 import { EventBar } from './EventBar';
 import { usePatternsPlayback } from '../../playback/usePatternsPlayback';
 import { useArrangerView } from '../../arranger/ArrangerViewContext';
-import { TimelineRuler } from '../../arranger/TimelineRuler';
-import { TimelinePlayhead } from '../../arranger/TimelinePlayhead';
+import { Timeline } from '../../shared/Timeline';
 
 const ROW_HEIGHT = 28;
 // The bar-number ruler is now the shared DOM <TimelineRuler> mounted above the
@@ -94,8 +91,6 @@ export function PatternTimeline({ framed = true }: { framed?: boolean } = {}) {
   }, [tuningId, stringCount]);
 
   const svgRef = useRef<SVGSVGElement>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const lastScrollAtRef = useRef(0);
   const stampAt = usePatternsStore((s) => s.stampAt);
 
   const marqueeRef = useRef<
@@ -104,74 +99,6 @@ export function PatternTimeline({ framed = true }: { framed?: boolean } = {}) {
   >(null);
   const [marqueeRect, setMarqueeRect] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
   const CLICK_THRESHOLD_PX = 3;
-
-  // Auto-scroll the playhead into view during playback. Two modes:
-  //
-  // - Forward page-flip: when the playhead crosses 75% of the visible width,
-  //   smooth-scroll so it lands at 25% from the left, keeping ~75% of the view as
-  //   look-ahead. Smooth scroll runs ~300ms; we lock out further re-triggers for
-  //   350ms so per-tick headTick updates don't stack overlapping animations.
-  //
-  // - Loop-back: when the playhead falls off the left edge (e.g. wrap to tick 0 at
-  //   pattern end), jump *instantly* — a smooth scroll here would hide the first
-  //   notes of the loop while the animation eases.
-  // Auto-scroll + playhead line position driven by their own rAF loop reading
-  // transport.ticks directly. Bypasses any Zustand subscription that would
-  // re-render PatternTimeline (and its hundreds of EventBars) at 60Hz — the
-  // Chrome trace showed that cascade cost ~40ms per flush.
-  useEffect(() => {
-    if (!playback.isPlaying) return;
-    let rafId: number | null = null;
-    const tick = () => {
-      rafId = requestAnimationFrame(tick);
-      // Transport.ticks climbs forever while looping (the scheduler reschedules
-      // at increasing absolute ticks; the transport never resets). Wrap by the
-      // pattern's duration so the playhead loops back instead of running off the
-      // right edge and disappearing.
-      let headTick = getTransportTicks(PPQ);
-      const dur = pattern?.durationTicks ?? 0;
-      // Wrap by the active loop-brace region (if set) to match the audio loop,
-      // else by the whole pattern. Read via getState() each frame so a live
-      // brace drag is reflected without re-subscribing (same pattern the shared
-      // TimelinePlayhead uses).
-      const region = usePatternsStore.getState().patternLoopRegion;
-      if (region && region.end > region.start) {
-        headTick = wrapTick(headTick, Math.min(region.start, dur), Math.min(region.end, dur));
-      } else if (dur > 0) {
-        headTick = wrapTick(headTick, 0, dur);
-      }
-      // The visible playhead line is the shared <TimelinePlayhead>; this loop
-      // only computes playheadX to drive auto-scroll.
-      const playheadX = STRING_LABEL_WIDTH + (headTick / PPQ) * pxPerBeat;
-      // Auto-scroll into view.
-      const el = scrollRef.current;
-      if (!el) return;
-      const viewLeft = el.scrollLeft;
-      const viewWidth = el.clientWidth;
-      const triggerRight = viewLeft + viewWidth * 0.75;
-      const landingOffset = viewWidth * 0.25;
-      if (playheadX < viewLeft) {
-        el.scrollLeft = Math.max(0, playheadX - landingOffset);
-        lastScrollAtRef.current = 0;
-        return;
-      }
-      if (performance.now() - lastScrollAtRef.current < 350) return;
-      if (playheadX > triggerRight) {
-        el.scrollTo({ left: Math.max(0, playheadX - landingOffset), behavior: 'smooth' });
-        lastScrollAtRef.current = performance.now();
-      }
-    };
-    rafId = requestAnimationFrame(tick);
-    return () => {
-      if (rafId !== null) cancelAnimationFrame(rafId);
-    };
-  }, [playback.isPlaying, pattern?.durationTicks, pxPerBeat]);
-
-  // Reset the lockout when playback stops so the next play-start can scroll
-  // immediately if needed.
-  useEffect(() => {
-    if (!playback.isPlaying) lastScrollAtRef.current = 0;
-  }, [playback.isPlaying]);
 
   // Window-level mousemove/mouseup handlers for marquee drag-select.
   // Attached unconditionally so React's dep-tracking stays stable, but they
@@ -299,29 +226,38 @@ export function PatternTimeline({ framed = true }: { framed?: boolean } = {}) {
   if (!pattern) return null;
 
   return (
-    <div
-      ref={scrollRef}
+    <Timeline
       className={
-        // overflow-x-scroll (not -auto) keeps the horizontal scrollbar always
-        // present so the playback ribbon below never shifts when the bar does
-        // / doesn't overflow.
-        'overflow-x-scroll overflow-y-hidden bg-charcoal-deep/40 relative select-none' +
+        // overflow-x-scroll keeps the horizontal scrollbar always present so the
+        // playback ribbon below never shifts when the bar does / doesn't overflow.
+        'bg-charcoal-deep/40 select-none' +
         (framed ? ' border border-border/40 rounded-md' : '')
       }
+      timeSignature={ts}
+      durationTicks={pattern.durationTicks}
+      cursorTick={cursorTick}
+      setCursor={setCursorTick}
+      loopRegion={patternLoopRegion}
+      setLoopRegion={setPatternLoopRegion}
+      offset={STRING_LABEL_WIDTH}
+      leftGutter={STRING_LABEL_WIDTH}
+      minBars={4}
+      trailingBars={1}
+      playheadMode="pattern"
+      resolveScroll={() => {
+        const pat = selectEditingPattern(usePatternsStore.getState());
+        return {
+          loop: pat?.loop ?? true,
+          durationTicks: pat?.durationTicks ?? 0,
+          loopRegion: usePatternsStore.getState().patternLoopRegion,
+        };
+      }}
+      footer={
+        <div className="text-[10px] font-mono text-muted-foreground px-2 py-1 border-t border-border/30">
+          {pattern.durationTicks / PPQ} beats · {barsTotal} bars · {pattern.events.length} note{pattern.events.length === 1 ? '' : 's'}
+        </div>
+      }
     >
-      {/* Shared bar-number ruler — same component the composition arranger
-          uses. leftGutter aligns its bars with the SVG's string-label gutter. */}
-      <TimelineRuler
-        timeSignature={ts}
-        totalTicks={pattern.durationTicks}
-        cursorTick={cursorTick}
-        setCursor={setCursorTick}
-        region={patternLoopRegion}
-        setRegion={setPatternLoopRegion}
-        leftGutter={STRING_LABEL_WIDTH}
-        minBars={4}
-        trailingBars={1}
-      />
       <svg
         ref={svgRef}
         width={STRING_LABEL_WIDTH + widthPx + 12}
@@ -519,14 +455,6 @@ export function PatternTimeline({ framed = true }: { framed?: boolean } = {}) {
 
       </svg>
 
-      {/* Shared playback line — same component the composition arranger uses.
-          mode="pattern" forces wrap-by-pattern-duration regardless of any
-          stale editing composition. offset matches the SVG string gutter. */}
-      <TimelinePlayhead offset={STRING_LABEL_WIDTH} mode="pattern" />
-
-      <div className="text-[10px] font-mono text-muted-foreground px-2 py-1 border-t border-border/30">
-        {pattern.durationTicks / PPQ} beats · {barsTotal} bars · {pattern.events.length} note{pattern.events.length === 1 ? '' : 's'}
-      </div>
-    </div>
+    </Timeline>
   );
 }

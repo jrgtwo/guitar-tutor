@@ -81,7 +81,9 @@ export function TimelinePlayhead({
         }
       } else {
         const pat = selectEditingPattern(state);
-        if (pat && pat.durationTicks > 0) {
+        // Only wrap while looping (matches the audio). With loop off the head
+        // runs straight through and stops at pattern end.
+        if (pat && pat.durationTicks > 0 && pat.loop) {
           // Wrap by the active loop-brace region (if set) so the visible head
           // matches the audio loop, else by the whole pattern.
           const r = state.patternLoopRegion;
