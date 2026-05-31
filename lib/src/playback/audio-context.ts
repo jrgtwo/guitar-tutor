@@ -283,7 +283,14 @@ export function forceSampleRate(sampleRate: number): void {
           (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext)
         : undefined;
     if (!RawCtx) return;
-    const raw = new RawCtx({ sampleRate });
+    // latencyHint: 'playback' requests the largest, most glitch-resistant
+    // output buffer instead of the default 'interactive' (smallest, ~128
+    // samples / 2.67ms at 48kHz). The tiny default buffer underruns on mobile
+    // (e.g. Pixel 5) — every note crackles even at trivial polyphony, while the
+    // render thread keeps up (drift stays ~0). The bigger buffer trades output
+    // latency for stability; the visual sync auto-compensates because it reads
+    // AudioContext.outputLatency live every tick (see getEffectiveLatencySec).
+    const raw = new RawCtx({ sampleRate, latencyHint: 'playback' });
     Tone.setContext(new Tone.Context(raw));
   } catch (e) {
     // If a context already exists we can't change it. Log so we know the
