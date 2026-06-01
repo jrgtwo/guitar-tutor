@@ -56,6 +56,11 @@ export type {
 
 // Top-level renderable components
 export { Fretboard, type FretboardProps } from './components/fretboard/Fretboard';
+export {
+  ChordShapeEditor,
+  type ChordShapeEditorProps,
+} from './components/fretboard/ChordShapeEditor';
+export { toggleGripCell } from './components/fretboard/grip-edit';
 export { TopBar } from './components/TopBar';
 export { InfoCard } from './components/InfoCard';
 export { Legend } from './components/Legend';
@@ -125,6 +130,10 @@ export {
   intervalLabel,
   degreeNumber,
 } from './lib/theory';
+export { parseChordSymbol } from './lib/chords';
+export type { ParsedChord } from './lib/chords';
+export { voiceChord, voiceChordPreferred } from './lib/chord-voicing';
+export type { Grip, VoiceChordOptions } from './lib/chord-voicing';
 export {
   buildGrid,
   effectiveOpenStrings,

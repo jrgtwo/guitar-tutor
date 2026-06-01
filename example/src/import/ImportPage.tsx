@@ -21,6 +21,7 @@
 import { useCallback, useRef, useState } from 'react';
 import {
   mapImportToLibrary,
+  parseAsciiTab,
   usePatternsStore,
   useFretworkStore,
   ImportError,
@@ -33,11 +34,13 @@ import { TopBar } from '../components/TopBar';
 import { navigate } from '../router';
 import { parseInWorker } from './import-client';
 import { ImportPreview } from './ImportPreview';
+import { ChordImportReview } from './ChordImportReview';
 
 type ParseState =
   | { kind: 'idle' }
   | { kind: 'parsing'; fileName: string; abort: AbortController }
   | { kind: 'preview'; fileName: string; ir: ImportIR; warnings: string[]; format: FormatId }
+  | { kind: 'chord-review'; text: string; fileName: string }
   | { kind: 'error'; message: string; code: string };
 
 export function ImportPage() {
@@ -47,16 +50,36 @@ export function ImportPage() {
   const fallbackInstrumentId = useFretworkStore((s) => s.instrumentId);
   const commitImport = usePatternsStore((s) => s.commitImport);
 
-  const handleFile = useCallback(async (file: File) => {
-    if (file.size > MAX_FILE_SIZE) {
-      setState({
-        kind: 'error',
-        code: 'file_too_large',
-        message: `That file is ${formatBytes(file.size)} — larger than the ${formatBytes(MAX_FILE_SIZE)} limit.`,
-      });
-      return;
+  const [pasteText, setPasteText] = useState('');
+
+  // Plain text (a .txt file or a paste) is either ASCII tab or a chord sheet.
+  // Parse it as tab first; if that yields note events it's a tab (use the IR
+  // preview), otherwise treat it as a chord sheet (the chord-review palette).
+  const handleText = useCallback((text: string, fileName: string) => {
+    const ir = parseAsciiTab(text);
+    if (ir.tracks[0]?.events.length > 0) {
+      setState({ kind: 'preview', fileName, ir, warnings: [], format: 'ascii-tab' });
+    } else {
+      setState({ kind: 'chord-review', text, fileName });
     }
-    const abort = new AbortController();
+  }, []);
+
+  const handleFile = useCallback(
+    async (file: File) => {
+      if (file.size > MAX_FILE_SIZE) {
+        setState({
+          kind: 'error',
+          code: 'file_too_large',
+          message: `That file is ${formatBytes(file.size)} — larger than the ${formatBytes(MAX_FILE_SIZE)} limit.`,
+        });
+        return;
+      }
+      // Plain-text chord sheets / ASCII tab don't go through the binary worker.
+      if (file.name.toLowerCase().endsWith('.txt')) {
+        handleText(await file.text(), file.name);
+        return;
+      }
+      const abort = new AbortController();
     setState({ kind: 'parsing', fileName: file.name, abort });
     try {
       const result = await parseInWorker(file, { signal: abort.signal });
@@ -75,7 +98,9 @@ export function ImportPage() {
         message: e.message ?? 'Could not parse this file.',
       });
     }
-  }, []);
+    },
+    [handleText],
+  );
 
   const handleCommit = useCallback(
     (opts: {
@@ -118,17 +143,41 @@ export function ImportPage() {
         <header className="flex flex-col gap-1">
           <h1 className="text-xl font-semibold tracking-tight">Import</h1>
           <p className="text-sm text-muted-foreground">
-            Drop a Guitar Pro file (.gp / .gp3 / .gp4 / .gp5 / .gpx / .gp7) to bring it into your library. Files are parsed entirely in your browser — nothing is uploaded.
+            Drop a Guitar Pro file (.gp / .gp3 / .gp4 / .gp5 / .gpx / .gp7) or a chord sheet / tab (.txt), or paste chord text below. Everything is parsed entirely in your browser — nothing is uploaded.
           </p>
         </header>
 
         {state.kind === 'idle' && (
-          <DropZone
-            dragging={dragging}
-            onDragChange={setDragging}
-            onFile={handleFile}
-            onClick={() => fileInputRef.current?.click()}
-          />
+          <div className="flex flex-col gap-4">
+            <DropZone
+              dragging={dragging}
+              onDragChange={setDragging}
+              onFile={handleFile}
+              onClick={() => fileInputRef.current?.click()}
+            />
+            <div className="flex flex-col gap-2">
+              <div className="text-xs uppercase tracking-wider text-muted-foreground">
+                …or paste a chord sheet / tab
+              </div>
+              <textarea
+                value={pasteText}
+                onChange={(e) => setPasteText(e.target.value)}
+                placeholder={'[Verse]\nG       Em      C       D'}
+                rows={6}
+                className="w-full rounded-lg border border-border/60 bg-charcoal-raised/30 px-3 py-2 font-mono text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-border focus:outline-none resize-y"
+              />
+              <div>
+                <button
+                  type="button"
+                  disabled={pasteText.trim().length === 0}
+                  onClick={() => handleText(pasteText, '')}
+                  className="h-9 px-4 rounded-md border border-border/60 text-sm hover:bg-white/5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Parse pasted text
+                </button>
+              </div>
+            </div>
+          </div>
         )}
 
         {state.kind === 'parsing' && (
@@ -157,6 +206,10 @@ export function ImportPage() {
           />
         )}
 
+        {state.kind === 'chord-review' && (
+          <ChordImportReview text={state.text} fileName={state.fileName} onCancel={reset} />
+        )}
+
         {state.kind === 'error' && (
           <div className="rounded-lg border border-degree-root/40 bg-degree-root/5 px-4 py-3 flex flex-col gap-2">
             <div className="text-sm font-medium">Could not import</div>
@@ -177,7 +230,7 @@ export function ImportPage() {
         <input
           ref={fileInputRef}
           type="file"
-          accept=".gp,.gp3,.gp4,.gp5,.gpx,.gp7"
+          accept=".gp,.gp3,.gp4,.gp5,.gpx,.gp7,.txt"
           className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0];
@@ -227,10 +280,10 @@ function DropZone({ dragging, onDragChange, onFile, onClick }: DropZoneProps) {
           : 'border-border/60 bg-charcoal-raised/30 hover:border-border hover:bg-charcoal-raised/50')
       }
     >
-      <div className="text-base">Drop a Guitar Pro file here</div>
+      <div className="text-base">Drop a Guitar Pro or .txt chord/tab file here</div>
       <div className="text-xs text-muted-foreground font-mono">or click to browse</div>
       <div className="text-[11px] text-muted-foreground/70 mt-3">
-        Up to {formatBytes(MAX_FILE_SIZE)} · supports GP3 / GP4 / GP5 / GPX / GP7
+        Up to {formatBytes(MAX_FILE_SIZE)} · GP3 / GP4 / GP5 / GPX / GP7 · .txt
       </div>
     </div>
   );

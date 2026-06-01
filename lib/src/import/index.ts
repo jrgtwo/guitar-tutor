@@ -32,3 +32,16 @@ export {
   type MapTopology,
   type MapperResult,
 } from './mapper';
+export {
+  parseChordChart,
+  type ChordChart,
+  type ChordChartSection,
+} from './chord-chart/parse-chord-chart';
+export {
+  mapChordChartToLibrary,
+  defaultGripsForChart,
+  prettifyFileName,
+  type ChordMapInput,
+  type ChordMapResult,
+} from './chord-chart/map-chord-chart';
+export { parseAsciiTab } from './ascii-tab/parse-ascii-tab';

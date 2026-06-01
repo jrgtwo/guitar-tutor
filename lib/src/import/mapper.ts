@@ -683,7 +683,7 @@ function bpmAt(tempos: readonly TempoEvent[], atIrTick: number): number | null {
   return active ? active.bpm : null;
 }
 
-interface PatternSeed {
+export interface PatternSeed {
   name: string;
   instrumentId: string;
   events: PatternEvent[];
@@ -695,7 +695,7 @@ interface PatternSeed {
   sourceIR: ImportIR | null;
 }
 
-function buildPattern(seed: PatternSeed): Pattern {
+export function buildPattern(seed: PatternSeed): Pattern {
   const now = Date.now();
   return {
     id: generateUuid(),
@@ -728,7 +728,7 @@ function buildPattern(seed: PatternSeed): Pattern {
   };
 }
 
-function clonePatternForPlacement(p: Pattern): Pattern {
+export function clonePatternForPlacement(p: Pattern): Pattern {
   return {
     ...p,
     events: p.events.map((e) => ({ ...e })),
@@ -736,7 +736,7 @@ function clonePatternForPlacement(p: Pattern): Pattern {
   };
 }
 
-interface CompositionSeed {
+export interface CompositionSeed {
   name: string;
   instrumentId: string;
   bpm: number;
@@ -750,7 +750,7 @@ interface CompositionSeed {
   sourceIR: ImportIR | null;
 }
 
-function buildComposition(seed: CompositionSeed): Composition {
+export function buildComposition(seed: CompositionSeed): Composition {
   const now = Date.now();
   // Two paths:
   //   - Multi-track import (Phase 2+) passes pre-built `tracks` — we use
