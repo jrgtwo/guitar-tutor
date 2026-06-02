@@ -25,6 +25,8 @@ export interface PlaybackStoreState {
   // Live state
   /** The cell currently being played (null when paused or playback disabled). */
   currentPlayheadCell: PlayableCell | null;
+  /** The next several cells in the resolved sequence — fed to the look-ahead bar. */
+  upcomingCells: readonly PlayableCell[];
 
   // Setters
   setEnabled: (enabled: boolean) => void;
@@ -45,6 +47,7 @@ export const DEFAULT_PLAYBACK_STATE = {
   customSequence: [] as readonly PlayableCell[],
   isProgramming: false,
   currentPlayheadCell: null as PlayableCell | null,
+  upcomingCells: [] as readonly PlayableCell[],
   notesOnSubdivision: false,
 };
 

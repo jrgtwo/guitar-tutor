@@ -24,9 +24,9 @@
 
 import { useRef } from 'react';
 import { useArrangerView } from './ArrangerViewContext';
-import { tickToPx, snapTick } from './timeline-math';
-import { ticksPerBar, PPQ } from '@fretwork/lib';
-import type { PatternTimeSignature } from '@fretwork/lib';
+import { tickToPx, snapTick, computeBarLines } from './timeline-math';
+import { PPQ } from '@fretwork/lib';
+import type { PatternTimeSignature, TimeSignatureEvent } from '@fretwork/lib';
 
 interface LoopRegion {
   start: number;
@@ -35,6 +35,9 @@ interface LoopRegion {
 
 interface Props {
   timeSignature: PatternTimeSignature;
+  /** When present (compositions), bar widths follow the meter map — bars change
+   *  size at each time-signature change. Absent (patterns) → uniform bars. */
+  timeSignatureTrack?: TimeSignatureEvent[];
   totalTicks: number;
   cursorTick: number;
   setCursor(tick: number): void;
@@ -48,7 +51,6 @@ interface Props {
   trailingBars?: number;
 }
 
-const MAJOR_DIVISION_BARS = 4;
 const DRAG_THRESHOLD_PX = 4;
 
 type Drag =
@@ -62,6 +64,7 @@ type Drag =
 
 export function TimelineRuler({
   timeSignature,
+  timeSignatureTrack,
   totalTicks,
   cursorTick,
   setCursor,
@@ -76,10 +79,12 @@ export function TimelineRuler({
   const laneRef = useRef<HTMLDivElement | null>(null);
   const drag = useRef<Drag>({ kind: 'idle' });
 
-  const tpb = ticksPerBar(timeSignature);
-  const totalBars = Math.max(minBars, Math.ceil(totalTicks / tpb) + trailingBars);
-  const width = tickToPx(totalBars * tpb, pxPerBeat);
-  const maxTick = totalBars * tpb;
+  const { bars, totalTick } = computeBarLines(timeSignatureTrack, timeSignature, totalTicks, {
+    minBars,
+    trailingBars,
+  });
+  const width = tickToPx(totalTick, pxPerBeat);
+  const maxTick = totalTick;
 
   const xToTick = (clientX: number): number => {
     const rect = laneRef.current?.getBoundingClientRect();
@@ -150,18 +155,25 @@ export function TimelineRuler({
             : 'Click to set the start cursor'
         }
       >
-        {markers(totalBars, tpb, pxPerBeat).map(({ bar, major, left }) => (
+        {bars.map(({ bar, major, tick, tsLabel }) => (
           <div
             key={bar}
             className={
-              'absolute top-0 bottom-0 text-[9px] font-mono select-none pointer-events-none ' +
-              (major
-                ? 'border-l border-border/60 text-foreground/80 pl-1.5'
-                : 'border-l border-border/15 text-muted-foreground/40 pl-1.5')
+              'absolute top-0 bottom-0 text-[9px] font-mono select-none pointer-events-none flex items-start gap-1 ' +
+              (tsLabel
+                ? 'border-l border-degree-root/70 text-foreground/80 pl-1'
+                : major
+                  ? 'border-l border-border/60 text-foreground/80 pl-1.5'
+                  : 'border-l border-border/15 text-muted-foreground/40 pl-1.5')
             }
-            style={{ left }}
+            style={{ left: tickToPx(tick, pxPerBeat) }}
           >
             {major ? bar : ''}
+            {tsLabel && (
+              <span className="rounded-sm bg-degree-root/80 text-charcoal-deep font-bold px-1 leading-tight">
+                {tsLabel}
+              </span>
+            )}
           </div>
         ))}
 
@@ -227,14 +239,3 @@ export function TimelineRuler({
   );
 }
 
-function markers(totalBars: number, tpb: number, pxPerBeat: number) {
-  const out: Array<{ bar: number; major: boolean; left: number }> = [];
-  for (let bar = 0; bar < totalBars; bar++) {
-    out.push({
-      bar: bar + 1,
-      major: bar % MAJOR_DIVISION_BARS === 0,
-      left: tickToPx(bar * tpb, pxPerBeat),
-    });
-  }
-  return out;
-}

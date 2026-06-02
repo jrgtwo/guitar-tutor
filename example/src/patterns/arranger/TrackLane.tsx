@@ -17,7 +17,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useArrangerDrag } from './ArrangerDragContext';
 import { useArrangerView } from './ArrangerViewContext';
-import { snapTick, tickToPx, TRACK_LANE_HEIGHT } from './timeline-math';
+import { snapTick, tickToPx, computeBarLines, TRACK_LANE_HEIGHT } from './timeline-math';
 import type { Track, Composition } from '@fretwork/lib';
 import {
   PPQ,
@@ -47,25 +47,6 @@ function clientXToTick(
   const x = clientX - rect.left;
   const beats = x / pxPerBeat;
   return Math.max(0, Math.round(beats * PPQ));
-}
-
-function gridBackgroundImage(pxPerBeat: number): string {
-  // Two layers: minor (every bar) faint, major (every 4 bars) stronger.
-  // Minor lines fade out at narrow zoom to avoid moiré.
-  const minorAlpha = pxPerBeat >= 24 ? 0.05 : 0;
-  const minorLayer = `linear-gradient(90deg, rgba(255,255,255,${minorAlpha}) 1px, transparent 1px)`;
-  const majorLayer = 'linear-gradient(90deg, rgba(255,255,255,0.12) 1px, transparent 1px)';
-  return `${minorLayer}, ${majorLayer}`;
-}
-
-function gridBackgroundSize(
-  timeSignature: { numerator: number; denominator: number },
-  pxPerBeat: number,
-): string {
-  const beatsPerBar = timeSignature.numerator * (4 / timeSignature.denominator);
-  const barPx = beatsPerBar * pxPerBeat;
-  const majorPx = barPx * 4;
-  return `${barPx}px 100%, ${majorPx}px 100%`;
 }
 
 interface Props {
@@ -120,6 +101,18 @@ export function TrackLane({ composition, track, anySoloed }: Props) {
     blockWidths.set(p.id, w);
     totalLanePx += w;
   }
+
+  // Meter-aware gridlines: same bar positions the ruler draws, so the lane's
+  // vertical lines line up with the ruler's bar markers (and with the notes,
+  // which are tick-positioned). A uniform CSS-gradient grid can't do this — it
+  // drifts the moment the meter changes. Minor lines fade out at narrow zoom.
+  const laneTicks = pxPerBeat > 0 ? (totalLanePx / pxPerBeat) * PPQ : 0;
+  const { bars: gridBars } = computeBarLines(
+    composition.timeSignatureTrack,
+    composition.timeSignature,
+    laneTicks,
+    { trailingBars: 1 },
+  );
 
   // Per-track playhead: highlights the placement currently sounding in this
   // lane. Runs its OWN rAF loop (only while transport is running) reading
@@ -315,13 +308,23 @@ export function TrackLane({ composition, track, anySoloed }: Props) {
         style={{
           minWidth: totalLanePx + 12,
           minHeight: laneHeight,
-          backgroundImage: gridBackgroundImage(pxPerBeat),
-          backgroundSize: gridBackgroundSize(composition.timeSignature, pxPerBeat),
         }}
         onDragOver={handleLaneDragOver}
         onDragLeave={handleLaneDragLeave}
         onDrop={handleLaneDrop}
       >
+        {/* Meter-aware bar gridlines, painted behind the blocks. */}
+        <div className="absolute inset-0 pointer-events-none" aria-hidden>
+          {gridBars.map((b) =>
+            !b.major && pxPerBeat < 24 ? null : (
+              <div
+                key={b.bar}
+                className={'absolute top-0 bottom-0 w-px ' + (b.major ? 'bg-white/[0.12]' : 'bg-white/[0.05]')}
+                style={{ left: tickToPx(b.tick, pxPerBeat) }}
+              />
+            ),
+          )}
+        </div>
         {track.placements.length === 0 ? (
           <div
             className={

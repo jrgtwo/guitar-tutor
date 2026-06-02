@@ -17,6 +17,7 @@ import { ForkedFromBadge } from './layout/PatternMetadataControls';
 import { ImportedFromBadge } from './header-card/ImportedFromBadge';
 import { MusicalBand } from './MusicalBand';
 import { EditPatternTab } from './editor/EditPatternTab';
+import { PatternLookaheadBar } from '../lookahead/PatternLookaheadBar';
 
 export function PatternEditorPage() {
   const pattern = usePatternsStore(selectEditingPattern);
@@ -126,6 +127,7 @@ export function PatternEditorPage() {
           collapsedSummary={collapsedSummary}
         />
         <MusicalBand />
+        <PatternLookaheadBar />
         <div className="relative flex-1 overflow-auto">
           <EditPatternTab />
         </div>

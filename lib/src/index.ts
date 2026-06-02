@@ -130,8 +130,16 @@ export {
   intervalLabel,
   degreeNumber,
 } from './lib/theory';
-export { parseChordSymbol } from './lib/chords';
+export { parseChordSymbol, detectChordName } from './lib/chords';
 export type { ParsedChord } from './lib/chords';
+export { segmentEvents } from './lookahead/segment';
+export type { LookaheadSegment, SegmentEvent, SegmentOptions } from './lookahead/segment';
+export {
+  harmonicContextAt,
+  nextHarmonicContext,
+  deriveHarmonicContext,
+} from './lookahead/harmonic-context';
+export type { HarmonicContextBlock } from './lookahead/harmonic-context';
 export { voiceChord, voiceChordPreferred } from './lib/chord-voicing';
 export type { Grip, VoiceChordOptions } from './lib/chord-voicing';
 export {

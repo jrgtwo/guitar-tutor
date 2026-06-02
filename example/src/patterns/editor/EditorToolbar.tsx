@@ -2,9 +2,14 @@ import { useState } from 'react';
 import { ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-react';
 import {
   usePatternsStore,
+  useFretworkStore,
   selectEditingPattern,
   ticksPerBar,
   getInstrument,
+  getTuning,
+  noteAt,
+  detectChordName,
+  PPQ,
 } from '@fretwork/lib';
 import { StepLengthPicker } from './StepLengthPicker';
 import { SimplePopover } from '../../components/ui/SimplePopover';
@@ -22,6 +27,35 @@ export function EditorToolbar() {
   const deleteEvents = usePatternsStore((s) => s.deleteEvents);
   const pattern = usePatternsStore(selectEditingPattern);
   const setEditingPatternDuration = usePatternsStore((s) => s.setEditingPatternDuration);
+  const groupSelectionAsChord = usePatternsStore((s) => s.groupSelectionAsChord);
+  const ungroupSelectionChord = usePatternsStore((s) => s.ungroupSelectionChord);
+  const tuningId = useFretworkStore((s) => s.tuning);
+
+  // Chord-tag affordances for the current selection.
+  const selectedEvents =
+    pattern && selectedEventIds.length > 0
+      ? pattern.events.filter((e) => selectedEventIds.includes(e.id))
+      : [];
+  const firstChordId = selectedEvents[0]?.chordId ?? null;
+  const alreadyGrouped =
+    selectedEvents.length >= 2 &&
+    !!firstChordId &&
+    selectedEvents.every((e) => e.chordId === firstChordId);
+  // Guard: only let a *time-clustered* selection (starts within one beat) be a
+  // chord — prevents tagging a sprawling run/whole pattern as one chord.
+  const startSpan =
+    selectedEvents.length >= 2
+      ? Math.max(...selectedEvents.map((e) => e.startTick)) -
+        Math.min(...selectedEvents.map((e) => e.startTick))
+      : 0;
+  const canMakeChord = selectedEvents.length >= 2 && startSpan <= PPQ && !alreadyGrouped;
+  const makeChord = () => {
+    const tuning = getTuning(tuningId);
+    const names = tuning
+      ? selectedEvents.map((e) => noteAt(tuning.strings[e.stringIndex], e.fret))
+      : [];
+    groupSelectionAsChord(detectChordName(names) ?? 'Chord');
+  };
 
   const instrumentId = pattern?.instrumentId;
   const instrument = instrumentId ? getInstrument(instrumentId) : null;
@@ -86,6 +120,35 @@ export function EditorToolbar() {
         >
           <Trash2 size={11} /> Delete {selectedEventIds.length}
         </button>
+      )}
+
+      {alreadyGrouped && (
+        <button
+          type="button"
+          onClick={ungroupSelectionChord}
+          className="h-7 px-2.5 inline-flex items-center gap-1 rounded-md text-[11px] font-mono uppercase tracking-wider border border-degree-root/40 bg-degree-root/10 hover:bg-degree-root/20 text-foreground"
+          title="Remove the chord grouping from these notes"
+        >
+          Ungroup chord
+        </button>
+      )}
+      {canMakeChord && (
+        <button
+          type="button"
+          onClick={makeChord}
+          className="h-7 px-2.5 inline-flex items-center gap-1 rounded-md text-[11px] font-mono uppercase tracking-wider border border-degree-root/40 bg-degree-root/10 hover:bg-degree-root/20 text-foreground"
+          title="Group these notes as one named chord (read by the look-ahead bar)"
+        >
+          Make chord
+        </button>
+      )}
+      {selectedEvents.length >= 2 && startSpan > PPQ && !alreadyGrouped && (
+        <span
+          className="text-[10px] font-mono text-muted-foreground/60"
+          title="A chord must be notes struck together — select notes within one beat."
+        >
+          (spread too wide for a chord)
+        </span>
       )}
 
       <div className="ml-auto flex items-center gap-2">

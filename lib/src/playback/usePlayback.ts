@@ -94,9 +94,15 @@ function ensureSharedPlaybackWithMetronome(metronome: ReturnType<typeof useMetro
   });
   sharedPlayback.setNotesOnSubdivision(initial.notesOnSubdivision);
 
-  // Mirror playhead from class → store.
+  // Mirror playhead from class → store, plus the upcoming cells for the
+  // look-ahead bar (the next several entries of the resolved walk).
   sharedPlayback.onPlayheadChange((cell) => {
-    usePlaybackStore.setState({ currentPlayheadCell: cell });
+    const seq = sharedPlayback!.resolvedSequence;
+    const idx = sharedPlayback!.playheadIndex;
+    usePlaybackStore.setState({
+      currentPlayheadCell: cell,
+      upcomingCells: seq.slice(idx, idx + 8),
+    });
   });
 
   // Sync store → playback for fields that need to flow that way.

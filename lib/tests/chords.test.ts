@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseChordSymbol } from '../src/lib/chords';
+import { parseChordSymbol, detectChordName } from '../src/lib/chords';
 
 describe('parseChordSymbol', () => {
   it('parses a major triad to root + pitch classes', () => {
@@ -39,5 +39,25 @@ describe('parseChordSymbol', () => {
     expect(parseChordSymbol('There')).toBeNull();
     expect(parseChordSymbol('organ')).toBeNull();
     expect(parseChordSymbol('N.C.')).toBeNull();
+  });
+});
+
+describe('detectChordName', () => {
+  it('names a major triad without the M suffix', () => {
+    expect(detectChordName(['C', 'E', 'G'])).toBe('C');
+  });
+
+  it('names a minor triad', () => {
+    expect(detectChordName(['A', 'C', 'E'])).toBe('Am');
+  });
+
+  it('names sevenths', () => {
+    expect(detectChordName(['G', 'B', 'D', 'F'])).toBe('G7');
+    expect(detectChordName(['C', 'E', 'G', 'B'])).toBe('Cmaj7');
+  });
+
+  it('returns null when there is no chord', () => {
+    expect(detectChordName(['C'])).toBeNull();
+    expect(detectChordName([])).toBeNull();
   });
 });

@@ -63,7 +63,11 @@ export function BlockCard({
     placement.lengthTicks !== null ? placement.lengthTicks / PPQ : fullBeats;
   const totalBeats = effectiveBeats * placement.repeat;
   const truncated = placement.lengthTicks !== null;
-  const sigW = Math.max(40, width - 18);
+  // Note signature spans the full block width (the `-mx-2` wrapper below cancels
+  // the card's px-2), so its time axis matches the lane's tick→px grid exactly.
+  // Otherwise the 8px padding offsets every note right of its bar line — a small
+  // per-bar gap that drifts across the timeline.
+  const sigW = Math.max(40, width);
 
   const composition = usePatternsStore(selectEditingComposition);
   const showInheritAnnotation =
@@ -191,7 +195,7 @@ export function BlockCard({
           → {annotationParts}
         </span>
       )}
-      <div className="flex-1 min-h-0">
+      <div className="flex-1 min-h-0 -mx-2">
         <MiniPatternSignature
           pattern={placement.patternSnapshot}
           width={sigW}

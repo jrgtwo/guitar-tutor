@@ -33,6 +33,15 @@ export interface PatternEvent {
   durationTicks: Tick;
   /** Reserved; no Phase 1 UI. */
   laneId?: string;
+  /**
+   * Chord-group id — events sharing it are one authored chord (a "make chord"
+   * grouping). Optional/back-compat: absent on all legacy + hand-stamped notes.
+   * Read by look-ahead segmentation to render a chord card instead of guessing.
+   */
+  chordId?: string | null;
+  /** Display name for the chord group (e.g. "G", "Am7"). Auto-suggested via
+   *  `detectChordName` at tag time, user-editable. Only meaningful with `chordId`. */
+  chordName?: string | null;
   /** Deprecated single-articulation field. New code reads/writes the
    *  fine-grained boolean/object fields below; this stays for backward
    *  compatibility with persisted data. */
@@ -390,6 +399,20 @@ export interface Placement {
   lengthTicks: Tick | null;
 }
 
+/** One span of the composition's authored harmonic-context layer (super-tab).
+ *  Defined here (not in lookahead/) so `Composition` can reference it without a
+ *  circular import. Portable + self-contained for the future file format. */
+export interface HarmonicContextBlock {
+  id: string;
+  startTick: Tick;
+  /** End tick, exclusive. */
+  endTick: Tick;
+  /** Chord symbol for this span, e.g. "C", "Am7". Null = scale-only. */
+  chord?: string | null;
+  /** Scale/key for this span. Null = chord-only. */
+  scale?: { root: string; type: string } | null;
+}
+
 export interface Composition {
   id: string;
   name: string;
@@ -410,6 +433,9 @@ export interface Composition {
    *  value at play time. See `Pattern.subdivision` for the per-pattern field. */
   subdivision: import('../metronome/types').SubdivisionId | null;
   timeSignature: PatternTimeSignature;
+  /** Authored harmonic-context layer (super-tab): chord/scale references over
+   *  measure ranges, independent of any track's notes. Optional / back-compat. */
+  harmonicContext?: HarmonicContextBlock[];
   /**
    * Multi-track playback content. Always non-empty: hydration migrates
    * legacy single-track compositions into a one-track structure so every

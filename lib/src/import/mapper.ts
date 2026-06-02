@@ -124,8 +124,13 @@ export function mapImportToLibrary(input: MapInput): MapperResult {
   const tracksWithEvents = ir.tracks.filter((t) => t.events.length > 0);
   const multiTrack = tracksWithEvents.length > 1;
   const hasSections = ir.sections.length > 0;
+  // Meter changes are a song-level concern → the meter map belongs on a
+  // composition (whose ruler renders variable-width bars), not crammed into a
+  // single pattern. So multiple time signatures also push to composition mode.
+  const hasMeterChanges = ir.timeSignatures.length > 1;
   const topology: MapTopology =
-    input.topology ?? (multiTrack || hasSections ? 'composition' : 'single-pattern');
+    input.topology ??
+    (multiTrack || hasSections || hasMeterChanges ? 'composition' : 'single-pattern');
 
   if (topology === 'composition') {
     return mapAsComposition(

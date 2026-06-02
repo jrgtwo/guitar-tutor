@@ -13,6 +13,8 @@ interface LoopRegion {
 interface TimelineProps {
   // ── Ruler (reactive props — re-render on store change) ──
   timeSignature: { numerator: number; denominator: number };
+  /** Composition meter map — variable-width bars. Omitted for patterns. */
+  timeSignatureTrack?: import('@fretwork/lib').TimeSignatureEvent[];
   durationTicks: number;
   cursorTick: number;
   setCursor: (tick: number) => void;
@@ -54,6 +56,7 @@ interface TimelineProps {
  */
 export function Timeline({
   timeSignature,
+  timeSignatureTrack,
   durationTicks,
   cursorTick,
   setCursor,
@@ -80,6 +83,7 @@ export function Timeline({
     >
       <TimelineRuler
         timeSignature={timeSignature}
+        timeSignatureTrack={timeSignatureTrack}
         totalTicks={durationTicks}
         cursorTick={cursorTick}
         setCursor={setCursor}

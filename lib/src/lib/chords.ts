@@ -42,6 +42,19 @@ function cleaningCandidates(raw: string): string[] {
   return [trimmed, noFootnote, inlined, dropped];
 }
 
+/**
+ * Best-guess chord name for a set of sounding notes (note names, octave
+ * optional) — the reverse of `parseChordSymbol`, used by the look-ahead bar to
+ * label a chord segment when no authored name exists. Returns null when the
+ * notes don't form a recognizable chord (e.g. a single note). The bare-major
+ * suffix Tonal emits (`CM`) is normalized to the plain root (`C`).
+ */
+export function detectChordName(notes: readonly string[]): string | null {
+  const [best] = Chord.detect(notes as string[]);
+  if (!best) return null;
+  return best.replace(/^([A-G][#b]?)M$/, '$1');
+}
+
 export function parseChordSymbol(raw: string): ParsedChord | null {
   for (const candidate of cleaningCandidates(raw)) {
     if (!candidate) continue;

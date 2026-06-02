@@ -176,6 +176,10 @@ export class Playback {
   get isProgramming(): boolean { return this._isProgramming; }
   get instrument(): GuitarInstrument { return this._instrument; }
   get customSequence(): readonly PlayableCell[] { return this._customSequence; }
+  /** The resolved ordered play sequence (for the look-ahead readout). */
+  get resolvedSequence(): readonly PlayableCell[] { return this._resolvedSequence; }
+  /** Index of the next cell to play within `resolvedSequence`. */
+  get playheadIndex(): number { return this._playheadIndex; }
 
   // ─── Cleanup ─────────────────────────────────────────────────────────────────
 

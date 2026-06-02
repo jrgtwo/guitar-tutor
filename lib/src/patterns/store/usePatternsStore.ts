@@ -15,6 +15,7 @@ import { persist, createJSONStorage, type PersistOptions } from 'zustand/middlew
 import type {
   Composition,
   GrooveSpec,
+  HarmonicContextBlock,
   Library,
   Pattern,
   PatternTimeSignature,
@@ -219,6 +220,10 @@ export interface PatternsActions {
   setEditingCompositionGroove(groove: GrooveSpec | null): void;
   setEditingCompositionGrooveMode(mode: 'global' | 'inherit'): void;
   setEditingCompositionSubdivision(subdivision: import('../../metronome/types').SubdivisionId | null): void;
+  /** Add a harmony block to the editing composition's context layer (id auto-assigned). */
+  addHarmonicBlock(block: Omit<HarmonicContextBlock, 'id'>): void;
+  updateHarmonicBlock(blockId: string, patch: Partial<HarmonicContextBlock>): void;
+  removeHarmonicBlock(blockId: string): void;
   /**
    * Fork a (typically public/unlisted) composition into the user's library.
    * Mirrors `forkPattern` semantics — fresh uuid, fresh placement ids, fresh
@@ -269,6 +274,11 @@ export interface PatternsActions {
    * automatically by the underlying op.
    */
   updateEventArticulations(eventId: string, patch: PatternEventArticulationPatch): void;
+  /** Group the current selection (≥2 notes) into one chord with the given
+   *  display name. Read by look-ahead segmentation to show a chord card. */
+  groupSelectionAsChord(chordName: string): void;
+  /** Clear the chord grouping from the current selection. */
+  ungroupSelectionChord(): void;
   nudgeSelectedFret(delta: number): void;
   transposeSelectedDiatonic(direction: 1 | -1, tuning: TuningDef, fretCount: number): void;
   deleteEvents(ids: readonly string[]): void;
@@ -885,6 +895,59 @@ export const usePatternsStore = create<PatternsStoreState>()(
           };
         });
       },
+      addHarmonicBlock(block) {
+        set((s) => {
+          const id = s.editingCompositionId;
+          if (!id) return s;
+          return {
+            library: {
+              ...s.library,
+              compositions: s.library.compositions.map((c) =>
+                c.id === id
+                  ? { ...c, harmonicContext: [...(c.harmonicContext ?? []), { ...block, id: generateUuid() }] }
+                  : c,
+              ),
+            },
+          };
+        });
+      },
+      updateHarmonicBlock(blockId, patch) {
+        set((s) => {
+          const id = s.editingCompositionId;
+          if (!id) return s;
+          return {
+            library: {
+              ...s.library,
+              compositions: s.library.compositions.map((c) =>
+                c.id === id
+                  ? {
+                      ...c,
+                      harmonicContext: (c.harmonicContext ?? []).map((b) =>
+                        b.id === blockId ? { ...b, ...patch } : b,
+                      ),
+                    }
+                  : c,
+              ),
+            },
+          };
+        });
+      },
+      removeHarmonicBlock(blockId) {
+        set((s) => {
+          const id = s.editingCompositionId;
+          if (!id) return s;
+          return {
+            library: {
+              ...s.library,
+              compositions: s.library.compositions.map((c) =>
+                c.id === id
+                  ? { ...c, harmonicContext: (c.harmonicContext ?? []).filter((b) => b.id !== blockId) }
+                  : c,
+              ),
+            },
+          };
+        });
+      },
       setEditingCompositionSubdivision(subdivision) {
         set((s) => {
           const id = s.editingCompositionId;
@@ -1255,6 +1318,35 @@ export const usePatternsStore = create<PatternsStoreState>()(
         if (!target) return;
         const next = opsUpdateEventArticulations(target.pattern, eventId, patch);
         if (next === target.pattern) return;
+        set(updateTarget(s, next));
+      },
+      groupSelectionAsChord(chordName) {
+        const s = get();
+        const target = currentEditTarget(s);
+        if (!target || s.selectedEventIds.length < 2) return;
+        const ids = new Set(s.selectedEventIds);
+        const chordId = generateUuid();
+        const next = {
+          ...target.pattern,
+          events: target.pattern.events.map((e) =>
+            ids.has(e.id) ? { ...e, chordId, chordName } : e,
+          ),
+          updatedAt: Date.now(),
+        };
+        set(updateTarget(s, next));
+      },
+      ungroupSelectionChord() {
+        const s = get();
+        const target = currentEditTarget(s);
+        if (!target || s.selectedEventIds.length === 0) return;
+        const ids = new Set(s.selectedEventIds);
+        const next = {
+          ...target.pattern,
+          events: target.pattern.events.map((e) =>
+            ids.has(e.id) ? { ...e, chordId: null, chordName: null } : e,
+          ),
+          updatedAt: Date.now(),
+        };
         set(updateTarget(s, next));
       },
       nudgeSelectedFret(delta) {

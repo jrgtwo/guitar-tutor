@@ -30,7 +30,7 @@ export function ImportPreview({ fileName, ir, warnings, onCancel, onImport }: Im
   // Sensible default: the first track in the IR (typically the lead).
   const [selectedTrackId, setSelectedTrackId] = useState<string>(() => ir.tracks[0]?.id ?? '');
   const [topology, setTopology] = useState<MapTopology>(() =>
-    ir.sections.length > 0 ? 'composition' : 'single-pattern',
+    ir.sections.length > 0 || ir.timeSignatures.length > 1 ? 'composition' : 'single-pattern',
   );
   // Composition-mode track inclusion. Defaults to every non-empty track
   // checked. Single-pattern mode ignores this set.
@@ -39,6 +39,13 @@ export function ImportPreview({ fileName, ir, warnings, onCancel, onImport }: Im
   });
 
   const selectedTrack = ir.tracks.find((t) => t.id === selectedTrackId) ?? null;
+
+  // Composition is a valid target whenever it carries structure the mapper can
+  // use: section markers, OR a meter map (multiple time signatures — song-level,
+  // belongs on a composition), OR multiple tracks.
+  const tracksWithEvents = ir.tracks.filter((t) => t.events.length > 0).length;
+  const canCompose =
+    ir.sections.length > 0 || ir.timeSignatures.length > 1 || tracksWithEvents > 1;
 
   const sectionRows = useMemo(() => {
     if (ir.sections.length === 0) return null;
@@ -227,13 +234,17 @@ export function ImportPreview({ fileName, ir, warnings, onCancel, onImport }: Im
         <div className="flex gap-2">
           <TopologyOption
             active={topology === 'composition'}
-            disabled={ir.sections.length === 0}
+            disabled={!canCompose}
             onClick={() => setTopology('composition')}
             label="Composition"
             sub={
               ir.sections.length > 0
                 ? `${ir.sections.length} section${ir.sections.length === 1 ? '' : 's'}`
-                : 'no sections in file'
+                : ir.timeSignatures.length > 1
+                  ? `${ir.timeSignatures.length} meter changes`
+                  : tracksWithEvents > 1
+                    ? `${tracksWithEvents} tracks`
+                    : 'no structure in file'
             }
           />
           <TopologyOption

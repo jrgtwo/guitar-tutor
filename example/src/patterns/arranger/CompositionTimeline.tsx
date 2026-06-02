@@ -17,6 +17,7 @@ import {
 } from '@fretwork/lib';
 import { TrackLane } from './TrackLane';
 import { TrackHeader } from './TrackHeader';
+import { HarmonyLane, HARMONY_LANE_HEIGHT } from './HarmonyLane';
 import { ArrangerDragProvider } from './ArrangerDragContext';
 import { TRACK_SIDEBAR_WIDTH } from './timeline-math';
 import { Timeline } from '../shared/Timeline';
@@ -57,6 +58,12 @@ export function CompositionTimeline() {
           <div className="h-7 shrink-0 flex items-center px-3 border-b border-border/40 bg-charcoal-raised/30 text-[9px] uppercase tracking-wider text-muted-foreground/70">
             Bar
           </div>
+          <div
+            className="shrink-0 flex items-center px-3 border-b border-border/40 bg-degree-root/[0.06] text-[9px] uppercase tracking-wider text-degree-root/80"
+            style={{ height: HARMONY_LANE_HEIGHT }}
+          >
+            Harmony
+          </div>
           {composition.tracks.map((track) => (
             <TrackHeader
               key={track.id}
@@ -96,6 +103,7 @@ export function CompositionTimeline() {
         <Timeline
           className="flex-1 min-w-0"
           timeSignature={composition.timeSignature}
+          timeSignatureTrack={composition.timeSignatureTrack}
           durationTicks={totalDurationTicks(composition)}
           cursorTick={cursorTick}
           setCursor={setCursor}
@@ -110,6 +118,7 @@ export function CompositionTimeline() {
             };
           }}
         >
+          <HarmonyLane />
           {composition.tracks.map((track) => (
             <TrackLane
               key={track.id}

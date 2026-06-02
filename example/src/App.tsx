@@ -1,6 +1,7 @@
 import { Fretboard, InfoCard, Legend } from '@fretwork/lib';
 import { TopBar } from '@/components/TopBar';
 import { PlaybackRibbon } from '@/components/playback/PlaybackRibbon';
+import { PracticeLookaheadBar } from './lookahead/PracticeLookaheadBar';
 import { usePracticeRibbonSections } from '@/components/playback/practiceRibbonSections';
 import { usePracticeSetupRibbonSections } from '@/components/playback/practiceSetupRibbonSections';
 import { ProgrammingBanner } from '@/components/playback/ProgrammingBanner';
@@ -21,6 +22,7 @@ export default function App() {
         <PlaybackRibbon sections={setupSections} storageKey="fretwork.setup-ribbon.collapsed" />
 
         <section aria-label="Fretboard module" className="w-full flex flex-col gap-3">
+          <PracticeLookaheadBar />
           <div className="relative">
             <div className="absolute top-2 left-2 z-10">
               <HeadstockMenu />
