@@ -30,7 +30,7 @@ const SECTION_RE = /^\s*\[([^\]]+)\]\s*$/;
 function isTabLine(line: string): boolean {
   const dashes = (line.match(/-/g) ?? []).length;
   if (dashes < 4) return false;
-  const tabChars = (line.match(/[-0-9hpbsxX/\\~().*<>^t |]/g) ?? []).length;
+  const tabChars = (line.match(/[-0-9hpbsxX/\\~().*<>^t |=]/g) ?? []).length;
   return line.length > 0 && tabChars / line.length > 0.8;
 }
 
@@ -52,6 +52,14 @@ const VALID_DENOMINATOR = new Set([1, 2, 4, 8, 16, 32]);
  *  unlikely to match. Tab lines are excluded by the caller (their slides would
  *  otherwise look like `5/7`). */
 function scanTimeSigTokens(line: string): { charIndex: number; num: number; den: number }[] {
+  // Reject prose lines: a real TS annotation is bare fractions or fractions mixed
+  // with chord names (`3/4 G Am7`), never a sentence. After removing the
+  // fractions, if any residual word contains a letter that doesn't start a chord
+  // (uppercase A–G), treat it as prose — so "Tuned down 1/2 step" yields nothing.
+  const residual = line.replace(/\d+\/\d+/g, ' ').trim();
+  if (residual && residual.split(/\s+/).some((t) => /[a-zA-Z]/.test(t) && !/^[A-G]/.test(t))) {
+    return [];
+  }
   const tokens: { charIndex: number; num: number; den: number }[] = [];
   const re = /(\d+)\/(\d+)/g;
   let m: RegExpExecArray | null;
@@ -90,7 +98,12 @@ function scanLine(line: string, stringIndex: number): ScannedNote[] {
       let j = i;
       while (j < line.length && isDigit(line[j])) j++;
       const fret = parseInt(line.slice(i, j), 10);
-      const prev = line[i - 1] ?? '';
+      // Skip any `=` immediately before the note — it marks a *delayed* hammer/
+      // pull (`4h=5`); we treat it as the plain articulation, so look past it to
+      // find the real prefix glyph.
+      let pi = i - 1;
+      while (pi >= 0 && line[pi] === '=') pi--;
+      const prev = line[pi] ?? '';
       const note: ScannedNote = { charIndex: i, string: stringIndex, fret };
       if (prev === 'h') note.hammerOn = true;
       else if (prev === 'p') note.pullOff = true;
@@ -266,11 +279,6 @@ export function parseAsciiTab(text: string): ImportIR {
       if (arr) arr.push(c);
       else colsByMeasure.set(k, [c]);
     }
-    const median = (xs: number[]): number => {
-      const s = [...xs].sort((a, b) => a - b);
-      return s[Math.floor(s.length / 2)];
-    };
-
     // Beat-legend markers (`+`/`.`) per measure: columns of the evenly-spaced
     // subdivision grid the tab author drew under the staff. When present, they
     // give the EXACT rhythm — snap each note to its nearest marker.
@@ -288,10 +296,9 @@ export function parseAsciiTab(text: string): ImportIR {
 
     // Map each note column to an onset tick.
     //  • With a legend: snap to the nearest subdivision marker (exact rhythm).
-    //  • Without: FILL the measure — first note on the downbeat, notes spread so
-    //    the last ends on the bar line. The span covers only the note content
-    //    plus one implied final note-length, so trailing alignment padding is
-    //    excluded and the rhythm reads evenly instead of squeezed to the left.
+    //  • Without: EVEN spacing by default, but keep OBVIOUS extra space. First
+    //    note on the downbeat, last ends on the bar line, trailing padding
+    //    excluded. (See the grid-quantization comment below.)
     const onsetOf = new Map<number, number>();
     for (const [k, mcols] of colsByMeasure) {
       const ticks = ticksPerBar({ numerator: measureTS[k].num, denominator: measureTS[k].den });
@@ -326,12 +333,24 @@ export function parseAsciiTab(text: string): ImportIR {
         onsetOf.set(first, measureStart[k]); // lone note on the downbeat (sustains)
         continue;
       }
+      // Quantize gaps to a grid: read EVENLY by default, keep OBVIOUS extra
+      // space. `base` is a robust small gap (25th percentile — resists the extra
+      // dash of padding tabs put at a measure's edges). Each gap becomes whole
+      // grid-steps via floor(g/base + 0.4): a ~1.6× threshold, so minor jitter
+      // (a 1.5×-wide edge gap) collapses to one step while a clearly wider gap
+      // (≥~1.6×) earns extra steps. The steps then fill the bar evenly.
       const colGaps: number[] = [];
       for (let i = 1; i < mcols.length; i++) colGaps.push(mcols[i] - mcols[i - 1]);
-      const span = mcols[mcols.length - 1] - first + median(colGaps);
-      for (const c of mcols) {
-        onsetOf.set(c, measureStart[k] + ((c - first) / span) * ticks);
+      const sortedGaps = [...colGaps].sort((a, b) => a - b);
+      const base = Math.max(1, sortedGaps[Math.floor(sortedGaps.length * 0.25)]);
+      let pos = 0;
+      const stepPos = [0];
+      for (const g of colGaps) {
+        pos += Math.max(1, Math.floor(g / base + 0.4));
+        stepPos.push(pos);
       }
+      const step = ticks / (pos + 1); // +1 implied final note → last ends on the bar line
+      mcols.forEach((c, i) => onsetOf.set(c, measureStart[k] + stepPos[i] * step));
     }
 
     for (let ci = 0; ci < cols.length; ci++) {

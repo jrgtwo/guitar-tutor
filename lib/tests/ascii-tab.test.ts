@@ -76,6 +76,20 @@ describe('parseAsciiTab', () => {
     expect(notes.some((n) => n.dead)).toBe(true);
   });
 
+  it('treats a delayed hammer-on (4h=5) as a normal hammer-on', () => {
+    const text = [
+      'e|----4h=5----|',
+      'B|------------|',
+      'G|------------|',
+      'D|------------|',
+      'A|------------|',
+      'E|------------|',
+    ].join('\n');
+    const notes = parseAsciiTab(text).tracks[0].events.flatMap((e) => e.notes);
+    expect(notes.map((n) => n.fret)).toEqual([4, 5]);
+    expect(notes.find((n) => n.fret === 5)?.hammerOn).toBe(true); // `=` skipped, sees the `h`
+  });
+
   it('reads "s" slides (8s7, 3s5) with direction + target as its own note', () => {
     const text = [
       'e|-8s7--3s5-|',
@@ -106,6 +120,23 @@ describe('parseAsciiTab', () => {
     expect(ir.timeSignatures.some((t) => t.numerator === 2 && t.denominator === 4)).toBe(true);
     // the 4/4 measure starts after one 2/4 bar = 2 * 480 = 960 ticks
     expect(ir.timeSignatures.find((t) => t.numerator === 4 && t.atTick > 0)?.atTick).toBe(960);
+  });
+
+  it('ignores fractions buried in prose (e.g. "Tuned down 1/2 step")', () => {
+    const text = [
+      'Tuned down 1/2 step',
+      '',
+      'e|-5---5---5---5---|',
+      'B|----------------|',
+      'G|----------------|',
+      'D|----------------|',
+      'A|----------------|',
+      'E|----------------|',
+    ].join('\n');
+    const ir = parseAsciiTab(text);
+    // the 1/2 in the tuning note must NOT become a time signature
+    expect(ir.timeSignatures.some((t) => t.numerator === 1 && t.denominator === 2)).toBe(false);
+    expect(ir.timeSignatures[0]).toEqual({ atTick: 0, numerator: 4, denominator: 4 });
   });
 
   it('reads time sigs even when mixed with chord names on a line', () => {
@@ -175,6 +206,42 @@ describe('parseAsciiTab', () => {
     // and the 4/4 change is emitted at that same tick — not a bar late.
     expect(ev[1].atTick).toBe(1440);
     expect(ir.timeSignatures.find((t) => t.numerator === 4 && t.atTick > 0)?.atTick).toBe(1440);
+  });
+
+  it('evens out minor spacing jitter into a steady run (no legend)', () => {
+    // Gaps 3,2,2 — the first note has one extra dash of padding (typical of tab
+    // edges). With no beat legend it should still come out as 4 EVEN notes, not
+    // a long first note then short ones.
+    const text = [
+      'e|-0--0-0-0-|',
+      'B|----------|',
+      'G|----------|',
+      'D|----------|',
+      'A|----------|',
+      'E|----------|',
+    ].join('\n');
+    const ev = parseAsciiTab(text).tracks[0].events;
+    expect(ev).toHaveLength(4);
+    const d = ev.map((e) => e.durationTicks);
+    expect(Math.max(...d) - Math.min(...d)).toBeLessThanOrEqual(1); // evenly spaced
+  });
+
+  it('keeps an obviously wider gap between notes (no legend)', () => {
+    // Three tight notes, then a clearly wider gap before the last — that space
+    // must be preserved, not flattened to even.
+    const text = [
+      'e|-0-0-0------0-|',
+      'B|--------------|',
+      'G|--------------|',
+      'D|--------------|',
+      'A|--------------|',
+      'E|--------------|',
+    ].join('\n');
+    const ev = parseAsciiTab(text).tracks[0].events;
+    expect(ev).toHaveLength(4);
+    const g1 = ev[1].atTick - ev[0].atTick;
+    const gLast = ev[3].atTick - ev[2].atTick;
+    expect(gLast).toBeGreaterThan(g1 * 1.5); // wide gap kept
   });
 
   it('derives timing from column spacing (wider gaps = longer)', () => {
