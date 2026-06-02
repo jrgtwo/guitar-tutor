@@ -139,6 +139,38 @@ describe('parseAsciiTab', () => {
     expect(ir.timeSignatures[0]).toEqual({ atTick: 0, numerator: 4, denominator: 4 });
   });
 
+  it('harvests chord names above the staff into ir.chords (beat-snapped)', () => {
+    const text = [
+      'C       G       Am      F',
+      'e|--0-------0-------0-------0-----|',
+      'B|-------------------------------|',
+      'G|-------------------------------|',
+      'D|-------------------------------|',
+      'A|-------------------------------|',
+      'E|-------------------------------|',
+    ].join('\n');
+    const chords = parseAsciiTab(text).chords ?? [];
+    expect(chords.map((c) => c.symbol)).toEqual(['C', 'G', 'Am', 'F']);
+    expect(chords[0].atTick).toBe(0); // first chord on the downbeat
+    for (let i = 1; i < chords.length; i++) {
+      expect(chords[i].atTick % 480).toBe(0); // beat-snapped (quarter = 480)
+      expect(chords[i].atTick).toBeGreaterThan(chords[i - 1].atTick);
+    }
+  });
+
+  it('does not harvest chords from a lyric line', () => {
+    const text = [
+      'Blackbird singing in the dead of night',
+      'e|--0-------0-------0-------0-----|',
+      'B|-------------------------------|',
+      'G|-------------------------------|',
+      'D|-------------------------------|',
+      'A|-------------------------------|',
+      'E|-------------------------------|',
+    ].join('\n');
+    expect(parseAsciiTab(text).chords ?? []).toHaveLength(0);
+  });
+
   it('reads time sigs even when mixed with chord names on a line', () => {
     const text = [
       '  3/4 G       Am7      4/4 G',

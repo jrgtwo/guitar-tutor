@@ -11,6 +11,7 @@
  * `docs/superpowers/specs/2026-05-31-chord-and-tab-import-flow-design.md`.
  */
 import type {
+  ChordMarker,
   ImportIR,
   IREvent,
   IRNote,
@@ -19,6 +20,7 @@ import type {
   TimeSignatureEvent,
 } from '../types';
 import { PPQ, ticksPerBar } from '../../patterns/timebase';
+import { parseChordSymbol } from '../../lib/chords';
 
 /** Fallback when a block has no bar lines: ticks per tab character. */
 const TICKS_PER_CHAR = PPQ / 8;
@@ -71,6 +73,30 @@ function scanTimeSigTokens(line: string): { charIndex: number; num: number; den:
     }
   }
   return tokens;
+}
+
+/** Harvest chord symbols (with columns) from an annotation line above the staff
+ *  (`3/4 G  Am7  G/B  4/4 G`). Time-signature tokens are skipped. Only returns
+ *  anything when chord tokens DOMINATE the line's words, so lyric lines
+ *  ("Blackbird singing…") and prose don't produce phantom chords. */
+function scanChordTokens(line: string): { charIndex: number; symbol: string }[] {
+  const cand: { charIndex: number; symbol: string }[] = [];
+  let wordCount = 0;
+  const re = /\S+/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(line)) !== null) {
+    const tok = m[0];
+    if (/^\d+\/\d+$/.test(tok)) continue; // time-signature token
+    if (!/[A-Za-z]/.test(tok)) continue; // pure punctuation / digits
+    wordCount++;
+    if (/^[A-G]/.test(tok) && parseChordSymbol(tok)) {
+      cand.push({ charIndex: m.index, symbol: tok });
+    }
+  }
+  // Chords must be a CLEAR majority of the words, else it's a lyric / metadata
+  // line. The 60% bar rejects the tuning line (`Tuning: E A D G B E…`, exactly
+  // half note-names) while keeping real chord lines (`Verse: C G Am F`, 80%+).
+  return cand.length >= 1 && cand.length > wordCount * 0.6 ? cand : [];
 }
 
 interface ScannedNote {
@@ -169,6 +195,8 @@ export function parseAsciiTab(text: string): ImportIR {
   let curNum = 4;
   let curDen = 4;
   let pendingTS: { charIndex: number; num: number; den: number }[] = [];
+  let pendingChords: { charIndex: number; symbol: string }[] = [];
+  const chords: ChordMarker[] = [];
   let block: string[] = [];
   let beatLine: string | null = null;
 
@@ -270,6 +298,40 @@ export function parseAsciiTab(text: string): ImportIR {
     }
     curNum = measureTS[M - 1].num;
     curDen = measureTS[M - 1].den;
+
+    // Resolve chord markers (from the annotation line above this block) to ticks,
+    // beat-snapped within their measure. The first chord of a measure anchors to
+    // the downbeat (the label often sits a few chars in, after a `4/4 ` prefix);
+    // later chords snap to their nearest beat, kept strictly ordered.
+    if (pendingChords.length) {
+      const byMeasure = new Map<number, { charIndex: number; symbol: string }[]>();
+      for (const pc of pendingChords) {
+        const k = segOf(pc.charIndex);
+        const arr = byMeasure.get(k);
+        if (arr) arr.push(pc);
+        else byMeasure.set(k, [pc]);
+      }
+      for (const [k, pcs] of byMeasure) {
+        pcs.sort((a, b) => a.charIndex - b.charIndex);
+        const ts = measureTS[k];
+        const beats = ts.num;
+        const beatLen = ticksPerBar({ numerator: ts.num, denominator: ts.den }) / beats;
+        const segStart = bars[k];
+        const segEnd = bars[k + 1] ?? segStart + 1;
+        let prevBeat = -1;
+        pcs.forEach((pc, idx) => {
+          const frac =
+            segEnd > segStart
+              ? Math.min(1, Math.max(0, (pc.charIndex - segStart) / (segEnd - segStart)))
+              : 0;
+          let beat = idx === 0 ? 0 : Math.round(frac * beats);
+          beat = Math.min(beats - 1, Math.max(prevBeat + 1, beat));
+          prevBeat = beat;
+          chords.push({ atTick: measureStart[k] + beat * beatLen, symbol: pc.symbol });
+        });
+      }
+      pendingChords = [];
+    }
 
     // Note columns per measure (sorted), for content-fill timing below.
     const colsByMeasure = new Map<number, number[]>();
@@ -391,10 +453,11 @@ export function parseAsciiTab(text: string): ImportIR {
       flush();
       continue;
     }
-    // Any other non-tab line ends the current block; harvest time-sig annotations
-    // (possibly mixed with chord names) for the next block.
+    // Any other non-tab line ends the current block; harvest time-sig and chord
+    // annotations (often on the same line) for the next block.
     flush();
     pendingTS.push(...scanTimeSigTokens(line));
+    pendingChords.push(...scanChordTokens(line));
   }
   flush();
 
@@ -407,6 +470,7 @@ export function parseAsciiTab(text: string): ImportIR {
     timeSignatures,
     keySignatures: [],
     sections,
+    chords,
     tracks: [
       {
         id: 'tab-1',

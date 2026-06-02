@@ -157,6 +157,14 @@ export interface IRTrack {
   events: IREvent[];
 }
 
+/** A chord symbol placed at a tick — e.g. the `G`/`Am7`/`G/B` markers written
+ *  above a tab staff. The mapper turns these into a composition's harmony lane. */
+export interface ChordMarker {
+  atTick: Tick;
+  /** Chord symbol as written, e.g. "G", "Am7", "G/B". */
+  symbol: string;
+}
+
 export interface ImportIR {
   meta: ImportMeta;
   /** Pulse-per-quarter-note resolution as reported by the source file. */
@@ -168,4 +176,7 @@ export interface ImportIR {
   keySignatures: KeySignatureEvent[];
   sections: SectionMarker[];
   tracks: IRTrack[];
+  /** Chord markers (e.g. from chord names above a tab staff). Optional — only
+   *  formats that carry harmony fill it; the mapper maps them to the harmony lane. */
+  chords?: ChordMarker[];
 }

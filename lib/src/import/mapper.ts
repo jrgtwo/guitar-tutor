@@ -21,9 +21,10 @@
  * expansion can light up these articulations without re-import.
  */
 
-import type { ImportIR, IREvent, IRNote, IRTrack } from './types';
+import type { ChordMarker, ImportIR, IREvent, IRNote, IRTrack } from './types';
 import type {
   Composition,
+  HarmonicContextBlock,
   Pattern,
   PatternEvent,
   Placement,
@@ -411,6 +412,7 @@ function mapAsComposition(
     tracks: trackResults,
     tempoTrack: rescaleTempoTrack(ir.tempos, scale),
     timeSignatureTrack: rescaleTimeSignatureTrack(ir.timeSignatures, scale),
+    harmonicContext: buildHarmonicContext(ir.chords, scale, ir.totalTicks),
     sourceIR: ir,
   });
 
@@ -629,6 +631,41 @@ function rescaleTimeSignatureTrack(
   }));
 }
 
+/** Turn IR chord markers into harmony-lane blocks: each chord spans from its
+ *  (rescaled) tick to the next chord's, the last running to the song's end.
+ *  Consecutive identical chords merge; same-tick chords keep the last. */
+function buildHarmonicContext(
+  chords: readonly ChordMarker[] | undefined,
+  scale: number,
+  totalTicks: number,
+): HarmonicContextBlock[] {
+  if (!chords || chords.length === 0) return [];
+  const sorted = chords
+    .map((c) => ({ atTick: Math.round(c.atTick / scale), symbol: c.symbol }))
+    .sort((a, b) => a.atTick - b.atTick);
+  const blocks: HarmonicContextBlock[] = [];
+  for (const c of sorted) {
+    const prev = blocks[blocks.length - 1];
+    if (prev && prev.startTick === c.atTick) {
+      prev.chord = c.symbol; // same tick, later token wins
+      continue;
+    }
+    if (prev && prev.chord === c.symbol) continue; // extend through a repeat
+    blocks.push({
+      id: generateId('hc'),
+      startTick: c.atTick,
+      endTick: 0,
+      chord: c.symbol,
+      scale: null,
+    });
+  }
+  const end = Math.round(totalTicks / scale);
+  for (let i = 0; i < blocks.length; i++) {
+    blocks[i].endTick = i + 1 < blocks.length ? blocks[i + 1].startTick : end;
+  }
+  return blocks;
+}
+
 function sliceTempoTrack(
   tempos: readonly TempoEvent[],
   startIr: number,
@@ -752,6 +789,7 @@ export interface CompositionSeed {
   tracks?: Track[];
   tempoTrack: TempoEvent[];
   timeSignatureTrack: TimeSignatureEvent[];
+  harmonicContext?: HarmonicContextBlock[];
   sourceIR: ImportIR | null;
 }
 
@@ -787,6 +825,7 @@ export function buildComposition(seed: CompositionSeed): Composition {
     collectionId: null,
     tempoTrack: seed.tempoTrack,
     timeSignatureTrack: seed.timeSignatureTrack,
+    harmonicContext: seed.harmonicContext,
     sourceIR: seed.sourceIR,
     createdAt: now,
     updatedAt: now,

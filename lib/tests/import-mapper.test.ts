@@ -364,3 +364,25 @@ describe('mapImportToLibrary — failure modes', () => {
     expect(result.patterns).toHaveLength(0);
   });
 });
+
+describe('mapImportToLibrary — harmony lane', () => {
+  it('maps ir.chords into composition.harmonicContext (rescaled, spanning to the next chord)', () => {
+    const ir = baseIR({
+      chords: [
+        { atTick: 0, symbol: 'C' },
+        { atTick: 3840, symbol: 'G' }, // bar 2 at 960 ppq (3840 ticks/bar)
+      ],
+    });
+    const result = mapImportToLibrary({ ir, selectedTrackId: 't0', topology: 'composition' });
+    const hc = result.composition?.harmonicContext ?? [];
+    expect(hc.map((b) => b.chord)).toEqual(['C', 'G']);
+    // 960 ppq → scale 2: ticks halve. Each block runs to the next chord / song end.
+    expect(hc[0]).toMatchObject({ startTick: 0, endTick: 1920 });
+    expect(hc[1]).toMatchObject({ startTick: 1920, endTick: 3840 });
+  });
+
+  it('leaves harmonicContext empty when the IR carries no chords', () => {
+    const result = mapImportToLibrary({ ir: baseIR(), selectedTrackId: 't0', topology: 'composition' });
+    expect(result.composition?.harmonicContext ?? []).toHaveLength(0);
+  });
+});
