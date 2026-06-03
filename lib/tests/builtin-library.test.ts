@@ -3,13 +3,25 @@ import { BUILTIN_PATTERNS, BUILTIN_COMPOSITIONS, isBuiltinId } from '../src/patt
 
 describe('built-in library', () => {
   it('ships theory + original patterns, each with events and a stable builtin id', () => {
-    expect(BUILTIN_PATTERNS.length).toBeGreaterThanOrEqual(9);
+    expect(BUILTIN_PATTERNS.length).toBeGreaterThanOrEqual(40);
     for (const p of BUILTIN_PATTERNS) {
       expect(isBuiltinId(p.id)).toBe(true);
       expect(p.events.length).toBeGreaterThan(0); // generators actually produced notes
       expect(p.durationTicks).toBeGreaterThan(0);
       expect(p.collectionId).toBe('builtin');
     }
+  });
+
+  it('covers the chord quality vocabulary (major/minor/dom7/maj7/min7) + scales + arps', () => {
+    const names = BUILTIN_PATTERNS.map((p) => p.name);
+    expect(names).toContain('C'); // major
+    expect(names).toContain('Am'); // minor
+    expect(names).toContain('G7'); // dominant 7
+    expect(names).toContain('Cmaj7'); // major 7
+    expect(names).toContain('Am7'); // minor 7
+    expect(names.some((n) => n.includes('Major (Ionian)'))).toBe(true); // scales
+    expect(names.some((n) => n.includes('Pentatonic'))).toBe(true);
+    expect(names.some((n) => n.includes('arpeggio'))).toBe(true); // arps
   });
 
   it('has unique ids across all built-in patterns', () => {

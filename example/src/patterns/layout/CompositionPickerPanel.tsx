@@ -7,6 +7,7 @@ import {
   selectEditingComposition,
   useFretworkStore,
   usePatternsStore,
+  BUILTIN_COMPOSITIONS,
 } from '@fretwork/lib';
 import type { Composition } from '@fretwork/lib';
 import { LibraryPickerPanel } from '../../library/LibraryPickerPanel';
@@ -26,6 +27,7 @@ export function CompositionPickerPanel({ onBack, onClose }: Props) {
   const openCompositionForArranging = usePatternsStore((s) => s.openCompositionForArranging);
   const createComposition = usePatternsStore((s) => s.createComposition);
   const createCollection = usePatternsStore((s) => s.createCollection);
+  const copyBuiltinComposition = usePatternsStore((s) => s.useBuiltinComposition);
   const setFretworkInstrumentId = useFretworkStore((s) => s.setInstrumentId);
 
   const handlePickItem = (it: Composition) => {
@@ -33,6 +35,31 @@ export function CompositionPickerPanel({ onBack, onClose }: Props) {
     setFretworkInstrumentId(it.instrumentId);
     onClose();
   };
+
+  const handlePickBuiltin = (c: Composition) => {
+    copyBuiltinComposition(c);
+    setFretworkInstrumentId(c.instrumentId);
+    onClose();
+  };
+
+  const pinnedBuiltin =
+    BUILTIN_COMPOSITIONS.length > 0 ? (
+      <div className="mb-2 rounded-md border border-degree-root/30 bg-degree-root/[0.05]">
+        <div className="px-2 py-1 text-[9px] font-mono uppercase tracking-wider text-degree-root/80">
+          Built-in
+        </div>
+        {BUILTIN_COMPOSITIONS.map((c) => (
+          <button
+            key={c.id}
+            type="button"
+            onClick={() => handlePickBuiltin(c)}
+            className="w-full text-left truncate px-3 py-1 text-[11px] text-muted-foreground hover:bg-white/5 hover:text-foreground transition-colors"
+          >
+            {c.name}
+          </button>
+        ))}
+      </div>
+    ) : null;
 
   const handleCreateItem = (folderId: string | null) => {
     createComposition(undefined, folderId);
@@ -47,6 +74,7 @@ export function CompositionPickerPanel({ onBack, onClose }: Props) {
       initialFolderId={editingComposition?.collectionId ?? null}
       title="Switch composition"
       itemLabel="composition"
+      pinnedSection={pinnedBuiltin}
       onPickItem={handlePickItem}
       onCreateItem={handleCreateItem}
       onCreateFolder={(name, parentId) => createCollection(name, parentId)}

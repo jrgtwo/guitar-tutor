@@ -15,6 +15,8 @@ import { createEmptyPattern, fitPatternDuration } from '../pattern-ops';
 import { createEmptyComposition, addPlacementToTrack } from '../composition-ops';
 import { PPQ } from '../timebase';
 import { getTuning, DEFAULT_TUNING_ID } from '../../lib/tunings';
+import { SCALES } from '../../lib/scales';
+import { ARPEGGIOS } from '../../lib/arpeggios';
 import { planCagedInsert, type CagedInsertMode } from '../caged-insert';
 import type { CagedShapeId } from '../../playback/patterns/caged-shapes-data';
 import type { ChordQuality } from '../../playback/patterns/caged-chord-shapes-data';
@@ -66,51 +68,75 @@ function cagedChord(shapeId: CagedShapeId, key: string, quality: ChordQuality, n
   return patternFromEvents(slug, name, planEvents(slug, plan));
 }
 
+const RUN_SHAPE_ORDER: CagedShapeId[] = ['caged-e', 'caged-a', 'caged-c', 'caged-g', 'caged-d'];
+
 function cagedRun(
   mode: Extract<CagedInsertMode, 'scale' | 'arp'>,
-  shapeId: CagedShapeId,
   key: string,
   type: string,
   name: string,
 ): Pattern {
-  const slug = `${mode}-${shapeId}-${key}-${type}`.toLowerCase();
-  const plan = planCagedInsert(
-    {
-      ...REQ_BASE,
-      shapeId,
-      mode,
-      key,
-      traversal: 'ascending-pitch',
-      ...(mode === 'scale' ? { scaleType: type } : { arpeggioType: type }),
-    },
-    PPQ / 2,
-  );
-  return patternFromEvents(slug, name, planEvents(slug, plan));
+  const slug = `${mode}-${key}-${type}`.toLowerCase(); // shape-independent → stable id
+  // Some scale/arp types don't fill every CAGED box — try shapes until one does.
+  for (const shapeId of RUN_SHAPE_ORDER) {
+    const plan = planCagedInsert(
+      {
+        ...REQ_BASE,
+        shapeId,
+        mode,
+        key,
+        traversal: 'ascending-pitch',
+        ...(mode === 'scale' ? { scaleType: type } : { arpeggioType: type }),
+      },
+      PPQ / 2,
+    );
+    if (plan.notes.length > 0) return patternFromEvents(slug, name, planEvents(slug, plan));
+  }
+  return patternFromEvents(slug, name, []); // unreachable in practice
 }
 
-// ── Theory building blocks ──────────────────────────────────────────────────
-const CAGED_SHAPES: CagedShapeId[] = ['caged-c', 'caged-a', 'caged-g', 'caged-e', 'caged-d'];
-const SHAPE_LABEL: Record<CagedShapeId, string> = {
-  'caged-c': 'C-shape',
-  'caged-a': 'A-shape',
-  'caged-g': 'G-shape',
-  'caged-e': 'E-shape',
-  'caged-d': 'D-shape',
-};
+// ── Theory: chords ──────────────────────────────────────────────────────────
+// Common chords in their idiomatic CAGED shape/key, across the quality
+// vocabulary (major / minor / dom7 / maj7 / min7).
+const CHORD_SPECS: { shape: CagedShapeId; key: string; quality: ChordQuality; name: string }[] = [
+  // Open majors (each CAGED shape at its root)
+  { shape: 'caged-c', key: 'C', quality: 'major', name: 'C' },
+  { shape: 'caged-a', key: 'A', quality: 'major', name: 'A' },
+  { shape: 'caged-g', key: 'G', quality: 'major', name: 'G' },
+  { shape: 'caged-e', key: 'E', quality: 'major', name: 'E' },
+  { shape: 'caged-d', key: 'D', quality: 'major', name: 'D' },
+  // Minors
+  { shape: 'caged-a', key: 'A', quality: 'minor', name: 'Am' },
+  { shape: 'caged-e', key: 'E', quality: 'minor', name: 'Em' },
+  { shape: 'caged-d', key: 'D', quality: 'minor', name: 'Dm' },
+  // Dominant 7
+  { shape: 'caged-g', key: 'G', quality: 'dom7', name: 'G7' },
+  { shape: 'caged-c', key: 'C', quality: 'dom7', name: 'C7' },
+  { shape: 'caged-d', key: 'D', quality: 'dom7', name: 'D7' },
+  { shape: 'caged-a', key: 'A', quality: 'dom7', name: 'A7' },
+  { shape: 'caged-e', key: 'E', quality: 'dom7', name: 'E7' },
+  // Major 7
+  { shape: 'caged-c', key: 'C', quality: 'maj7', name: 'Cmaj7' },
+  { shape: 'caged-a', key: 'A', quality: 'maj7', name: 'Amaj7' },
+  { shape: 'caged-d', key: 'D', quality: 'maj7', name: 'Dmaj7' },
+  // Minor 7
+  { shape: 'caged-a', key: 'A', quality: 'min7', name: 'Am7' },
+  { shape: 'caged-e', key: 'E', quality: 'min7', name: 'Em7' },
+  { shape: 'caged-d', key: 'D', quality: 'min7', name: 'Dm7' },
+];
+const chordPatterns = CHORD_SPECS.map((c) => cagedChord(c.shape, c.key, c.quality, c.name));
 
-const cagedMajorChords = CAGED_SHAPES.map((s) =>
-  cagedChord(s, 'C', 'major', `C major — CAGED ${SHAPE_LABEL[s]}`),
+// ── Theory: scales & arpeggios ──────────────────────────────────────────────
+// Every scale type and every arpeggio type, in a common reference position
+// (key A, E-shape box) so the whole vocabulary is browsable.
+// Drop any type the CAGED resolver can't place (e.g. the blues scale isn't in
+// the CAGED scale data) so the built-in set never contains empty patterns.
+const scaleRuns = SCALES.map((s) => cagedRun('scale', 'A', s.id, `A ${s.name}`)).filter(
+  (p) => p.events.length > 0,
 );
-
-const scaleRuns = [
-  cagedRun('scale', 'caged-c', 'C', 'major', 'C major scale (C-shape)'),
-  cagedRun('scale', 'caged-e', 'A', 'minor-pentatonic', 'A minor pentatonic (E-shape)'),
-];
-
-const arpRuns = [
-  cagedRun('arp', 'caged-c', 'C', 'major', 'C major arpeggio (C-shape)'),
-  cagedRun('arp', 'caged-a', 'A', 'minor', 'A minor arpeggio (A-shape)'),
-];
+const arpRuns = ARPEGGIOS.map((a) => cagedRun('arp', 'A', a.id, `A ${a.name} arpeggio`)).filter(
+  (p) => p.events.length > 0,
+);
 
 // ── Original demo riffs (trivially original — safe) ─────────────────────────
 const e = (slug: string, i: number, s: number, fret: number, at: number, dur: number): PatternEvent => ({
@@ -143,13 +169,15 @@ const demoBass = patternFromEvents('demo-bass', 'Demo Bass Walk', [
   e('demo-bass', 6, 1, 3, PPQ * 3, PPQ),
 ]);
 
-export const BUILTIN_PATTERNS: Pattern[] = [
-  ...cagedMajorChords,
-  ...scaleRuns,
-  ...arpRuns,
-  demoRiff,
-  demoBass,
+/** Built-in patterns grouped for display (e.g. the picker's pinned section). */
+export const BUILTIN_PATTERN_GROUPS: { label: string; patterns: Pattern[] }[] = [
+  { label: 'Chords', patterns: chordPatterns },
+  { label: 'Scales', patterns: scaleRuns },
+  { label: 'Arpeggios', patterns: arpRuns },
+  { label: 'Riffs', patterns: [demoRiff, demoBass] },
 ];
+
+export const BUILTIN_PATTERNS: Pattern[] = BUILTIN_PATTERN_GROUPS.flatMap((g) => g.patterns);
 
 // ── Original demo composition ───────────────────────────────────────────────
 function demoComposition(): Composition {
@@ -157,7 +185,7 @@ function demoComposition(): Composition {
   const trackId = base.tracks[0].id;
   let comp = addPlacementToTrack(base, trackId, demoRiff).composition;
   comp = addPlacementToTrack(comp, trackId, demoRiff).composition;
-  comp = addPlacementToTrack(comp, trackId, cagedMajorChords[3]).composition; // E-shape C major
+  comp = addPlacementToTrack(comp, trackId, chordPatterns[0]).composition; // C major
   return { ...comp, id: 'builtin-comp-demo', name: 'Demo Composition', collectionId: BUILTIN_COLLECTION_ID };
 }
 

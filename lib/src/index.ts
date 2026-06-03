@@ -184,6 +184,7 @@ export {
 export { planCagedInsert, isCagedInsertApplicable } from './patterns';
 export {
   BUILTIN_PATTERNS,
+  BUILTIN_PATTERN_GROUPS,
   BUILTIN_COMPOSITIONS,
   BUILTIN_COLLECTION,
   BUILTIN_COLLECTION_ID,

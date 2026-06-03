@@ -189,6 +189,8 @@ export interface PatternsActions {
    * using the forker's auth-store profile name — no special handling here.
    */
   forkPattern(source: Pattern, sourceCreatorName?: string | null): string;
+  /** Copy a read-only built-in pattern into the library (editable) and open it. */
+  useBuiltinPattern(source: Pattern): string;
   createComposition(name?: string, collectionId?: string | null): string;
   /**
    * Commit a music-import `MapperResult` to the library. Adds every pattern
@@ -237,6 +239,8 @@ export interface PatternsActions {
    * `collectionId` to null. Gated by the compositions tier cap.
    */
   forkComposition(source: Composition, sourceCreatorName?: string | null): string;
+  /** Copy a read-only built-in composition into the library (editable) and open it. */
+  useBuiltinComposition(source: Composition): string;
   deleteComposition(id: string): void;
 
   // Layout
@@ -669,6 +673,20 @@ export const usePatternsStore = create<PatternsStoreState>()(
         }));
         return fork.id;
       },
+      useBuiltinPattern(source) {
+        // Copy a read-only built-in into the user's library as a fresh, editable
+        // private pattern (no fork attribution), and open it.
+        if (!gateCreate('patterns', get().library.patterns.length)) return '';
+        const copy = clonePattern(source, { collectionId: null });
+        set((cur) => ({
+          library: { ...cur.library, patterns: [...cur.library.patterns, copy] },
+          editingPatternId: copy.id,
+          editingPlacementId: null,
+          cursorTick: 0,
+          selectedEventIds: [],
+        }));
+        return copy.id;
+      },
       commitImport(result, collectionId) {
         const s = get();
         const newPatterns = result.patterns.length;
@@ -1035,6 +1053,45 @@ export const usePatternsStore = create<PatternsStoreState>()(
           selectedPlacementId: null,
         }));
         return fork.id;
+      },
+      useBuiltinComposition(source) {
+        // Copy a read-only built-in composition into the library (editable,
+        // private, no fork attribution) and open it. Deep-clones tracks/placements.
+        if (!gateCreate('compositions', get().library.compositions.length)) return '';
+        const now = Date.now();
+        const clonePlacement = (p: Placement): Placement => ({
+          id: generateId('place'),
+          startTick: p.startTick,
+          repeat: p.repeat,
+          transposeSemitones: p.transposeSemitones,
+          lengthTicks: p.lengthTicks,
+          patternSnapshot: clonePattern(p.patternSnapshot),
+        });
+        const copy: Composition = {
+          ...source,
+          id: generateUuid(),
+          tracks: (source.tracks ?? []).map((t) => ({
+            ...t,
+            id: generateId('trk'),
+            placements: t.placements.map(clonePlacement),
+          })),
+          placements: [],
+          visibility: 'private',
+          publishedAt: null,
+          forkedFromId: null,
+          forkedFromCreatorName: null,
+          collectionId: null,
+          createdAt: now,
+          updatedAt: now,
+        };
+        set((cur) => ({
+          library: { ...cur.library, compositions: [...cur.library.compositions, copy] },
+          editingCompositionId: copy.id,
+          editingPatternId: null,
+          editingPlacementId: null,
+          selectedPlacementId: null,
+        }));
+        return copy.id;
       },
       deleteComposition(id) {
         set((s) => ({
