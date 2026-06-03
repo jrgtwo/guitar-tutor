@@ -30,7 +30,7 @@ const ArrangerViewContext = createContext<ArrangerViewContextValue | null>(null)
 
 export function ArrangerViewProvider({ children }: { children: ReactNode }) {
   const [zoomIndex, setZoomIndex] = useState(DEFAULT_ZOOM_INDEX);
-  const [snapMode, setSnapMode] = useState<SnapMode>('bar');
+  const [snapMode, setSnapMode] = useState<SnapMode>('beat');
 
   const value = useMemo<ArrangerViewContextValue>(() => {
     const clampIndex = (i: number) => Math.max(0, Math.min(ZOOM_LEVELS.length - 1, i));

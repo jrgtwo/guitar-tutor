@@ -14,7 +14,7 @@
  * Layout uses fixed pixel widths so multiple lanes align horizontally.
  */
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import { useArrangerDrag } from './ArrangerDragContext';
 import { useArrangerView } from './ArrangerViewContext';
 import { snapTick, tickToPx, computeBarLines, TRACK_LANE_HEIGHT } from './timeline-math';
@@ -23,6 +23,7 @@ import {
   PPQ,
   ticksPerBar,
   placementEffectiveLength,
+  totalDurationTicks,
   getTransportTicks,
   usePatternsStore,
   useMetronomeStore,
@@ -31,6 +32,10 @@ import { BlockCard } from './BlockCard';
 import { CascadeGhost } from './CascadeGhost';
 
 const MIN_BLOCK_WIDTH = 80;
+// Mirror TimelineRuler's default canvas padding so the lane width matches the
+// ruler exactly (CompositionTimeline passes neither, so the ruler uses these).
+const RULER_MIN_BARS = 8;
+const RULER_TRAILING_BARS = 2;
 
 /**
  * Convert an event's clientX coordinate to a composition-tick within the
@@ -76,43 +81,34 @@ export function TrackLane({ composition, track, anySoloed }: Props) {
   // gesture. The `before/after` hint indicator is still local: it's
   // inherently target-side and resets on dragleave / drop.
   const { draggingId, fromTrackId, grabOffsetTicks, beginDrag, endDrag } = useArrangerDrag();
-  const [dropTarget, setDropTarget] = useState<{ id: string; side: 'before' | 'after' } | null>(
-    null,
-  );
+  // Drop-target hint state is retained only so the existing handlers can clear
+  // it; the before/after reorder hint itself is gone (free positioning shows the
+  // snap guide instead).
+  const [, setDropTarget] = useState<{ id: string; side: 'before' | 'after' } | null>(null);
   // `laneAppendHover` is the drop hint on lane whitespace (empty lane or
   // trailing area after the last block). When set, a drop here appends
   // the dragged placement to the end of this track.
   const [laneAppendHover, setLaneAppendHover] = useState(false);
   const [snapGuidePx, setSnapGuidePx] = useState<number | null>(null);
   const [previewDestTick, setPreviewDestTick] = useState<number | null>(null);
-  const dragOverCleanup = useRef<number | null>(null);
 
   // Audible-state cue: a track gets dimmed if (a) it's muted directly, or
   // (b) any other track is soloed and this one isn't.
   const dimmed = track.muted || (anySoloed && !track.soloed);
 
-  // Block widths within this lane (existing flow-by-duration model — placements
-  // pack end-to-end inside the lane).
-  const blockWidths = new Map<string, number>();
-  let totalLanePx = 0;
-  for (const p of track.placements) {
-    const beats = (placementEffectiveLength(p) * p.repeat) / PPQ;
-    const w = Math.max(MIN_BLOCK_WIDTH, beats * pxPerBeat);
-    blockWidths.set(p.id, w);
-    totalLanePx += w;
-  }
-
-  // Meter-aware gridlines: same bar positions the ruler draws, so the lane's
-  // vertical lines line up with the ruler's bar markers (and with the notes,
-  // which are tick-positioned). A uniform CSS-gradient grid can't do this — it
-  // drifts the moment the meter changes. Minor lines fade out at narrow zoom.
-  const laneTicks = pxPerBeat > 0 ? (totalLanePx / pxPerBeat) * PPQ : 0;
-  const { bars: gridBars } = computeBarLines(
+  // Absolute, tick-positioned blocks: each sits at its `startTick`, so gaps
+  // (silence) and beat-level offsets are real. The lane spans the whole
+  // composition — sized with the SAME bar walk the ruler uses (minBars 8,
+  // trailingBars 2) so ruler, gridlines, and blocks all line up. A constant
+  // tick→px factor drives both block placement and resize math.
+  const pxPerTick = pxPerBeat / PPQ;
+  const { bars: gridBars, totalTick: laneTotalTick } = computeBarLines(
     composition.timeSignatureTrack,
     composition.timeSignature,
-    laneTicks,
-    { trailingBars: 1 },
+    totalDurationTicks(composition),
+    { minBars: RULER_MIN_BARS, trailingBars: RULER_TRAILING_BARS },
   );
+  const laneWidthPx = tickToPx(laneTotalTick, pxPerBeat);
 
   // Per-track playhead: highlights the placement currently sounding in this
   // lane. Runs its OWN rAF loop (only while transport is running) reading
@@ -176,19 +172,12 @@ export function TrackLane({ composition, track, anySoloed }: Props) {
     // a block onto its own position). Cross-lane: always accept.
     if (!isCrossLaneDrag && draggingId === targetId) return;
     e.preventDefault();
-    // Stop the lane-level dragover handler from also firing — otherwise it
-    // would clobber the block-level dropTarget hint with `laneAppendHover`.
+    // Stop the lane-level dragover handler from also firing.
     e.stopPropagation();
     e.dataTransfer.dropEffect = 'move';
     setLaneAppendHover(false);
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const side: 'before' | 'after' =
-      e.clientX < rect.left + rect.width / 2 ? 'before' : 'after';
-    setDropTarget((prev) =>
-      prev?.id === targetId && prev.side === side ? prev : { id: targetId, side },
-    );
-    if (dragOverCleanup.current !== null) window.clearTimeout(dragOverCleanup.current);
-    dragOverCleanup.current = window.setTimeout(() => setDropTarget(null), 300);
+    // Free positioning: show the snap guide at the clamped landing tick instead
+    // of a before/after reorder hint.
     const laneCanvas = (e.currentTarget as HTMLElement).closest('[data-lane-canvas]') as HTMLElement | null;
     if (laneCanvas) {
       const cursorTick = clientXToTick(e.clientX, laneCanvas, pxPerBeat);
@@ -302,11 +291,11 @@ export function TrackLane({ composition, track, anySoloed }: Props) {
       <div
         data-lane-canvas
         className={
-          'relative flex items-stretch py-1 transition-colors ' +
+          'relative py-1 transition-colors ' +
           (laneAppendHover ? 'bg-degree-root/10 outline outline-1 outline-degree-root/40' : '')
         }
         style={{
-          minWidth: totalLanePx + 12,
+          minWidth: laneWidthPx,
           minHeight: laneHeight,
         }}
         onDragOver={handleLaneDragOver}
@@ -325,28 +314,24 @@ export function TrackLane({ composition, track, anySoloed }: Props) {
             ),
           )}
         </div>
-        {track.placements.length === 0 ? (
-          <div
+        {track.placements.length === 0 && (
+          <span
             className={
-              'flex items-center text-[10px] font-mono italic px-4 ' +
-              (draggingId
-                ? 'text-degree-root/80'
-                : 'text-muted-foreground/50')
+              'absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-mono italic pointer-events-none ' +
+              (draggingId ? 'text-degree-root/80' : 'text-muted-foreground/50')
             }
           >
             {draggingId ? 'drop here to move into this track' : 'empty lane'}
-          </div>
-        ) : (
-          track.placements.map((p) => {
-            const width = blockWidths.get(p.id) ?? MIN_BLOCK_WIDTH;
-            const hint = dropTarget && dropTarget.id === p.id ? dropTarget.side : 'none';
-            const effLen = placementEffectiveLength(p);
-            const totalEffLen = effLen * p.repeat;
-            const pxPerTick = totalEffLen > 0 ? width / totalEffLen : 0;
-            const tpb = ticksPerBar(composition.timeSignature);
-            return (
+          </span>
+        )}
+        {track.placements.map((p) => {
+          const effLen = placementEffectiveLength(p);
+          const width = Math.max(MIN_BLOCK_WIDTH, tickToPx(effLen * p.repeat, pxPerBeat));
+          const left = tickToPx(p.startTick, pxPerBeat);
+          const tpb = ticksPerBar(composition.timeSignature);
+          return (
+            <div key={p.id} style={{ position: 'absolute', left, top: 4, bottom: 4, width }}>
               <BlockCard
-                key={p.id}
                 placement={p}
                 width={width}
                 effectiveLengthTicks={effLen}
@@ -356,7 +341,7 @@ export function TrackLane({ composition, track, anySoloed }: Props) {
                 onResize={(newLen) => resizePlacement(p.id, newLen)}
                 selected={p.id === selectedPlacementId}
                 playing={p.id === playingPlacementId}
-                dropHint={hint}
+                dropHint="none"
                 dragging={draggingId === p.id}
                 onClick={() => selectPlacement(p.id)}
                 onDoubleClick={() => openPlacementForEditing(composition.id, p.id)}
@@ -367,9 +352,9 @@ export function TrackLane({ composition, track, anySoloed }: Props) {
                 onDrop={(e) => handleDrop(e, p.id)}
                 onDragEnd={handleDragEnd}
               />
-            );
-          })
-        )}
+            </div>
+          );
+        })}
         {draggingId !== null && previewDestTick !== null && (
           <CascadeGhost
             composition={composition}

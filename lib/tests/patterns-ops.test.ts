@@ -9,6 +9,8 @@ import {
   deleteEvents,
   nextEventStartOnString,
   PPQ,
+  ticksPerBar,
+  fitPatternDuration,
   stepLengthToTicks,
   setPatternSuggestedBpm,
   setPatternGroove,
@@ -409,5 +411,37 @@ describe('updateEventArticulations', () => {
     // Sleep-like trick: a small wait
     const next = updateEventArticulations(pattern, eventId, { tieToNext: true });
     expect(next.updatedAt).toBeGreaterThanOrEqual(before);
+  });
+});
+
+describe('fitPatternDuration', () => {
+  it('shrinks an empty pattern to one bar', () => {
+    const p = createEmptyPattern(); // defaults to 4 bars
+    const tpb = ticksPerBar(p.timeSignature);
+    expect(fitPatternDuration(p).durationTicks).toBe(tpb);
+  });
+
+  it('grows to fit a note that ends past the current length, rounded up to a bar', () => {
+    let p = createEmptyPattern();
+    const tpb = ticksPerBar(p.timeSignature);
+    // a note that ends partway into the 3rd bar
+    p = stampEvent({ pattern: p, stringIndex: 0, fret: 3, startTick: 2 * tpb + 100, durationTicks: PPQ }).pattern;
+    expect(fitPatternDuration(p).durationTicks).toBe(3 * tpb);
+  });
+
+  it('shrinks back when the trailing note is removed', () => {
+    let p = createEmptyPattern();
+    const tpb = ticksPerBar(p.timeSignature);
+    const r = stampEvent({ pattern: p, stringIndex: 0, fret: 3, startTick: 2 * tpb + 100, durationTicks: PPQ });
+    p = fitPatternDuration(r.pattern);
+    expect(p.durationTicks).toBe(3 * tpb);
+    p = fitPatternDuration(deleteEvents(p, [r.event.id]));
+    expect(p.durationTicks).toBe(tpb); // back to one bar
+  });
+
+  it('returns the same reference when the duration already fits', () => {
+    let p = createEmptyPattern();
+    p = fitPatternDuration(p); // now exactly one bar
+    expect(fitPatternDuration(p)).toBe(p);
   });
 });

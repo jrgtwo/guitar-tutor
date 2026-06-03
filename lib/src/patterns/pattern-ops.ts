@@ -17,7 +17,7 @@ import type {
 } from './types';
 import type { IntervalSet, TuningDef } from '../types';
 import { generateId, generateUuid } from './ids';
-import { defaultPatternDurationTicks } from './timebase';
+import { defaultPatternDurationTicks, ticksPerBar } from './timebase';
 import { DEFAULT_INSTRUMENT_ID } from '../lib/instruments';
 import { pitchOf } from '../lib/fretboard';
 import { pitchClass } from '../lib/theory';
@@ -609,6 +609,19 @@ export function applyPatternMetadata(pattern: Pattern, patch: PatternMetadataPat
 
 export function setPatternDuration(pattern: Pattern, durationTicks: Tick): Pattern {
   return { ...pattern, durationTicks: Math.max(0, durationTicks), updatedAt: Date.now() };
+}
+
+/** Fit a pattern's length to its content, rounded UP to the nearest bar with a
+ *  one-bar minimum. Grows when notes extend past the end and shrinks when the
+ *  last notes are removed — the pattern is always "as long as it needs to be".
+ *  Returns the same reference when the duration is already correct (so it's safe
+ *  to call on every edit). `updatedAt` is intentionally NOT bumped: this is a
+ *  derived recompute, not a user edit. */
+export function fitPatternDuration(pattern: Pattern): Pattern {
+  const tpb = ticksPerBar(pattern.timeSignature);
+  const lastEnd = pattern.events.reduce((m, e) => Math.max(m, e.startTick + e.durationTicks), 0);
+  const fitted = Math.max(tpb, Math.ceil(lastEnd / tpb) * tpb);
+  return fitted === pattern.durationTicks ? pattern : { ...pattern, durationTicks: fitted };
 }
 
 export function setPatternTimeSignature(pattern: Pattern, ts: PatternTimeSignature): Pattern {

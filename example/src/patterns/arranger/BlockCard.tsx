@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 import type { GrooveSpec, Placement } from '@fretwork/lib';
 import { PPQ, presetMatching, selectEditingComposition, usePatternsStore } from '@fretwork/lib';
 import { MiniPatternSignature } from './MiniPatternSignature';
+import { useArrangerView } from './ArrangerViewContext';
 import { navigate } from '../../router';
 
 interface Props {
@@ -58,6 +59,7 @@ export function BlockCard({
   onDrop,
   onDragEnd,
 }: Props) {
+  const { snapMode } = useArrangerView();
   const fullBeats = placement.patternSnapshot.durationTicks / PPQ;
   const effectiveBeats =
     placement.lengthTicks !== null ? placement.lengthTicks / PPQ : fullBeats;
@@ -117,13 +119,11 @@ export function BlockCard({
     const dxPx = e.clientX - d.startX;
     const dxTicks = pxPerTick > 0 ? dxPx / pxPerTick : 0;
     const desired = d.startLen + dxTicks;
-    // Snap to beat (PPQ ticks) for finer truncation control than bar-level snap.
-    // `ticksPerBar` is kept on the prop in case we want to expose a per-arranger
-    // snap setting later; the minimum length is one beat to mirror the snap unit.
-    void ticksPerBar;
-    const snapUnit = PPQ;
+    // Resize granularity follows the arranger's snap toggle: bar → ticksPerBar,
+    // beat → PPQ, off → tick-precise. Minimum length is one beat.
+    const snapUnit = snapMode === 'bar' ? ticksPerBar : snapMode === 'beat' ? PPQ : 1;
     const snapped = Math.round(desired / snapUnit) * snapUnit;
-    const clamped = Math.max(snapUnit, Math.min(snapshotDurationTicks, snapped));
+    const clamped = Math.max(PPQ, Math.min(snapshotDurationTicks, snapped));
     // Live preview: trigger re-render and queue the commit; commit on pointerup.
     if (clamped !== effectiveLengthTicks) {
       onResize(clamped);
@@ -150,7 +150,9 @@ export function BlockCard({
         dropHint === 'before' ? 'shadow-[-3px_0_0_0_rgb(251_191_36)]' : '',
         dropHint === 'after' ? 'shadow-[3px_0_0_0_rgb(251_191_36)]' : '',
       ].join(' ')}
-      style={{ width: `${width}px`, flexShrink: 0 }}
+      // Fills the absolutely-positioned wrapper TrackLane sizes by tick. The
+      // `width` prop is still used to scale the inner note signature.
+      style={{ width: '100%', height: '100%' }}
       onClick={onClick}
       onDoubleClick={onDoubleClick}
       role="button"

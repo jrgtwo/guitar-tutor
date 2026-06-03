@@ -52,6 +52,7 @@ export {
   setPatternName,
   setPatternInstrument,
   setPatternDuration,
+  fitPatternDuration,
   setPatternTimeSignature,
   setPatternSuggestedBpm,
   setPatternGroove,

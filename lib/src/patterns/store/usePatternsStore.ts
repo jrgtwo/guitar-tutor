@@ -23,13 +23,14 @@ import type {
   StepLength,
   Tick,
 } from '../types';
-import { stepLengthToTicks, ticksPerBar } from '../timebase';
+import { stepLengthToTicks } from '../timebase';
 import type { CagedInsertPlan } from '../caged-insert';
 import {
   applyPatternMetadata,
   clonePattern,
   createEmptyPattern,
   deleteEvents as opsDeleteEvents,
+  fitPatternDuration,
   moveEvent as opsMoveEvent,
   moveEventsBy as opsMoveEventsBy,
   resizeEvent as opsResizeEvent,
@@ -1262,11 +1263,7 @@ export const usePatternsStore = create<PatternsStoreState>()(
           if (res.pattern !== pattern) pattern = res.pattern;
         }
         const endTick = baseTick + plan.totalTicks;
-        if (endTick > pattern.durationTicks) {
-          const tpb = ticksPerBar(pattern.timeSignature);
-          const grown = Math.ceil(endTick / tpb) * tpb;
-          pattern = { ...pattern, durationTicks: grown, updatedAt: Date.now() };
-        }
+        // Pattern length is fit to content centrally in updateTarget().
         set(updateTarget(s, pattern, {
           cursorTick: endTick,
           pendingChordStamp: [],
@@ -1577,9 +1574,12 @@ function currentEditTarget(s: PatternsState): {
  */
 function updateTarget(
   s: PatternsState,
-  next: Pattern,
+  nextRaw: Pattern,
   extra: Partial<PatternsState> = {},
 ): Partial<PatternsState> {
+  // Pattern length is freeform: always fit it to content (bar-rounded) so it
+  // grows/shrinks as notes are added/removed — there is no manual length input.
+  const next = fitPatternDuration(nextRaw);
   if (s.editingPlacementId && s.editingCompositionId) {
     const compId = s.editingCompositionId;
     const placementId = s.editingPlacementId;

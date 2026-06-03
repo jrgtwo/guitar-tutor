@@ -272,38 +272,33 @@ describe('composition-ops', () => {
       expect(placed.startTick).toBe(p.durationTicks);
     });
 
-    it('pushes downstream blocks when the moving block extends into them', async () => {
+    it('clamps the moving block into the nearest free slot without pushing neighbors', async () => {
       const { movePlacement } = await import('../src/patterns');
       const p = createEmptyPattern();
+      const dur = p.durationTicks;
       let comp = createEmptyComposition();
       const trackAId = comp.tracks[0].id;
-      // Three sequential blocks A, B, C, each at consecutive ticks.
+      // Three sequential blocks A, B, C at 0, dur, 2*dur.
       const aR = addPlacementToTrack(comp, trackAId, p);
       comp = aR.composition;
       const bR = addPlacementToTrack(comp, trackAId, p);
       comp = bR.composition;
       const cR = addPlacementToTrack(comp, trackAId, p);
       comp = cR.composition;
-      // Move A to where B currently sits (tick p.durationTicks). This should
-      // snap or push so result is non-overlapping.
-      comp = movePlacement(comp, aR.placement!.id, trackAId, p.durationTicks);
+      // Drop A into C's body (2.5*dur). With B and C occupying [dur, 3*dur), the
+      // nearest free slot that fits is just past C → 3*dur. B and C don't move.
+      comp = movePlacement(comp, aR.placement!.id, trackAId, Math.floor(2.5 * dur));
       const placements = comp.tracks[0].placements;
       const findBy = (id: string) => placements.find((pl) => pl.id === id)!;
-      // All three original ids still present — push didn't drop anyone.
-      const placementIds = comp.tracks[0].placements.map((pl) => pl.id);
-      expect(new Set(placementIds)).toEqual(
-        new Set([aR.placement!.id, bR.placement!.id, cR.placement!.id]),
-      );
-      expect(comp.tracks[0].placements).toHaveLength(3);
-      // Result: all three are non-overlapping, sorted by startTick.
+      expect(placements).toHaveLength(3);
+      expect(findBy(bR.placement!.id).startTick).toBe(dur); // neighbor unmoved
+      expect(findBy(cR.placement!.id).startTick).toBe(2 * dur); // neighbor unmoved
+      expect(findBy(aR.placement!.id).startTick).toBe(3 * dur); // clamped past C
+      // Non-overlapping, sorted.
       const sorted = [...placements].sort((a, b) => a.startTick - b.startTick);
       for (let i = 1; i < sorted.length; i++) {
-        expect(sorted[i].startTick).toBeGreaterThanOrEqual(
-          sorted[i - 1].startTick + p.durationTicks,
-        );
+        expect(sorted[i].startTick).toBeGreaterThanOrEqual(sorted[i - 1].startTick + dur);
       }
-      // The moved block (A) is now at or after p.durationTicks
-      expect(findBy(aR.placement!.id).startTick).toBeGreaterThanOrEqual(p.durationTicks);
     });
 
     it('moves a placement to a different track at the given tick', async () => {
@@ -839,34 +834,28 @@ describe('resizePlacement', () => {
     expect(after.repeat).toBe(1);
   });
 
-  it('pushes a downstream block when the resize would overlap it', () => {
+  it('clamps a resize at the next block instead of pushing it', () => {
     let p = createEmptyPattern();
     let comp = createEmptyComposition();
     const trackId = comp.tracks[0].id;
     // Place A at 0, length p.durationTicks (default).
     const a = addPlacementToTrack(comp, trackId, p);
     comp = a.composition;
-    // Truncate A so a gap exists past its tail.
+    // Truncate A to half so a gap exists past its tail.
     const half = Math.floor(p.durationTicks / 2);
     comp = resizePlacement(comp, a.placement!.id, half);
     // Add B; addPlacementToTrack defaults to per-track endTick (= half).
     const b = addPlacementToTrack(comp, trackId, p);
     comp = b.composition;
-    const bStartBefore = comp.tracks[0].placements.find((pl) => pl.id === b.placement!.id)!.startTick;
-    expect(bStartBefore).toBe(half);
-    // Now restore A to full length. A now spans [0, p.durationTicks);
-    // B is currently at `half` (inside A's new range) → push fires.
+    expect(comp.tracks[0].placements.find((pl) => pl.id === b.placement!.id)!.startTick).toBe(half);
+    // Try to restore A to full length. B sits at `half`, so A clamps there — it
+    // can't grow into B, and B does NOT move.
     comp = resizePlacement(comp, a.placement!.id, p.durationTicks);
     const placements = comp.tracks[0].placements;
     const aAfter = placements.find((pl) => pl.id === a.placement!.id)!;
     const bAfter = placements.find((pl) => pl.id === b.placement!.id)!;
-    // A is back to full length.
-    expect(aAfter.lengthTicks).toBe(p.durationTicks);
-    // B got pushed to at least A's end (p.durationTicks).
-    expect(bAfter.startTick).toBeGreaterThanOrEqual(p.durationTicks);
-    // No overlap.
-    const aEnd = aAfter.startTick + p.durationTicks;
-    expect(bAfter.startTick).toBeGreaterThanOrEqual(aEnd);
+    expect(aAfter.lengthTicks).toBe(half); // clamped at B's start
+    expect(bAfter.startTick).toBe(half); // neighbor unmoved
   });
 });
 

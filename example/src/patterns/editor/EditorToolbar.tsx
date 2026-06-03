@@ -4,7 +4,6 @@ import {
   usePatternsStore,
   useFretworkStore,
   selectEditingPattern,
-  ticksPerBar,
   getInstrument,
   getTuning,
   noteAt,
@@ -26,7 +25,6 @@ export function EditorToolbar() {
   const selectedEventIds = usePatternsStore((s) => s.selectedEventIds);
   const deleteEvents = usePatternsStore((s) => s.deleteEvents);
   const pattern = usePatternsStore(selectEditingPattern);
-  const setEditingPatternDuration = usePatternsStore((s) => s.setEditingPatternDuration);
   const groupSelectionAsChord = usePatternsStore((s) => s.groupSelectionAsChord);
   const ungroupSelectionChord = usePatternsStore((s) => s.ungroupSelectionChord);
   const tuningId = useFretworkStore((s) => s.tuning);
@@ -60,9 +58,6 @@ export function EditorToolbar() {
   const instrumentId = pattern?.instrumentId;
   const instrument = instrumentId ? getInstrument(instrumentId) : null;
   const showCagedButton = instrument?.id === 'guitar' || instrument?.id === 'bass';
-
-  const tpb = pattern ? ticksPerBar(pattern.timeSignature) : 0;
-  const bars = pattern && tpb > 0 ? Math.max(1, Math.round(pattern.durationTicks / tpb)) : 4;
 
   return (
     <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-border/40 bg-charcoal-raised/20">
@@ -152,22 +147,6 @@ export function EditorToolbar() {
       )}
 
       <div className="ml-auto flex items-center gap-2">
-        <label className="inline-flex items-center gap-1 text-[11px] font-mono text-muted-foreground">
-          <span>Bars</span>
-          <input
-            type="number"
-            min={1}
-            max={128}
-            value={bars}
-            onChange={(e) => {
-              const next = Math.max(1, Math.floor(Number(e.target.value)));
-              if (tpb > 0) setEditingPatternDuration(next * tpb);
-            }}
-            className="w-14 h-7 px-1.5 bg-charcoal-deep/60 border border-border/60 rounded text-center text-foreground tabular-nums outline-none focus:border-degree-root/60"
-            title="Pattern length in bars. Existing notes are kept; you can extend or shorten freely."
-          />
-        </label>
-
         <button
           type="button"
           onClick={() => setFretboardCollapsed(!fretboardCollapsed)}
