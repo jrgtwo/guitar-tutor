@@ -225,6 +225,9 @@ export interface PatternsActions {
   addHarmonicBlock(block: Omit<HarmonicContextBlock, 'id'>): void;
   updateHarmonicBlock(blockId: string, patch: Partial<HarmonicContextBlock>): void;
   removeHarmonicBlock(blockId: string): void;
+  /** Replace the whole harmony lane (used by inline editing — materializes
+   *  derived blocks as authored on first edit). */
+  setHarmonicContext(blocks: HarmonicContextBlock[]): void;
   /**
    * Fork a (typically public/unlisted) composition into the user's library.
    * Mirrors `forkPattern` semantics — fresh uuid, fresh placement ids, fresh
@@ -944,6 +947,20 @@ export const usePatternsStore = create<PatternsStoreState>()(
                 c.id === id
                   ? { ...c, harmonicContext: (c.harmonicContext ?? []).filter((b) => b.id !== blockId) }
                   : c,
+              ),
+            },
+          };
+        });
+      },
+      setHarmonicContext(blocks) {
+        set((s) => {
+          const id = s.editingCompositionId;
+          if (!id) return s;
+          return {
+            library: {
+              ...s.library,
+              compositions: s.library.compositions.map((c) =>
+                c.id === id ? { ...c, harmonicContext: blocks } : c,
               ),
             },
           };

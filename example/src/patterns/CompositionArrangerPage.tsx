@@ -15,7 +15,6 @@ import { ForkedFromBadge } from './layout/PatternMetadataControls';
 import { ImportedFromBadge } from './header-card/ImportedFromBadge';
 import { ArrangeCompositionTab } from './arranger/ArrangeCompositionTab';
 import { CompositionLookaheadBar } from '../lookahead/CompositionLookaheadBar';
-import { HarmonyEditor } from '../lookahead/HarmonyEditor';
 
 export function CompositionArrangerPage() {
   const composition = usePatternsStore(selectEditingComposition);
@@ -128,7 +127,6 @@ export function CompositionArrangerPage() {
           actions={<HeaderCardActions kind="composition" item={composition} />}
           collapsedSummary={collapsedSummary}
         />
-        <HarmonyEditor />
         <CompositionLookaheadBar />
         <div className="flex-1 overflow-auto">
           <ArrangeCompositionTab />
