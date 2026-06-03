@@ -7,7 +7,14 @@
  *   - pattern     → Patterns page with the pattern open
  *   - composition → Patterns page in arrange mode with the composition open
  */
-import { useVoiceStore, usePatternsStore, type FretInstrumentId } from '@fretwork/lib';
+import {
+  useVoiceStore,
+  usePatternsStore,
+  isBuiltinId,
+  BUILTIN_PATTERNS,
+  BUILTIN_COMPOSITIONS,
+  type FretInstrumentId,
+} from '@fretwork/lib';
 import { navigate } from '../router';
 
 interface BaseCatalogRow {
@@ -46,12 +53,23 @@ export function CatalogRow({ row }: Props) {
       return;
     }
     if (row.kind === 'pattern') {
-      usePatternsStore.getState().openPatternForEditing(row.id);
+      // Built-ins are read-only: copy into the library (editable) and open the copy.
+      if (isBuiltinId(row.id)) {
+        const src = BUILTIN_PATTERNS.find((p) => p.id === row.id);
+        if (src) usePatternsStore.getState().useBuiltinPattern(src);
+      } else {
+        usePatternsStore.getState().openPatternForEditing(row.id);
+      }
       navigate({ kind: 'patterns' });
       return;
     }
     // composition
-    usePatternsStore.getState().openCompositionForArranging(row.id);
+    if (isBuiltinId(row.id)) {
+      const src = BUILTIN_COMPOSITIONS.find((c) => c.id === row.id);
+      if (src) usePatternsStore.getState().useBuiltinComposition(src);
+    } else {
+      usePatternsStore.getState().openCompositionForArranging(row.id);
+    }
     navigate({ kind: 'compositions' });
   };
 

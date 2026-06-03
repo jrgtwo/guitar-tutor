@@ -14,6 +14,9 @@ import { Folder } from 'lucide-react';
 import {
   usePatternsStore,
   useVoiceStore,
+  BUILTIN_PATTERNS,
+  BUILTIN_COMPOSITIONS,
+  BUILTIN_COLLECTION,
   type FretInstrumentId,
 } from '@fretwork/lib';
 
@@ -37,9 +40,17 @@ type KindFilter = 'all' | 'voice' | 'pattern' | 'composition';
 type InstrumentFilter = 'all' | FretInstrumentId;
 
 export function CatalogPage() {
-  const collections = usePatternsStore((s) => s.library.collections ?? []);
-  const patterns = usePatternsStore((s) => s.library.patterns);
-  const compositions = usePatternsStore((s) => s.library.compositions);
+  const userCollections = usePatternsStore((s) => s.library.collections ?? []);
+  const userPatterns = usePatternsStore((s) => s.library.patterns);
+  const userCompositions = usePatternsStore((s) => s.library.compositions);
+  // Merge the read-only built-in library in (it lives as constants, not in the
+  // store), so it shows as a "Built-in" folder alongside the user's content.
+  const collections = useMemo(() => [BUILTIN_COLLECTION, ...userCollections], [userCollections]);
+  const patterns = useMemo(() => [...BUILTIN_PATTERNS, ...userPatterns], [userPatterns]);
+  const compositions = useMemo(
+    () => [...BUILTIN_COMPOSITIONS, ...userCompositions],
+    [userCompositions],
+  );
   const draftId = usePatternsStore((s) => s.unpersistedDraftId);
   const variants = useVoiceStore((s) => s.variants);
 
