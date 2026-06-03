@@ -24,6 +24,7 @@ import type {
   Tick,
 } from '../types';
 import { stepLengthToTicks } from '../timebase';
+import { BUILTIN_PATTERNS } from '../builtin';
 import type { CagedInsertPlan } from '../caged-insert';
 import {
   applyPatternMetadata,
@@ -1458,7 +1459,11 @@ export const usePatternsStore = create<PatternsStoreState>()(
         const s = get();
         const compId = s.editingCompositionId;
         if (!compId) return null;
-        const sourcePattern = s.library.patterns.find((p) => p.id === patternId);
+        // Resolve from the user's library OR the read-only built-in library
+        // (built-ins aren't stored; the placement snapshots a copy, so no sync/cap).
+        const sourcePattern =
+          s.library.patterns.find((p) => p.id === patternId) ??
+          BUILTIN_PATTERNS.find((p) => p.id === patternId);
         if (!sourcePattern) return null;
         const comp = s.library.compositions.find((c) => c.id === compId);
         if (!comp) return null;

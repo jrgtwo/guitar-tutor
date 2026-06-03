@@ -153,3 +153,11 @@ export type {
   PlannedNote,
   ChordQuality,
 } from './caged-insert';
+
+export {
+  BUILTIN_PATTERNS,
+  BUILTIN_COMPOSITIONS,
+  BUILTIN_COLLECTION,
+  BUILTIN_COLLECTION_ID,
+  isBuiltinId,
+} from './builtin';

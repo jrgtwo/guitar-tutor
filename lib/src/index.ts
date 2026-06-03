@@ -132,6 +132,13 @@ export {
 } from './lib/theory';
 export { parseChordSymbol, detectChordName } from './lib/chords';
 export type { ParsedChord } from './lib/chords';
+export {
+  CHORD_ROOTS,
+  CHORD_QUALITIES,
+  splitChordSymbol,
+  joinChordSymbol,
+} from './lib/chord-vocab';
+export type { ChordParts } from './lib/chord-vocab';
 export { segmentEvents } from './lookahead/segment';
 export type { LookaheadSegment, SegmentEvent, SegmentOptions } from './lookahead/segment';
 export {
@@ -175,6 +182,13 @@ export {
 // Types
 // Patterns (Phase 1: pattern editor, library, composition arrangement)
 export { planCagedInsert, isCagedInsertApplicable } from './patterns';
+export {
+  BUILTIN_PATTERNS,
+  BUILTIN_COMPOSITIONS,
+  BUILTIN_COLLECTION,
+  BUILTIN_COLLECTION_ID,
+  isBuiltinId,
+} from './patterns';
 export type {
   CagedInsertRequest,
   CagedInsertMode,

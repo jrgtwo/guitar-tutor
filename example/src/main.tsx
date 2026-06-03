@@ -19,7 +19,7 @@ import { SharedPatternView } from './shared/SharedPatternView';
 import { SharedCompositionView } from './shared/SharedCompositionView';
 import { SharedVoicePresetView } from './shared/SharedVoicePresetView';
 import { SharedFolderView } from './shared/SharedFolderView';
-import { useLocation } from './router';
+import { useLocation, navigate } from './router';
 import { usePatternsStore } from '@fretwork/lib';
 
 // Lib design tokens MUST be imported before the app's own stylesheet so Tailwind's
@@ -31,6 +31,30 @@ import './styles/index.css';
 if (import.meta.env.DEV) {
   (window as unknown as { usePatternsStore: typeof usePatternsStore }).usePatternsStore =
     usePatternsStore;
+}
+
+// Public sharing of user content is OFF (private-only posture). The Shared*View
+// routes and their UI entry points are gated on this flag — the components stay
+// in the codebase, dormant, so sharing can be re-enabled by flipping this.
+const SHARING_ENABLED = false;
+
+function SharingDisabledNotice() {
+  return (
+    <div className="min-h-screen flex items-center justify-center px-6 text-center">
+      <div className="max-w-sm">
+        <p className="text-sm font-mono text-muted-foreground">
+          Sharing isn’t available — content is private.
+        </p>
+        <button
+          type="button"
+          onClick={() => navigate({ kind: 'home' })}
+          className="mt-3 text-[13px] font-mono uppercase tracking-wider text-degree-root hover:underline"
+        >
+          Go to the app →
+        </button>
+      </div>
+    </div>
+  );
 }
 
 // Query-param routing:
@@ -61,15 +85,20 @@ function Root() {
   const sharedCompositionId = params.get('composition');
   const sharedVoicePresetId = params.get('voice-preset');
   const sharedFolderId = params.get('folder');
+  const hasSharedParam =
+    !!sharedPatternId || !!sharedCompositionId || !!sharedVoicePresetId || !!sharedFolderId;
 
   // AuthCallbackHandler must mount alongside every route — it manages the
   // singleton auth subscription and overlays the SignupForm / SignupModal as
   // needed. Without it, no auth state is ever read.
   let body;
-  if (sharedPatternId) body = <SharedPatternView patternId={sharedPatternId} />;
-  else if (sharedCompositionId) body = <SharedCompositionView compositionId={sharedCompositionId} />;
-  else if (sharedVoicePresetId) body = <SharedVoicePresetView presetId={sharedVoicePresetId} />;
-  else if (sharedFolderId) body = <SharedFolderView folderId={sharedFolderId} />;
+  // Public sharing is DISABLED — user content is private-only. The Shared*View
+  // components stay in the tree (dormant); flip SHARING_ENABLED to re-enable.
+  if (SHARING_ENABLED && sharedPatternId) body = <SharedPatternView patternId={sharedPatternId} />;
+  else if (SHARING_ENABLED && sharedCompositionId) body = <SharedCompositionView compositionId={sharedCompositionId} />;
+  else if (SHARING_ENABLED && sharedVoicePresetId) body = <SharedVoicePresetView presetId={sharedVoicePresetId} />;
+  else if (SHARING_ENABLED && sharedFolderId) body = <SharedFolderView folderId={sharedFolderId} />;
+  else if (hasSharedParam) body = <SharingDisabledNotice />;
   else if (isSoundLab) body = <SoundLab />;
   else if (isPatterns) body = <PatternEditorPage />;
   else if (isCompositions) body = <CompositionArrangerPage />;
