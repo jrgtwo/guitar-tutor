@@ -23,6 +23,7 @@ import {
   PPQ,
   ticksPerBar,
   placementEffectiveLength,
+  placementEndTick,
   totalDurationTicks,
   getTransportTicks,
   usePatternsStore,
@@ -30,6 +31,7 @@ import {
 } from '@fretwork/lib';
 import { BlockCard } from './BlockCard';
 import { CascadeGhost } from './CascadeGhost';
+import { LaneAddBar } from './LaneAddBar';
 
 const MIN_BLOCK_WIDTH = 80;
 // Mirror TimelineRuler's default canvas padding so the lane width matches the
@@ -109,6 +111,17 @@ export function TrackLane({ composition, track, anySoloed }: Props) {
     { minBars: RULER_MIN_BARS, trailingBars: RULER_TRAILING_BARS },
   );
   const laneWidthPx = tickToPx(laneTotalTick, pxPerBeat);
+
+  // Where the "add pattern" affordance sits and where the chosen pattern lands.
+  // It always butts against the end of this track's content:
+  //  • empty track → tick 0 when the whole composition is empty, otherwise the
+  //    end of the last pattern across all tracks (so a fresh track aligns to the
+  //    current arrangement end);
+  //  • non-empty track → the end of this track's own last pattern (trailing add).
+  const addBarTick =
+    track.placements.length === 0
+      ? totalDurationTicks(composition)
+      : Math.max(...track.placements.map(placementEndTick));
 
   // Per-track playhead: highlights the placement currently sounding in this
   // lane. Runs its OWN rAF loop (only while transport is running) reading
@@ -314,15 +327,21 @@ export function TrackLane({ composition, track, anySoloed }: Props) {
             ),
           )}
         </div>
-        {track.placements.length === 0 && (
-          <span
-            className={
-              'absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-mono italic pointer-events-none ' +
-              (draggingId ? 'text-degree-root/80' : 'text-muted-foreground/50')
-            }
-          >
-            {draggingId ? 'drop here to move into this track' : 'empty lane'}
+        {track.placements.length === 0 && draggingId && (
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-mono italic pointer-events-none text-degree-root/80">
+            drop here to move into this track
           </span>
+        )}
+        {/* "Add pattern" affordance at the end of the track's content (or the
+            front of an empty track). Hidden while a drag is in flight — the
+            lane is a drop target then. */}
+        {!draggingId && (
+          <LaneAddBar
+            trackId={track.id}
+            landingTick={addBarTick}
+            leftPx={tickToPx(addBarTick, pxPerBeat)}
+            widthPx={tickToPx(ticksPerBar(composition.timeSignature), pxPerBeat)}
+          />
         )}
         {track.placements.map((p) => {
           const effLen = placementEffectiveLength(p);

@@ -55,6 +55,7 @@ import { getScale } from '../../lib/scales';
 import type { TuningDef } from '../../types';
 import {
   addPlacement as opsAddPlacement,
+  addPlacementToTrack as opsAddPlacementToTrack,
   applyCompositionMetadata,
   createEmptyComposition,
   migrateCompositionToTracks,
@@ -297,6 +298,7 @@ export interface PatternsActions {
 
   // Arrange mutations
   addPlacement(patternId: string, atTick?: Tick): string | null;
+  addPlacementToTrack(patternId: string, trackId: string, atTick?: Tick): string | null;
   movePlacement(placementId: string, destTrackId: string, destStartTick: Tick): void;
   splitPlacement(placementId: string, atTick: Tick): void;
   duplicatePlacements(ids: string[], deltaTicks: Tick, destTrackId?: string): void;
@@ -1525,6 +1527,34 @@ export const usePatternsStore = create<PatternsStoreState>()(
         const comp = s.library.compositions.find((c) => c.id === compId);
         if (!comp) return null;
         const { composition: next, placement } = opsAddPlacement(comp, sourcePattern, atTick);
+        set({
+          library: {
+            ...s.library,
+            compositions: s.library.compositions.map((c) => (c.id === compId ? next : c)),
+          },
+          selectedPlacementId: placement.id,
+        });
+        return placement.id;
+      },
+      addPlacementToTrack(patternId, trackId, atTick) {
+        const s = get();
+        const compId = s.editingCompositionId;
+        if (!compId) return null;
+        // Resolve from the user's library OR the read-only built-in library
+        // (built-ins aren't stored; the placement snapshots a copy, so no sync/cap).
+        const sourcePattern =
+          s.library.patterns.find((p) => p.id === patternId) ??
+          BUILTIN_PATTERNS.find((p) => p.id === patternId);
+        if (!sourcePattern) return null;
+        const comp = s.library.compositions.find((c) => c.id === compId);
+        if (!comp) return null;
+        const { composition: next, placement } = opsAddPlacementToTrack(
+          comp,
+          trackId,
+          sourcePattern,
+          atTick,
+        );
+        if (!placement) return null;
         set({
           library: {
             ...s.library,

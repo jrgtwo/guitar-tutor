@@ -247,6 +247,7 @@ export {
   wouldCreateCycle,
   flattenComposition,
   placementEffectiveLength,
+  placementEndTick,
   resizePlacement,
   GROOVE_PRESETS,
   presetMatching,
