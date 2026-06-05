@@ -45,8 +45,6 @@ export interface UsePlaybackReturn {
   isProgramming: boolean;
   customSequence: readonly PlayableCell[];
   currentPlayheadCell: PlayableCell | null;
-  /** When true, playback advances on every metronome subdivision sub-tick. */
-  notesOnSubdivision: boolean;
 
   // Controls
   setEnabled: (enabled: boolean) => void;
@@ -55,8 +53,6 @@ export interface UsePlaybackReturn {
   startProgramming: () => void;
   finishProgramming: () => void;
   clearCustom: () => void;
-  setNotesOnSubdivision: (on: boolean) => void;
-  toggleNotesOnSubdivision: () => void;
 
   // Helpers for click-to-program UX
   customSequenceIndexOf: (cell: PlayableCell) => number;
@@ -92,8 +88,6 @@ function ensureSharedPlaybackWithMetronome(metronome: ReturnType<typeof useMetro
     enabled: initial.enabled,
     patternId: initial.patternId,
   });
-  sharedPlayback.setNotesOnSubdivision(initial.notesOnSubdivision);
-
   // Mirror playhead from class → store, plus the upcoming cells for the
   // look-ahead bar (the next several entries of the resolved walk).
   sharedPlayback.onPlayheadChange((cell) => {
@@ -116,9 +110,6 @@ function ensureSharedPlaybackWithMetronome(metronome: ReturnType<typeof useMetro
     if (state.isProgramming !== prev.isProgramming) {
       if (state.isProgramming) sharedPlayback.startProgramming();
       else sharedPlayback.finishProgramming();
-    }
-    if (state.notesOnSubdivision !== prev.notesOnSubdivision) {
-      sharedPlayback.setNotesOnSubdivision(state.notesOnSubdivision);
     }
   });
 
@@ -143,15 +134,12 @@ export function usePlayback(): UsePlaybackReturn {
   const customSequence = usePlaybackStore((s) => s.customSequence);
   const isProgramming = usePlaybackStore((s) => s.isProgramming);
   const currentPlayheadCell = usePlaybackStore((s) => s.currentPlayheadCell);
-  const notesOnSubdivision = usePlaybackStore((s) => s.notesOnSubdivision);
 
   const setStoreEnabled = usePlaybackStore((s) => s.setEnabled);
   const toggleStoreEnabled = usePlaybackStore((s) => s.toggleEnabled);
   const setStorePatternId = usePlaybackStore((s) => s.setPatternId);
   const setStoreIsProgramming = usePlaybackStore((s) => s.setIsProgramming);
   const clearStoreCustom = usePlaybackStore((s) => s.clearCustomSequence);
-  const setStoreNotesOnSubdivision = usePlaybackStore((s) => s.setNotesOnSubdivision);
-  const toggleStoreNotesOnSubdivision = usePlaybackStore((s) => s.toggleNotesOnSubdivision);
   const setFretShapeId = useFretworkStore((s) => s.setShapeId);
 
   /** Set the playback pattern. CAGED entries also write the matching `shapeId`
@@ -312,15 +300,12 @@ export function usePlayback(): UsePlaybackReturn {
     isProgramming,
     customSequence,
     currentPlayheadCell,
-    notesOnSubdivision,
     setEnabled: setStoreEnabled,
     toggleEnabled: toggleStoreEnabled,
     setPatternId,
     startProgramming: () => setStoreIsProgramming(true),
     finishProgramming: () => setStoreIsProgramming(false),
     clearCustom: clearStoreCustom,
-    setNotesOnSubdivision: setStoreNotesOnSubdivision,
-    toggleNotesOnSubdivision: toggleStoreNotesOnSubdivision,
     customSequenceIndexOf,
     playback,
   };

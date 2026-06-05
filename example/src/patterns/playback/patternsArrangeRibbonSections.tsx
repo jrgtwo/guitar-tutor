@@ -1,16 +1,4 @@
-import type { ReactNode } from 'react';
-import { PlayStopButton } from '../../components/playback/controls/PlayStopButton';
-import { BpmStepper } from '../../components/playback/controls/BpmStepper';
-import { TimeSignatureSelect } from '../../components/playback/controls/TimeSignatureSelect';
-import { MasterVolumeSlider } from '../../components/playback/controls/MasterVolumeSlider';
-import { VolumeSlider } from '../../components/playback/controls/VolumeSlider';
-import { LoopToggle } from '../../components/playback/controls/LoopToggle';
-import { TempoModeToggle } from '../../components/playback/controls/TempoModeToggle';
-import { GrooveModeToggle } from '../../components/playback/controls/GrooveModeToggle';
-import { FeelPicker } from '../../components/playback/controls/FeelPicker';
-import { PreRollToggle } from '../../components/playback/controls/PreRollToggle';
-import { BeatDots } from '../../components/metronome/BeatDots';
-import { BluetoothCalibration } from '../../components/playback/BluetoothCalibration';
+import { buildTransportSections } from '../../components/playback/buildTransportSections';
 import type { PlaybackRibbonSection } from '../../components/playback/PlaybackRibbon';
 import {
   deriveFeel,
@@ -21,9 +9,11 @@ import {
 } from '@fretwork/lib';
 import { usePatternsPlayback } from './usePatternsPlayback';
 
-/** Hook that builds the Patterns Arrange tab's PlaybackRibbon sections.
- *  Wires PlayStop/BPM/Feel to the composition playback engine.
- *  BPM and Feel are read-only while playing in inherit mode. */
+/** Compositions Arrange ribbon. Feeds the shared `buildTransportSections`:
+ *  Play/Stop drives composition playback; BPM and feel write through to the
+ *  composition and go read-only while playing in inherit-tempo mode; adds the
+ *  composition loop region, tempo-mode + groove-mode toggles, the composition
+ *  master fader, and the metronome click volume. */
 export function usePatternsArrangeRibbonSections(): readonly PlaybackRibbonSection[] {
   const playback = usePatternsPlayback();
   const composition = usePatternsStore(selectEditingComposition);
@@ -41,78 +31,52 @@ export function usePatternsArrangeRibbonSections(): readonly PlaybackRibbonSecti
   const readOnly = inheritDuringPlayback;
 
   const displayedBpm = inheritDuringPlayback ? m.bpm : composition?.bpm ?? m.bpm;
-  // Feel reflects the live metronome state, so it tracks per-placement changes
-  // during inherit-mode playback.
   const feel = deriveFeel(liveSubdivision, liveSwing);
 
-  const transportControls: ReactNode[] = [
-    <BluetoothCalibration key="bt-cal" />,
-    <PlayStopButton
-      key="play"
-      isRunning={playback.isPlaying}
-      isStarting={playback.isStarting}
-      onPlay={() => playback.playEditingComposition()}
-      onStop={() => playback.stop()}
-    />,
-    <LoopToggle key="loop" />,
-    <BeatDots key="beat-dots" />,
-    <PreRollToggle key="preroll" />,
-    composition
-      ? <BpmStepper
-          key="bpm"
-          value={displayedBpm}
-          readOnly={readOnly}
-          onChange={(bpm) => {
+  return buildTransportSections({
+    playback: {
+      isPlaying: playback.isPlaying,
+      isStarting: playback.isStarting,
+      onPlay: () => playback.playEditingComposition(),
+      onStop: () => playback.stop(),
+    },
+    loop: 'composition',
+    preRoll: true,
+    bpm: composition
+      ? {
+          value: displayedBpm,
+          readOnly,
+          onChange: (bpm) => {
             setCompositionBpm(composition.id, bpm);
             m.setBpm(bpm);
-          }}
-        />
-      : null,
-    composition
-      ? <TimeSignatureSelect
-          key="ts"
-          value={`${composition.timeSignature.numerator}/${composition.timeSignature.denominator}`}
-          onChange={(ts) => {
+          },
+        }
+      : undefined,
+    timeSignature: composition
+      ? {
+          value: `${composition.timeSignature.numerator}/${composition.timeSignature.denominator}`,
+          onChange: (ts) => {
             setCompositionTimeSignature(composition.id, ts);
             setMetronomeTimeSignatureId(ts.id);
-          }}
-        />
-      : <TimeSignatureSelect key="ts" />,
-    <TempoModeToggle key="tempo-mode" />,
-  ].filter(Boolean) as ReactNode[];
-
-  const feelControls: ReactNode[] = [];
-  if (composition) {
-    feelControls.push(
-      <FeelPicker
-        key="feel"
-        feel={feel}
-        swing={liveSwing}
-        onChange={({ groove, subdivision, swing }) => {
-          if (readOnly) return;
-          setEditingCompositionGroove(groove);
-          setEditingCompositionSubdivision(subdivision);
-          m.setSubdivision(subdivision);
-          m.setSwing(swing);
-        }}
-      />,
-    );
-  }
-  feelControls.push(<GrooveModeToggle key="groove-mode" />);
-
-  const outputControls: ReactNode[] = [
-    // Two distinct concepts on the arrange ribbon:
-    //   - MasterVolumeSlider: the composition's master fader (per-track
-    //     volumes ride beneath it). Affects the music output only.
-    //   - VolumeSlider: metronome click volume (the tick-tock). Still
-    //     useful during arrangement for keeping the user on the beat.
-    <MasterVolumeSlider key="master-vol" />,
-    <VolumeSlider key="click-vol" />,
-  ];
-
-  return [
-    { id: 'transport', label: 'Transport', controls: transportControls },
-    { id: 'feel', label: 'Feel', controls: feelControls },
-    { id: 'output', label: '', controls: outputControls },
-  ];
+          },
+        }
+      : undefined,
+    tempoMode: true,
+    feel: composition
+      ? {
+          feel,
+          swing: liveSwing,
+          onChange: ({ groove, subdivision, swing }) => {
+            if (readOnly) return;
+            setEditingCompositionGroove(groove);
+            setEditingCompositionSubdivision(subdivision);
+            m.setSubdivision(subdivision);
+            m.setSwing(swing);
+          },
+        }
+      : undefined,
+    grooveMode: true,
+    masterVolume: true,
+    clickVolume: true,
+  });
 }

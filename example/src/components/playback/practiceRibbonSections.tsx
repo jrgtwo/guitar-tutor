@@ -1,61 +1,34 @@
-import type { ReactNode } from 'react';
-import { useMetronome } from '@fretwork/lib';
+import { deriveFeel, useMetronome, useMetronomeStore } from '@fretwork/lib';
 import type { PlaybackRibbonSection } from './PlaybackRibbon';
-import { PlayStopButton } from './controls/PlayStopButton';
-import { BpmStepper } from './controls/BpmStepper';
-import { TimeSignatureSelect } from './controls/TimeSignatureSelect';
-import { VolumeSlider } from './controls/VolumeSlider';
-import {
-  AccentSwitch,
-  TickSoundSwitch,
-  MetronomeFeel,
-} from '../metronome/MetronomePracticeToggles';
-import {
-  NotesOnBeatSwitch,
-  NotesOnSubdivisionSwitch,
-  PlaybackPatternControls,
-} from '../playback/PlaybackControls';
-import { SoundControls } from '../playback/SoundControls';
-import { BeatDots } from '../metronome/BeatDots';
-import { BluetoothCalibration } from './BluetoothCalibration';
+import { buildTransportSections } from './buildTransportSections';
 
-/** Sections factory for the Practice page's PlaybackRibbon.
- *  Play/Stop drive the global metronome singleton (same as the old
- *  FretboardMetronomeStrip). BPM reads/writes the metronome store directly with
- *  no pattern write-through. Beat dots appear as a non-interactive node in the
- *  Transport section, next to the Play/Stop button. */
+/** Practice (Theory mode) ribbon: the metronome singleton drives Play/Stop, BPM
+ *  / time signature / feel are metronome-bound (no entity write-through), the
+ *  walk-pattern note engine + voice are switched on, and the output shows the
+ *  notes-output volume + the metronome click volume. All assembly is delegated
+ *  to the shared `buildTransportSections` so Practice can't drift from the
+ *  Patterns / Compositions transports. */
 export function usePracticeRibbonSections(): readonly PlaybackRibbonSection[] {
   const m = useMetronome();
+  const liveSubdivision = useMetronomeStore((s) => s.subdivision);
+  const liveSwing = useMetronomeStore((s) => s.swing);
 
-  const transportControls: ReactNode[] = [
-    <BluetoothCalibration key="bt-cal" />,
-    <PlayStopButton
-      key="play"
-      onPlay={() => void m.toggle()}
-      onStop={() => void m.toggle()}
-    />,
-    <BeatDots key="beat-dots" />,
-    <BpmStepper key="bpm" />,
-    <TimeSignatureSelect key="ts" />,
-  ];
-
-  const feelControls: ReactNode[] = [
-    <AccentSwitch key="accent" />,
-    <TickSoundSwitch key="tick-sound" />,
-    <MetronomeFeel key="feel" />,
-    <NotesOnBeatSwitch key="notes-on-beat" />,
-    <NotesOnSubdivisionSwitch key="notes-on-subdiv" />,
-    <PlaybackPatternControls key="pattern-controls" />,
-  ];
-
-  const outputControls: ReactNode[] = [
-    <VolumeSlider key="vol" />,
-    <SoundControls key="sound-controls" />,
-  ];
-
-  return [
-    { id: 'transport', label: 'Transport', controls: transportControls },
-    { id: 'feel', label: 'Feel', controls: feelControls },
-    { id: 'output', label: 'Output', controls: outputControls },
-  ];
+  return buildTransportSections({
+    playback: {
+      onPlay: () => void m.toggle(),
+      onStop: () => void m.toggle(),
+    },
+    feel: {
+      feel: deriveFeel(liveSubdivision, liveSwing),
+      swing: liveSwing,
+      onChange: ({ subdivision, swing }) => {
+        m.setSubdivision(subdivision);
+        m.setSwing(swing);
+      },
+    },
+    walkNotes: true,
+    notesVolume: true,
+    clickVolume: true,
+    voice: true,
+  });
 }

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { DEFAULT_TIME_SIGNATURE_ID, getTimeSignature } from './time-signatures';
 import type { SubdivisionId } from './types';
+import { NotesBus } from '../playback/voices/NotesBus';
 
 const SWING_MIN = 0.5;
 const SWING_MAX = 0.95;
@@ -25,7 +26,12 @@ export interface MetronomeStoreState {
    *  beat indicators and note playback continue. Use case: a player who only wants
    *  the lights or the plucked-tone playback to keep time. */
   clickMuted: boolean;
+  /** Metronome click volume, linear 0–1. */
   volume: number;
+  /** Notes (voice playback) volume, linear 0–1. Drives `NotesBus`, the
+   *  independent note-output stage (distinct from the click volume and the
+   *  global master). */
+  notesVolume: number;
   /** Subdivision setting. 'off' means no sub-ticks between main beats. */
   subdivision: SubdivisionId;
   /** Swing amount in [0.5, 0.75]; only audible for 8ths/16ths subdivisions. */
@@ -48,6 +54,7 @@ export interface MetronomeStoreState {
   setClickMuted: (muted: boolean) => void;
   toggleClickMuted: () => void;
   setVolume: (v: number) => void;
+  setNotesVolume: (v: number) => void;
   setSubdivision: (id: SubdivisionId) => void;
   setSwing: (swing: number) => void;
   // Runtime fields (isRunning, currentBeat, currentMeasure, currentSubdivisionIndex)
@@ -63,6 +70,7 @@ export const DEFAULT_METRONOME_STATE = {
   accentEnabled: true,
   clickMuted: false,
   volume: 0.7,
+  notesVolume: 1,
   subdivision: 'off' as SubdivisionId,
   swing: 0.5,
   isRunning: false,
@@ -86,6 +94,11 @@ export const useMetronomeStore = create<MetronomeStoreState>((set) => ({
   setClickMuted: (clickMuted) => set({ clickMuted }),
   toggleClickMuted: () => set((s) => ({ clickMuted: !s.clickMuted })),
   setVolume: (v) => set({ volume: Math.max(0, Math.min(1, v)) }),
+  setNotesVolume: (v) => {
+    const next = Math.max(0, Math.min(1, v));
+    NotesBus.setLevel(next);
+    set({ notesVolume: next });
+  },
   setSubdivision: (subdivision) => set({ subdivision }),
   setSwing: (swing) => set({ swing: Math.max(SWING_MIN, Math.min(SWING_MAX, swing)) }),
 }));

@@ -14,11 +14,6 @@ export interface PlaybackStoreState {
   patternId: string;
   customSequence: readonly PlayableCell[];
 
-  /** When true, playback advances on every subdivision sub-tick (not just main
-   *  beats). When false (default), playback fires once per main beat as before.
-   *  Has no audible effect unless the metronome's `subdivision` is non-'off'. */
-  notesOnSubdivision: boolean;
-
   // Programming mode (for custom pattern)
   isProgramming: boolean;
 
@@ -37,18 +32,17 @@ export interface PlaybackStoreState {
   clearCustomSequence: () => void;
   setIsProgramming: (programming: boolean) => void;
   setCurrentPlayheadCell: (cell: PlayableCell | null) => void;
-  setNotesOnSubdivision: (on: boolean) => void;
-  toggleNotesOnSubdivision: () => void;
 }
 
 export const DEFAULT_PLAYBACK_STATE = {
-  enabled: false,
+  // Walk-note playback defaults ON: the ribbon no longer has an on/off "Notes"
+  // toggle (the notes-volume slider, 0 = silent, is the control instead).
+  enabled: true,
   patternId: DEFAULT_PATTERN_ID,
   customSequence: [] as readonly PlayableCell[],
   isProgramming: false,
   currentPlayheadCell: null as PlayableCell | null,
   upcomingCells: [] as readonly PlayableCell[],
-  notesOnSubdivision: false,
 };
 
 export const usePlaybackStore = create<PlaybackStoreState>((set) => ({
@@ -68,6 +62,4 @@ export const usePlaybackStore = create<PlaybackStoreState>((set) => ({
   clearCustomSequence: () => set({ customSequence: [] }),
   setIsProgramming: (isProgramming) => set({ isProgramming }),
   setCurrentPlayheadCell: (currentPlayheadCell) => set({ currentPlayheadCell }),
-  setNotesOnSubdivision: (notesOnSubdivision) => set({ notesOnSubdivision }),
-  toggleNotesOnSubdivision: () => set((s) => ({ notesOnSubdivision: !s.notesOnSubdivision })),
 }));

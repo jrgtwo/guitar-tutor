@@ -42,7 +42,7 @@ import type {
   VoiceReverbParams,
   VoiceSource,
 } from './types';
-import { MasterBus } from './MasterBus';
+import { NotesBus } from './NotesBus';
 import { getAmpModel } from './amp-models';
 
 /** A rack stage is "in the chain" iff its params object exists AND its
@@ -265,7 +265,7 @@ export class Voice implements GuitarInstrument {
     this._chain = buildChain(this._preset);
     this._exit = wireChain(this._palmMuteFilter, this._chain);
     if (this._autoConnectToMaster) {
-      MasterBus.connectVoice(this._exit);
+      NotesBus.connectVoice(this._exit);
       this._connectedToMaster = true;
     } else if (this._customRoutingTarget) {
       // Multi-track playback path: the manager wired up a per-track Gain
@@ -404,7 +404,7 @@ export class Voice implements GuitarInstrument {
 
   dispose(): void {
     if (this._connectedToMaster && this._exit) {
-      MasterBus.disconnectVoice(this._exit);
+      NotesBus.disconnectVoice(this._exit);
       this._connectedToMaster = false;
     }
     if (this._samplerBanks) {
@@ -626,7 +626,7 @@ export class Voice implements GuitarInstrument {
     )
       return;
     if (this._connectedToMaster) {
-      MasterBus.disconnectVoice(this._exit);
+      NotesBus.disconnectVoice(this._exit);
       this._connectedToMaster = false;
     }
     this._mixer.disconnect();
@@ -640,7 +640,7 @@ export class Voice implements GuitarInstrument {
     this._chain = buildChain(this._preset);
     this._exit = wireChain(this._palmMuteFilter, this._chain);
     if (this._autoConnectToMaster) {
-      MasterBus.connectVoice(this._exit);
+      NotesBus.connectVoice(this._exit);
       this._connectedToMaster = true;
     } else if (this._customRoutingTarget) {
       this._exit.connect(this._customRoutingTarget);

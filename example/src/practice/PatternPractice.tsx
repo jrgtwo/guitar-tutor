@@ -1,20 +1,17 @@
 import { useMemo, useState } from 'react';
 import {
   Fretboard,
+  deriveFeel,
   getInstrument,
   getTuning,
   patternFootprint,
   useFretworkStore,
+  useMetronome,
   useMetronomeStore,
 } from '@fretwork/lib';
 import type { Highlight, Pattern } from '@fretwork/lib';
 import { PlaybackRibbon } from '@/components/playback/PlaybackRibbon';
-import type { PlaybackRibbonSection } from '@/components/playback/PlaybackRibbon';
-import { PlayStopButton } from '@/components/playback/controls/PlayStopButton';
-import { BpmStepper } from '@/components/playback/controls/BpmStepper';
-import { TimeSignatureSelect } from '@/components/playback/controls/TimeSignatureSelect';
-import { BeatDots } from '@/components/metronome/BeatDots';
-import { BluetoothCalibration } from '@/components/playback/BluetoothCalibration';
+import { buildTransportSections } from '@/components/playback/buildTransportSections';
 import { usePatternsPlayback } from '@/patterns/playback/usePatternsPlayback';
 import { LookaheadBar } from '@/lookahead/LookaheadBar';
 import { useLiveTick } from '@/lookahead/useLiveTick';
@@ -33,6 +30,9 @@ export function PatternPractice() {
   const [selected, setSelected] = useState<Pattern | null>(null);
   const playback = usePatternsPlayback();
   const liveTick = useLiveTick('pattern');
+  const m = useMetronome();
+  const liveSubdivision = useMetronomeStore((s) => s.subdivision);
+  const liveSwing = useMetronomeStore((s) => s.swing);
 
   const setInstrumentId = useFretworkStore((s) => s.setInstrumentId);
   const tuningId = useFretworkStore((s) => s.tuning);
@@ -57,25 +57,31 @@ export function PatternPractice() {
     ? getInstrument(selected.instrumentId)?.stringCount ?? 6
     : 6;
 
-  const sections: PlaybackRibbonSection[] = [
-    {
-      id: 'transport',
-      label: 'Transport',
-      controls: [
-        <BluetoothCalibration key="bt-cal" />,
-        <PlayStopButton
-          key="play"
-          isRunning={playback.isPlaying}
-          isStarting={playback.isStarting}
-          onPlay={() => selected && playback.playPattern(selected)}
-          onStop={() => playback.stop()}
-        />,
-        <BeatDots key="beat-dots" />,
-        <BpmStepper key="bpm" />,
-        <TimeSignatureSelect key="ts" />,
-      ],
+  // Metronome-bound BPM/TS/feel (seeded from the pattern on pick) + the two
+  // playback volumes. Pattern practice plays an arbitrary pattern from the top
+  // via `playPattern` and intentionally bypasses the patterns-store editing
+  // lifecycle, so the loop/pre-roll toggles (which read the editing pattern)
+  // are not wired here.
+  const sections = buildTransportSections({
+    playback: {
+      isPlaying: playback.isPlaying,
+      isStarting: playback.isStarting,
+      onPlay: () => {
+        if (selected) playback.playPattern(selected);
+      },
+      onStop: () => playback.stop(),
     },
-  ];
+    feel: {
+      feel: deriveFeel(liveSubdivision, liveSwing),
+      swing: liveSwing,
+      onChange: ({ subdivision, swing }) => {
+        m.setSubdivision(subdivision);
+        m.setSwing(swing);
+      },
+    },
+    notesVolume: true,
+    clickVolume: true,
+  });
 
   return (
     <>

@@ -35,9 +35,6 @@ export class Playback {
   private _pattern: PlaybackPattern;
   private _customSequence: readonly PlayableCell[] = [];
   private _isProgramming = false;
-  /** When true, the playhead advances on every metronome subdivision sub-tick in
-   *  addition to main beats. When false (default), only main beats advance it. */
-  private _notesOnSubdivision = false;
 
   /** Latest snapshot of state to feed into pattern.resolve(). */
   private _resolveInput: ResolveInput | null = null;
@@ -68,8 +65,12 @@ export class Playback {
     this._unsubTick = metronome.on('tick', (event) => {
       this._onTick(event.audioTime);
     });
+    // Walk-note density follows the metronome's subdivision (set via Feel): the
+    // metronome only emits 'subdivision' events when a subdivision is active, so
+    // playing on every one of them gives one note per sub-tick when subdivided,
+    // and one note per beat when Feel is "off" (no sub-tick events fire).
     this._unsubSubdivision = metronome.on('subdivision', (event) => {
-      if (this._notesOnSubdivision) this._onTick(event.audioTime);
+      this._onTick(event.audioTime);
     });
     this._unsubStop = metronome.on('stop', () => {
       // Reset playhead when metronome stops so the next start begins from index 0.
@@ -98,10 +99,6 @@ export class Playback {
   setCustomSequence(cells: readonly PlayableCell[]): void {
     this._customSequence = [...cells];
     this._invalidateCache();
-  }
-
-  setNotesOnSubdivision(on: boolean): void {
-    this._notesOnSubdivision = on;
   }
 
   setInstrument(instrument: GuitarInstrument): void {
