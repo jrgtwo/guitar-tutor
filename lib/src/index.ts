@@ -182,6 +182,8 @@ export {
 // Types
 // Patterns (Phase 1: pattern editor, library, composition arrangement)
 export { planCagedInsert, isCagedInsertApplicable } from './patterns';
+export { patternFootprint } from './patterns';
+export type { FootprintCell } from './patterns';
 export {
   BUILTIN_PATTERNS,
   BUILTIN_PATTERN_GROUPS,

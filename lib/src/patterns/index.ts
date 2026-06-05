@@ -112,6 +112,9 @@ export type { CompositionMetadataPatch } from './composition-ops';
 export { MAX_COMPOSITION_TRACKS } from './types';
 export type { Track } from './types';
 
+export { patternFootprint } from './pattern-footprint';
+export type { FootprintCell } from './pattern-footprint';
+
 export {
   MAX_FOLDER_DEPTH,
   createEmptyCollection,

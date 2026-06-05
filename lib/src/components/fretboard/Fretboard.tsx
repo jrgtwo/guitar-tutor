@@ -55,6 +55,14 @@ export interface FretboardProps {
    */
   activeCells?: ReadonlyArray<{ stringIndex: number; fret: number }>;
   /**
+   * The dim "context" layer for Practice's Pattern mode: every cell a pattern
+   * visits (its footprint), drawn as ghosted neutral markers behind the bright
+   * activity layer. Makes no theory claim — it's just the pattern's own cells.
+   * Cells that are currently active (in `activeCells`) are drawn bright instead,
+   * not dimmed here. Independent of the scale highlight set.
+   */
+  footprintCells?: ReadonlyArray<{ stringIndex: number; fret: number }>;
+  /**
    * When true, clicks on the fretboard always invoke `onCellClickOverride` regardless
    * of the legacy `isProgramming` flag. Used by the Patterns page to keep its editor
    * decoupled from Practice's programming state.
@@ -92,6 +100,7 @@ export function Fretboard({
   onCellClickOverride,
   neutralGrid,
   activeCells,
+  footprintCells,
   alwaysClickable,
   highlights: highlightsProp,
   dimNonHighlighted,
@@ -218,6 +227,62 @@ export function Fretboard({
     return new Set(activeCells.map((c) => `${c.stringIndex}:${c.fret}`));
   }, [activeCells]);
   const playheadCell = activeCells ? null : storePlayheadCell;
+
+  // Activity layer (the "route"): currently-sounding / playhead cells that are
+  // NOT already drawn by the render set above. Without this, a note outside the
+  // displayed scale (e.g. a C# while the scale is C major) plays but never
+  // highlights — there's no marker to apply the playhead treatment to. We render
+  // our own synthetic markers for those cells so the activity layer is fully
+  // decoupled from scale membership. Cells already in `renderHighlights` are
+  // skipped here (they light up via the `isPlayhead` modifier in that loop).
+  const activityOnlyHighlights = useMemo<Highlight[]>(() => {
+    const cells = activeCells ?? (storePlayheadCell ? [storePlayheadCell] : []);
+    if (cells.length === 0) return [];
+    const out: Highlight[] = [];
+    const seen = new Set<string>();
+    for (const c of cells) {
+      const k = `${c.stringIndex}:${c.fret}`;
+      if (renderedKeys.has(k) || seen.has(k)) continue;
+      seen.add(k);
+      const openNote = openStrings[c.stringIndex];
+      if (!openNote) continue;
+      out.push({
+        stringIndex: c.stringIndex,
+        fret: c.fret,
+        noteName: noteAt(openNote, c.fret),
+        intervalLabel: '',
+        degreeNumber: 0,
+        category: 'tone',
+      });
+    }
+    return out;
+  }, [activeCells, storePlayheadCell, renderedKeys, openStrings]);
+
+  // Context layer (the "territory"): the pattern's footprint, drawn dim behind
+  // the activity layer. Skips cells already drawn by the render set, and cells
+  // that are currently active (those get the bright activity treatment instead).
+  const footprintHighlights = useMemo<Highlight[]>(() => {
+    if (!footprintCells || footprintCells.length === 0) return [];
+    const out: Highlight[] = [];
+    const seen = new Set<string>();
+    for (const c of footprintCells) {
+      const k = `${c.stringIndex}:${c.fret}`;
+      if (renderedKeys.has(k) || seen.has(k)) continue;
+      if (activeCellKeys?.has(k)) continue;
+      seen.add(k);
+      const openNote = openStrings[c.stringIndex];
+      if (!openNote) continue;
+      out.push({
+        stringIndex: c.stringIndex,
+        fret: c.fret,
+        noteName: noteAt(openNote, c.fret),
+        intervalLabel: '',
+        degreeNumber: 0,
+        category: 'tone',
+      });
+    }
+    return out;
+  }, [footprintCells, renderedKeys, activeCellKeys, openStrings]);
 
   const onCellClick = useCallback(
     (cell: { stringIndex: number; fret: number }, shift: boolean) => {
@@ -391,6 +456,38 @@ export function Fretboard({
             />
           );
         })}
+
+        {/* Context layer — the pattern's footprint (territory), drawn dim/ghosted
+            behind the activity layer so the playing notes read as a route on top. */}
+        {footprintHighlights.map((h) => (
+          <g key={`footprint-${h.stringIndex}-${h.fret}`} pointerEvents="none">
+            <NoteMarker
+              highlight={h}
+              labels="notes"
+              settings={{ ...settings, colorByDegree: false, highlightRoot: false }}
+              stringCount={stringCount}
+              fretCount={fretCount}
+              isPlayhead={false}
+              ghosted
+            />
+          </g>
+        ))}
+
+        {/* Activity layer — playing/playhead cells not already drawn above.
+            Rendered with the bright playhead treatment and neutral (no-degree)
+            styling, since they live outside the displayed scale context. */}
+        {activityOnlyHighlights.map((h) => (
+          <NoteMarker
+            key={`active-${h.stringIndex}-${h.fret}`}
+            highlight={h}
+            labels="notes"
+            settings={{ ...settings, colorByDegree: false, highlightRoot: false }}
+            stringCount={stringCount}
+            fretCount={fretCount}
+            isPlayhead
+            ghosted={false}
+          />
+        ))}
 
         {(inlayGrid || dimNonHighlighted) && hoverCell &&
           !renderedKeys.has(`${hoverCell.stringIndex}:${hoverCell.fret}`) && (() => {

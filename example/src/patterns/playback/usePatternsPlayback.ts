@@ -36,7 +36,7 @@ import {
   selectEditingComposition,
   resolveEffectivePlayback,
 } from '@fretwork/lib';
-import type { TimeSignature } from '@fretwork/lib';
+import type { Pattern, TimeSignature } from '@fretwork/lib';
 import type { FretInstrumentId, GuitarInstrument, Track, VariantRef } from '@fretwork/lib';
 import { PluckSynthInstrument, SilentInstrument } from '@fretwork/lib';
 import { startPreRoll } from './preroll';
@@ -83,6 +83,11 @@ interface UsePatternsPlaybackReturn {
   } | null;
   playEditingPattern(): void;
   playEditingComposition(): void;
+  /** Play an explicitly-provided pattern (not the patterns-store editing
+   *  pattern). Used by Practice's Pattern mode to drive the same scheduler /
+   *  voice path without entangling the patterns-page editing lifecycle.
+   *  No loop region / start cursor — plays from the top, honoring pattern.loop. */
+  playPattern(pattern: Pattern): void;
   stop(): void;
   /** Trigger a single audible note for a fretboard cell. Used by the patterns editor
    *  for click-to-audition. No-op if the scheduler hasn't been built yet. */
@@ -567,6 +572,65 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
     [scheduler, metronome],
   );
 
+  // Shared single-pattern setup: tear down any live composition, install the
+  // pattern's voice on the shared scheduler, schedule its tempo/TS automation,
+  // and stream it. Used by both the patterns-page editing-pattern play path and
+  // Practice's arbitrary-pattern play path — the only difference between them is
+  // the loop-region / start-cursor wiring (passed via the play config), not this.
+  const preparePatternStream = useCallback(
+    (pattern: Pattern) => {
+      if (!scheduler) return;
+      // Tear down any live multi-track composition and restore the shared
+      // scheduler's real instrument (composition playback parks it with a
+      // SilentInstrument). Must run regardless of whether currentMultiTrack
+      // was set — a stopped composition leaves the scheduler silent.
+      if (currentMultiTrack) {
+        currentMultiTrack.dispose();
+        currentMultiTrack = null;
+      }
+      // Clear BEFORE setInstrument so a voice useEffect from a concurrent
+      // state change sees pattern playback and doesn't bail.
+      isCompositionMode = false;
+      try {
+        const fretState = useFretworkStore.getState();
+        const patternVoiceRef = (pattern.voiceRef ?? null) as VariantRef | null;
+        const { voice } = buildEffectiveVoice(
+          asFretInstrumentId(fretState.instrumentId),
+          { voiceRef: patternVoiceRef },
+        );
+        // Eager build so async nodes (the cab IR Convolver, silent until its
+        // buffer fetches + decodes) load NOW rather than on first trigger —
+        // otherwise the first slice routes through a not-yet-loaded Convolver
+        // and is silent. Tone.loaded() in metronome.start() then waits for the
+        // IR before transport begins.
+        voice.ensureBuilt();
+        scheduler.setInstrument(voice);
+      } catch {
+        scheduler.setInstrument(new PluckSynthInstrument());
+      }
+      // Tempo + TS automation from the pattern (mid-song changes ride the
+      // store setters so UI + audio stay in sync). Falls back to suggestedBpm
+      // / timeSignature for un-automated patterns.
+      cancelTempoAutomation?.();
+      cancelTempoAutomation = applyTempoAutomation(
+        pattern.tempoTrack ?? [],
+        pattern.suggestedBpm ?? useMetronomeStore.getState().bpm,
+        setMetronomeBpmViaStore,
+      );
+      cancelTimeSignatureAutomation?.();
+      cancelTimeSignatureAutomation = applyTimeSignatureAutomation(
+        pattern.timeSignatureTrack ?? [],
+        pattern.timeSignature,
+        setMetronomeTimeSignatureViaStore,
+      );
+      useMetronomeStore.getState().setSwing(pattern.groove?.swing ?? 0.5);
+      useMetronomeStore.getState().setSubdivision(pattern.subdivision ?? 'off');
+      scheduler.setStream(new PatternSource(pattern));
+      scheduler.setLoop(pattern.loop);
+    },
+    [scheduler],
+  );
+
   const playEditingPattern = useCallback(() => {
     if (!scheduler || !metronome) return;
     const pattern = selectEditingPattern(usePatternsStore.getState());
@@ -579,62 +643,35 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
       preRollBpm: pattern.suggestedBpm ?? useMetronomeStore.getState().bpm,
       beatsPerBar:
         pattern.timeSignature.numerator * (4 / pattern.timeSignature.denominator),
-      prepare: () => {
-        // Tear down any live multi-track composition and restore the shared
-        // scheduler's real instrument (composition playback parks it with a
-        // SilentInstrument). Must run regardless of whether currentMultiTrack
-        // was set — a stopped composition leaves the scheduler silent.
-        if (currentMultiTrack) {
-          currentMultiTrack.dispose();
-          currentMultiTrack = null;
-        }
-        // Clear BEFORE setInstrument so a voice useEffect from a concurrent
-        // state change sees pattern playback and doesn't bail.
-        isCompositionMode = false;
-        try {
-          const fretState = useFretworkStore.getState();
-          const patternVoiceRef = (selectEditingPattern(usePatternsStore.getState())
-            ?.voiceRef ?? null) as VariantRef | null;
-          const { voice } = buildEffectiveVoice(
-            asFretInstrumentId(fretState.instrumentId),
-            { voiceRef: patternVoiceRef },
-          );
-          // Eager build so async nodes (the cab IR Convolver, silent until its
-          // buffer fetches + decodes) load NOW rather than on first trigger —
-          // otherwise the first slice routes through a not-yet-loaded Convolver
-          // and is silent. Tone.loaded() in metronome.start() then waits for the
-          // IR before transport begins.
-          voice.ensureBuilt();
-          scheduler.setInstrument(voice);
-        } catch {
-          scheduler.setInstrument(new PluckSynthInstrument());
-        }
-        // Tempo + TS automation from the pattern (mid-song changes ride the
-        // store setters so UI + audio stay in sync). Falls back to suggestedBpm
-        // / timeSignature for un-automated patterns.
-        cancelTempoAutomation?.();
-        cancelTempoAutomation = applyTempoAutomation(
-          pattern.tempoTrack ?? [],
-          pattern.suggestedBpm ?? useMetronomeStore.getState().bpm,
-          setMetronomeBpmViaStore,
-        );
-        cancelTimeSignatureAutomation?.();
-        cancelTimeSignatureAutomation = applyTimeSignatureAutomation(
-          pattern.timeSignatureTrack ?? [],
-          pattern.timeSignature,
-          setMetronomeTimeSignatureViaStore,
-        );
-        useMetronomeStore.getState().setSwing(pattern.groove?.swing ?? 0.5);
-        useMetronomeStore.getState().setSubdivision(pattern.subdivision ?? 'off');
-        scheduler.setStream(new PatternSource(pattern));
-        scheduler.setLoop(pattern.loop);
-      },
+      prepare: () => preparePatternStream(pattern),
       applyStart: (region, startTick) => {
         scheduler.setLoopRegion(region);
         scheduler.setStartTick(startTick);
       },
     });
-  }, [scheduler, metronome, playTimeline]);
+  }, [scheduler, metronome, playTimeline, preparePatternStream]);
+
+  const playPattern = useCallback(
+    (pattern: Pattern) => {
+      if (!scheduler || !metronome) return;
+      playTimeline({
+        loop: pattern.loop,
+        durationTicks: pattern.durationTicks,
+        // Practice has no brace / start-cursor surface — play from the top.
+        resolveRegionRaw: () => null,
+        resolveCursor: () => 0,
+        preRollBpm: pattern.suggestedBpm ?? useMetronomeStore.getState().bpm,
+        beatsPerBar:
+          pattern.timeSignature.numerator * (4 / pattern.timeSignature.denominator),
+        prepare: () => preparePatternStream(pattern),
+        applyStart: (region, startTick) => {
+          scheduler.setLoopRegion(region);
+          scheduler.setStartTick(startTick);
+        },
+      });
+    },
+    [scheduler, metronome, playTimeline, preparePatternStream],
+  );
 
   const playEditingComposition = useCallback(() => {
     if (!scheduler || !metronome) return;
@@ -776,6 +813,7 @@ export function usePatternsPlayback(): UsePatternsPlaybackReturn {
     preRollState,
     playEditingPattern,
     playEditingComposition,
+    playPattern,
     stop,
     previewCell,
   };
