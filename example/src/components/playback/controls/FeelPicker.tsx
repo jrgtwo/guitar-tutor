@@ -83,12 +83,14 @@ export function FeelPicker({ feel, swing, onChange }: Props) {
           </option>
         ))}
       </select>
-      {isSwung ? (
-        <SwingIntensitySlider
-          value={swing}
-          onChange={(next) => emit(feel, next)}
-        />
-      ) : null}
+      {/* Always rendered so its slot is reserved in the layout — disabled (greyed)
+          when the active Feel isn't swung, so enabling swing doesn't shove the
+          neighbouring controls sideways. */}
+      <SwingIntensitySlider
+        value={swing}
+        onChange={(next) => emit(feel, next)}
+        disabled={!isSwung}
+      />
     </div>
   );
 }

@@ -25,6 +25,10 @@ interface Props {
   /** When true, the slider input is disabled (read-only) but the popover still
    *  opens so the caption can explain why. Use a caption to convey the reason. */
   sliderDisabled?: boolean;
+  /** When true, the whole control is inert: the trigger is greyed out and the
+   *  popover never opens. Use to keep a control's footprint reserved in the
+   *  layout while it's not applicable (no layout shift when it re-enables). */
+  disabled?: boolean;
   /** Override the default "click toggles popover" behavior. When provided, the
    *  trigger fires this callback on click — useful for video-player-style
    *  volume buttons where click = mute toggle while hover = reveal slider. */
@@ -49,6 +53,7 @@ export function VerticalSliderPopover({
   display,
   caption,
   sliderDisabled = false,
+  disabled = false,
   onTriggerClick,
   triggerClassName,
   panelClassName,
@@ -143,16 +148,24 @@ export function VerticalSliderPopover({
       <button
         ref={triggerRef}
         type="button"
+        disabled={disabled}
         aria-label={ariaLabel}
-        aria-expanded={open}
+        aria-expanded={disabled ? undefined : open}
         aria-controls={panelId}
-        onClick={() => (onTriggerClick ? onTriggerClick() : setOpen((o) => !o))}
+        onClick={() => {
+          if (disabled) return;
+          onTriggerClick ? onTriggerClick() : setOpen((o) => !o);
+        }}
         onMouseEnter={() => {
+          if (disabled) return;
           cancelClose();
           setOpen(true);
         }}
         onMouseLeave={scheduleClose}
-        onFocus={() => setOpen(true)}
+        onFocus={() => {
+          if (disabled) return;
+          setOpen(true);
+        }}
         onBlur={(e) => {
           // Only close on blur if focus left the entire control (trigger + panel).
           if (
@@ -164,13 +177,14 @@ export function VerticalSliderPopover({
           setOpen(false);
         }}
         className={
-          triggerClassName ??
-          'h-9 w-9 inline-flex items-center justify-center rounded-md border border-input bg-card text-muted-foreground hover:text-foreground transition-colors'
+          (triggerClassName ??
+            'h-9 w-9 inline-flex items-center justify-center rounded-md border border-input bg-card text-muted-foreground hover:text-foreground transition-colors') +
+          (disabled ? ' opacity-40 cursor-not-allowed' : '')
         }
       >
         {icon}
       </button>
-      {open && (
+      {open && !disabled && (
         <div
           ref={panelRef}
           id={panelId}

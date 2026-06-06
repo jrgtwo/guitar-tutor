@@ -14,8 +14,7 @@ import { VolumeSlider } from './controls/VolumeSlider';
 import { NotesVolumeSlider } from './controls/NotesVolumeSlider';
 import { MasterVolumeSlider } from './controls/MasterVolumeSlider';
 import { BeatDots } from '../metronome/BeatDots';
-import { PlaybackPatternControls } from './PlaybackControls';
-import { SoundControls } from './SoundControls';
+import { SoundInlineToggle } from './SoundControls';
 import { BluetoothCalibration } from './BluetoothCalibration';
 
 /**
@@ -63,9 +62,6 @@ export interface TransportConfig {
   };
   /** Show the composition groove-mode toggle. */
   grooveMode?: boolean;
-  /** Show the walk-pattern note-playback controls (Notes / Subdivide / walk
-   *  pattern select) — the legacy Practice sounding engine. */
-  walkNotes?: boolean;
   /** Show the per-composition master-volume fader (Comps only). */
   masterVolume?: boolean;
   /** Show the independent notes-output volume (`NotesBus`, via the metronome
@@ -132,23 +128,22 @@ export function buildTransportSections(cfg: TransportConfig): PlaybackRibbonSect
     );
   }
   if (cfg.grooveMode) feel.push(<GrooveModeToggle key="groove-mode" />);
-  if (cfg.walkNotes) {
-    // Just the walk-pattern select. The on/off "Notes" toggle is gone (the
-    // notes-volume slider is the control); the "Subdivide" density toggle is
-    // gone too — note density follows the metronome subdivision set via Feel.
-    feel.push(<PlaybackPatternControls key="pattern-controls" />);
-  }
 
   const output: ReactNode[] = [];
   if (cfg.masterVolume) output.push(<MasterVolumeSlider key="master-vol" />);
   if (cfg.notesVolume) output.push(<NotesVolumeSlider key="notes-vol" />);
   if (cfg.clickVolume) output.push(<VolumeSlider key="click-vol" />);
-  if (cfg.voice) output.push(<SoundControls key="sound-controls" />);
 
   const sections: PlaybackRibbonSection[] = [
     { id: 'transport', label: 'Transport', controls: transport },
   ];
   if (feel.length) sections.push({ id: 'feel', label: 'Feel', controls: feel });
   if (output.length) sections.push({ id: 'output', label: '', controls: output });
+  // Voice is its own labelled section so its "VOICE" pill matches the other
+  // transport section labels (Transport / Feel), rendered inline beside the
+  // bare voice chip — not the popover-styled SoundControls block.
+  if (cfg.voice) {
+    sections.push({ id: 'voice', label: 'Voice', controls: [<SoundInlineToggle key="voice" />] });
+  }
   return sections;
 }

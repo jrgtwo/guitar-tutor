@@ -14,9 +14,12 @@ interface Props {
   /** Current swing in [0.5, 0.95]. */
   value: number;
   onChange(next: number): void;
+  /** When true, the icon stays visible (reserving its layout slot) but is greyed
+   *  out and inert — used when the active Feel isn't swung. */
+  disabled?: boolean;
 }
 
-export function SwingIntensitySlider({ value, onChange }: Props) {
+export function SwingIntensitySlider({ value, onChange, disabled = false }: Props) {
   const pct = Math.round(value * 100);
   return (
     <VerticalSliderPopover
@@ -29,6 +32,7 @@ export function SwingIntensitySlider({ value, onChange }: Props) {
       ariaLabel="Swing intensity"
       display={`Swing ${pct}%`}
       caption="50% straight · 67% triplet · 75% shuffle · 95% lopsided"
+      disabled={disabled}
     />
   );
 }
