@@ -12,6 +12,9 @@ import { prefetchSampleBanks } from './sample-packs';
 export const VOICE_STORAGE_KEY = 'fretwork:lab-presets:v1';
 const SCHEMA_VERSION = 2;
 
+/** Logged once per session if the variants blob outgrows sessionStorage's quota. */
+let voiceQuotaWarned = false;
+
 /** Map of legacy slot ids (renamed during the 2026-05-25 voicings rebuild) to
  *  their current equivalents. Lets us migrate stored activeVariants entries
  *  in place rather than forcing a schema bump that wipes user data. */
@@ -221,7 +224,25 @@ export const useVoiceStore = create<VoiceState>()(
           }
         },
         setItem: (name, value: StorageValue<Partial<VoiceState>>) => {
-          sessionStorage.setItem(name, JSON.stringify(value.state));
+          // Swallow QuotaExceededError so a large variants blob can't crash the
+          // app on save (mirrors usePatternsStore's quotaTolerant band-aid). The
+          // in-memory store stays correct; for signed-in users the cloud is the
+          // source of truth, so the sessionStorage cache being partial is safe.
+          try {
+            sessionStorage.setItem(name, JSON.stringify(value.state));
+          } catch (e) {
+            const isQuota =
+              e instanceof DOMException &&
+              (e.name === 'QuotaExceededError' || e.code === 22 || e.code === 1014);
+            if (!isQuota) throw e;
+            if (!voiceQuotaWarned) {
+              voiceQuotaWarned = true;
+              // eslint-disable-next-line no-console
+              console.warn(
+                '[voice presets] sessionStorage quota exceeded; in-memory state is correct, the sessionStorage cache is partial.',
+              );
+            }
+          }
         },
         removeItem: (name) => sessionStorage.removeItem(name),
       } satisfies PersistStorage<Partial<VoiceState>>,
