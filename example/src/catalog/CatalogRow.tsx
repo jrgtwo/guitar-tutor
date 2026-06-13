@@ -41,44 +41,39 @@ const KIND_LABEL: Record<CatalogRowItem['kind'], string> = {
   composition: 'composition',
 };
 
-interface Props {
-  row: CatalogRowItem;
+/** Open the editor appropriate to a catalog row's kind (navigating away).
+ *  Built-ins are read-only → copied into the library first. */
+export function openCatalogItem(row: CatalogRowItem) {
+  if (row.kind === 'voice') {
+    useVoiceStore.getState().setActiveVariantRef(row.instrumentId, { kind: 'user', id: row.id });
+    navigate({ kind: 'lab' });
+    return;
+  }
+  if (row.kind === 'pattern') {
+    if (isBuiltinId(row.id)) {
+      const src = BUILTIN_PATTERNS.find((p) => p.id === row.id);
+      if (src) usePatternsStore.getState().useBuiltinPattern(src);
+    } else {
+      usePatternsStore.getState().openPatternForEditing(row.id);
+    }
+    navigate({ kind: 'patterns' });
+    return;
+  }
+  // composition
+  if (isBuiltinId(row.id)) {
+    const src = BUILTIN_COMPOSITIONS.find((c) => c.id === row.id);
+    if (src) usePatternsStore.getState().useBuiltinComposition(src);
+  } else {
+    usePatternsStore.getState().openCompositionForArranging(row.id);
+  }
+  navigate({ kind: 'compositions' });
 }
 
-export function CatalogRow({ row }: Props) {
-  const open = () => {
-    if (row.kind === 'voice') {
-      useVoiceStore.getState().setActiveVariantRef(row.instrumentId, { kind: 'user', id: row.id });
-      navigate({ kind: 'lab' });
-      return;
-    }
-    if (row.kind === 'pattern') {
-      // Built-ins are read-only: copy into the library (editable) and open the copy.
-      if (isBuiltinId(row.id)) {
-        const src = BUILTIN_PATTERNS.find((p) => p.id === row.id);
-        if (src) usePatternsStore.getState().useBuiltinPattern(src);
-      } else {
-        usePatternsStore.getState().openPatternForEditing(row.id);
-      }
-      navigate({ kind: 'patterns' });
-      return;
-    }
-    // composition
-    if (isBuiltinId(row.id)) {
-      const src = BUILTIN_COMPOSITIONS.find((c) => c.id === row.id);
-      if (src) usePatternsStore.getState().useBuiltinComposition(src);
-    } else {
-      usePatternsStore.getState().openCompositionForArranging(row.id);
-    }
-    navigate({ kind: 'compositions' });
-  };
-
+/** Inner content (icon + name + kind/instrument label) for one catalog row.
+ *  The clickable wrapper is owned by `FolderTree`. */
+export function CatalogRowContent({ row }: { row: CatalogRowItem }) {
   return (
-    <button
-      type="button"
-      onClick={open}
-      className="w-full text-left px-3 py-2 rounded-md flex items-center gap-3 hover:bg-white/5 text-muted-foreground hover:text-foreground transition-colors"
-    >
+    <>
       <span className="w-5 text-base shrink-0" aria-hidden>
         {KIND_ICON[row.kind]}
       </span>
@@ -86,6 +81,6 @@ export function CatalogRow({ row }: Props) {
       <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/70 shrink-0">
         {KIND_LABEL[row.kind]} · {row.instrumentId}
       </span>
-    </button>
+    </>
   );
 }

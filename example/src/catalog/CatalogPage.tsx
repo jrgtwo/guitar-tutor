@@ -1,22 +1,23 @@
 /**
  * CatalogPage — `?page=catalog`.
  *
- * Personal-library browser across all kinds. Validates the unified folder model
- * with mixed-kind content. Top filter row scopes by kind + instrument; the
- * folder tree below reflects the shared `collections` taxonomy.
+ * Personal-library browser across all kinds. Top filter row scopes by kind +
+ * instrument + search; below it the shared `<FolderTree>` renders the whole
+ * `collections` taxonomy (user folders + the read-only built-in tree) with
+ * folders expanding in place.
  *
  * What this is NOT (yet): a public discovery surface. It only shows the current
  * user's content (anon = whatever's in sessionStorage; signed-in = whatever the
- * cloud sync has hydrated).
+ * cloud sync has hydrated) plus the first-party built-ins.
  */
 import { useMemo, useState } from 'react';
-import { Folder } from 'lucide-react';
 import {
   usePatternsStore,
   useVoiceStore,
   BUILTIN_PATTERNS,
   BUILTIN_COMPOSITIONS,
-  BUILTIN_COLLECTION,
+  BUILTIN_COLLECTIONS,
+  BUILTIN_COLLECTION_ID,
   type FretInstrumentId,
 } from '@fretwork/lib';
 
@@ -28,13 +29,8 @@ function asFretInstrumentId(id: string): FretInstrumentId {
   return (id === 'bass' || id === 'ukulele' ? id : 'guitar') as FretInstrumentId;
 }
 import { Link } from '../router';
-import { CatalogRow, type CatalogRowItem } from './CatalogRow';
-import {
-  buildBreadcrumb,
-  subfoldersOf,
-  itemsInFolder,
-  buildFolderCounter,
-} from '../library/folder-helpers';
+import { CatalogRowContent, openCatalogItem, type CatalogRowItem } from './CatalogRow';
+import { FolderTree } from '../library/FolderTree';
 
 type KindFilter = 'all' | 'voice' | 'pattern' | 'composition';
 type InstrumentFilter = 'all' | FretInstrumentId;
@@ -44,8 +40,11 @@ export function CatalogPage() {
   const userPatterns = usePatternsStore((s) => s.library.patterns);
   const userCompositions = usePatternsStore((s) => s.library.compositions);
   // Merge the read-only built-in library in (it lives as constants, not in the
-  // store), so it shows as a "Built-in" folder alongside the user's content.
-  const collections = useMemo(() => [BUILTIN_COLLECTION, ...userCollections], [userCollections]);
+  // store), so it shows as an immutable folder tree alongside the user's content.
+  const collections = useMemo(
+    () => [...BUILTIN_COLLECTIONS, ...userCollections],
+    [userCollections],
+  );
   const patterns = useMemo(() => [...BUILTIN_PATTERNS, ...userPatterns], [userPatterns]);
   const compositions = useMemo(
     () => [...BUILTIN_COMPOSITIONS, ...userCompositions],
@@ -57,14 +56,10 @@ export function CatalogPage() {
   const [kindFilter, setKindFilter] = useState<KindFilter>('all');
   const [instrumentFilter, setInstrumentFilter] = useState<InstrumentFilter>('all');
   const [search, setSearch] = useState('');
-  const [showEmpty, setShowEmpty] = useState(false);
-  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
 
-  // Build the heterogeneous row list, applying kind + instrument + search filters.
-  // Patterns: skip the auto-seeded draft (it shouldn't surface in the library).
+  // Heterogeneous item list, scoped by kind + instrument. Name search is handled
+  // by the tree (so it can also match + reveal folders).
   const rows: CatalogRowItem[] = useMemo(() => {
-    const needle = search.trim().toLowerCase();
-    const matchesSearch = (name: string) => !needle || name.toLowerCase().includes(needle);
     const matchesInstr = (inst: string) =>
       instrumentFilter === 'all' || instrumentFilter === inst;
 
@@ -72,7 +67,6 @@ export function CatalogPage() {
     if (kindFilter === 'all' || kindFilter === 'voice') {
       for (const v of variants) {
         if (!matchesInstr(v.instrumentId)) continue;
-        if (!matchesSearch(v.name)) continue;
         out.push({
           kind: 'voice',
           id: v.id,
@@ -86,7 +80,6 @@ export function CatalogPage() {
       for (const p of patterns) {
         if (p.id === draftId) continue;
         if (!matchesInstr(p.instrumentId)) continue;
-        if (!matchesSearch(p.name)) continue;
         out.push({
           kind: 'pattern',
           id: p.id,
@@ -99,7 +92,6 @@ export function CatalogPage() {
     if (kindFilter === 'all' || kindFilter === 'composition') {
       for (const c of compositions) {
         if (!matchesInstr(c.instrumentId)) continue;
-        if (!matchesSearch(c.name)) continue;
         out.push({
           kind: 'composition',
           id: c.id,
@@ -110,37 +102,7 @@ export function CatalogPage() {
       }
     }
     return out;
-  }, [variants, patterns, compositions, draftId, kindFilter, instrumentFilter, search]);
-
-  const collectionsById = useMemo(
-    () => new Map(collections.map((c) => [c.id, c])),
-    [collections],
-  );
-  const breadcrumb = useMemo(
-    () => buildBreadcrumb(collectionsById, currentFolderId),
-    [collectionsById, currentFolderId],
-  );
-  const subfolders = useMemo(
-    () => subfoldersOf(collections, currentFolderId),
-    [collections, currentFolderId],
-  );
-  const itemsHere = useMemo(
-    () => itemsInFolder(rows, currentFolderId),
-    [rows, currentFolderId],
-  );
-
-  // Folder counts under the current filters — used both to display "(N)" and
-  // to decide which empty folders to hide. A folder's count walks its
-  // descendants so a folder whose subfolder contains matching items still
-  // shows up.
-  const folderCount = useMemo(
-    () => buildFolderCounter(collections, rows),
-    [collections, rows],
-  );
-
-  const visibleFolders = showEmpty
-    ? subfolders
-    : subfolders.filter((f) => folderCount(f.id) > 0);
+  }, [variants, patterns, compositions, draftId, kindFilter, instrumentFilter]);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -190,79 +152,18 @@ export function CatalogPage() {
             <option value="bass">Bass</option>
             <option value="ukulele">Ukulele</option>
           </select>
-          <label className="text-xs font-mono uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={showEmpty}
-              onChange={(e) => setShowEmpty(e.target.checked)}
-              className="cursor-pointer"
-            />
-            Show empty folders
-          </label>
         </section>
 
-        {/* Breadcrumb */}
-        <nav className="flex items-center gap-1 flex-wrap text-[11px] font-mono">
-          <button
-            type="button"
-            onClick={() => setCurrentFolderId(null)}
-            className="text-muted-foreground hover:text-foreground transition-colors"
-          >
-            Library
-          </button>
-          {breadcrumb.map((entry, idx) => {
-            const isLast = idx === breadcrumb.length - 1;
-            return (
-              <span key={entry.id} className="flex items-center gap-1">
-                <span className="text-muted-foreground/50">/</span>
-                <button
-                  type="button"
-                  onClick={() => setCurrentFolderId(entry.id)}
-                  disabled={isLast}
-                  className={
-                    isLast
-                      ? 'text-foreground cursor-default'
-                      : 'text-muted-foreground hover:text-foreground transition-colors'
-                  }
-                >
-                  {entry.name}
-                </button>
-              </span>
-            );
-          })}
-        </nav>
-
-        {/* Folder + item list */}
+        {/* Folder tree */}
         <section className="rounded-lg border border-border/50 bg-card/60 p-2">
-          <ul className="flex flex-col">
-            {visibleFolders.map((f) => (
-              <li key={f.id}>
-                <button
-                  type="button"
-                  onClick={() => setCurrentFolderId(f.id)}
-                  className="w-full text-left px-3 py-2 rounded-md flex items-center gap-3 hover:bg-white/5 text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <Folder size={14} className="shrink-0 opacity-70" />
-                  <span className="flex-1 text-sm truncate">{f.name}</span>
-                  <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/70 shrink-0">
-                    ({folderCount(f.id)})
-                  </span>
-                </button>
-              </li>
-            ))}
-            {itemsHere.map((row) => (
-              <li key={`${row.kind}:${row.id}`}>
-                <CatalogRow row={row} />
-              </li>
-            ))}
-            {visibleFolders.length === 0 && itemsHere.length === 0 && (
-              <li className="px-3 py-6 text-xs font-mono text-muted-foreground/70 text-center">
-                {search || kindFilter !== 'all' || instrumentFilter !== 'all'
-                  ? 'No matches under the current filters.'
-                  : 'Nothing here yet. Create a pattern, composition, or voice variant to populate the catalog.'}
-              </li>
-            )}
-          </ul>
+          <FolderTree<CatalogRowItem>
+            collections={collections}
+            items={rows}
+            filter={search}
+            defaultExpandedIds={[BUILTIN_COLLECTION_ID]}
+            onPickItem={openCatalogItem}
+            renderItemRow={(row) => <CatalogRowContent row={row} />}
+          />
         </section>
       </main>
     </div>

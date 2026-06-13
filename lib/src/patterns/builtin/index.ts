@@ -23,32 +23,83 @@ import type { ChordQuality } from '../../playback/patterns/caged-chord-shapes-da
 
 export const BUILTIN_COLLECTION_ID = 'builtin';
 
-/** Is this id a built-in (read-only, first-party) library item? */
+/** Is this id a built-in (read-only, first-party) library item or folder?
+ *  Items/child-folders are `builtin-*`; the root folder is exactly `builtin`. */
 export const isBuiltinId = (id: string | null | undefined): boolean =>
-  typeof id === 'string' && id.startsWith('builtin-');
+  typeof id === 'string' && (id === BUILTIN_COLLECTION_ID || id.startsWith('builtin-'));
 
 const NOW = Date.UTC(2026, 0, 1); // fixed so built-ins are stable across reloads
-export const BUILTIN_COLLECTION: Collection = {
-  id: BUILTIN_COLLECTION_ID,
-  name: 'Built-in',
-  parentId: null,
+
+// ── Built-in folder tree ────────────────────────────────────────────────────
+// Read-only collections the built-in content is filed under. Same `Collection`
+// shape as user folders so the shared folder logic treats them identically; the
+// only difference is `isBuiltinId` → no rename/move/delete.
+const COL = {
+  root: BUILTIN_COLLECTION_ID,
+  chords: 'builtin-col-chords',
+  chordsMajor: 'builtin-col-chords-major',
+  chordsMinor: 'builtin-col-chords-minor',
+  chordsDom7: 'builtin-col-chords-dom7',
+  chordsMaj7: 'builtin-col-chords-maj7',
+  chordsMin7: 'builtin-col-chords-min7',
+  scales: 'builtin-col-scales',
+  arps: 'builtin-col-arps',
+  riffs: 'builtin-col-riffs',
+} as const;
+
+const collection = (id: string, name: string, parentId: string | null): Collection => ({
+  id,
+  name,
+  parentId,
   visibility: 'private',
   publishedAt: null,
   createdAt: NOW,
   updatedAt: NOW,
+});
+
+/** The whole built-in folder tree (root included), for merging into the shared
+ *  `collections` taxonomy on any surface. */
+export const BUILTIN_COLLECTIONS: Collection[] = [
+  collection(COL.root, 'Built-in', null),
+  collection(COL.chords, 'Chords', COL.root),
+  collection(COL.chordsMajor, 'Major', COL.chords),
+  collection(COL.chordsMinor, 'Minor', COL.chords),
+  collection(COL.chordsDom7, 'Dominant 7', COL.chords),
+  collection(COL.chordsMaj7, 'Major 7', COL.chords),
+  collection(COL.chordsMin7, 'Minor 7', COL.chords),
+  collection(COL.scales, 'Scales', COL.root),
+  collection(COL.arps, 'Arpeggios', COL.root),
+  collection(COL.riffs, 'Riffs & Demos', COL.root),
+];
+
+/** Back-compat: the root "Built-in" collection on its own. */
+export const BUILTIN_COLLECTION: Collection = BUILTIN_COLLECTIONS[0];
+
+/** Leaf chord folder for a given chord quality. */
+const CHORD_FOLDER: Record<ChordQuality, string> = {
+  major: COL.chordsMajor,
+  minor: COL.chordsMinor,
+  dom7: COL.chordsDom7,
+  maj7: COL.chordsMaj7,
+  min7: COL.chordsMin7,
 };
 
 const TUNING = getTuning(DEFAULT_TUNING_ID)!;
 const REQ_BASE = { tuning: TUNING, capo: 0, fretCount: 17, stringCount: 6 } as const;
 
-function patternFromEvents(slug: string, name: string, events: PatternEvent[]): Pattern {
+function patternFromEvents(
+  slug: string,
+  name: string,
+  events: PatternEvent[],
+  collectionId: string,
+): Pattern {
   const base = createEmptyPattern(name);
   return fitPatternDuration({
     ...base,
     id: `builtin-pat-${slug}`,
     name,
     events,
-    collectionId: BUILTIN_COLLECTION_ID,
+    collectionId,
   });
 }
 
@@ -65,7 +116,7 @@ function planEvents(slug: string, plan: { notes: readonly { stringIndex: number;
 function cagedChord(shapeId: CagedShapeId, key: string, quality: ChordQuality, name: string): Pattern {
   const slug = `${shapeId}-${key}-${quality}`.toLowerCase();
   const plan = planCagedInsert({ ...REQ_BASE, shapeId, mode: 'chord', key, chordQuality: quality }, PPQ);
-  return patternFromEvents(slug, name, planEvents(slug, plan));
+  return patternFromEvents(slug, name, planEvents(slug, plan), CHORD_FOLDER[quality]);
 }
 
 const RUN_SHAPE_ORDER: CagedShapeId[] = ['caged-e', 'caged-a', 'caged-c', 'caged-g', 'caged-d'];
@@ -77,6 +128,7 @@ function cagedRun(
   name: string,
 ): Pattern {
   const slug = `${mode}-${key}-${type}`.toLowerCase(); // shape-independent → stable id
+  const folder = mode === 'scale' ? COL.scales : COL.arps;
   // Some scale/arp types don't fill every CAGED box — try shapes until one does.
   for (const shapeId of RUN_SHAPE_ORDER) {
     const plan = planCagedInsert(
@@ -90,9 +142,10 @@ function cagedRun(
       },
       PPQ / 2,
     );
-    if (plan.notes.length > 0) return patternFromEvents(slug, name, planEvents(slug, plan));
+    if (plan.notes.length > 0)
+      return patternFromEvents(slug, name, planEvents(slug, plan), folder);
   }
-  return patternFromEvents(slug, name, []); // unreachable in practice
+  return patternFromEvents(slug, name, [], folder); // unreachable in practice
 }
 
 // ── Theory: chords ──────────────────────────────────────────────────────────
@@ -148,28 +201,39 @@ const e = (slug: string, i: number, s: number, fret: number, at: number, dur: nu
 });
 
 // A simple low-string riff (string 0 = low E). Original.
-const demoRiff = patternFromEvents('demo-riff', 'Demo Riff', [
-  e('demo-riff', 0, 0, 0, 0, PPQ / 2),
-  e('demo-riff', 1, 0, 3, PPQ / 2, PPQ / 2),
-  e('demo-riff', 2, 0, 5, PPQ, PPQ / 2),
-  e('demo-riff', 3, 1, 3, PPQ * 1.5, PPQ / 2),
-  e('demo-riff', 4, 0, 5, PPQ * 2, PPQ / 2),
-  e('demo-riff', 5, 0, 3, PPQ * 2.5, PPQ / 2),
-  e('demo-riff', 6, 0, 0, PPQ * 3, PPQ),
-]);
+const demoRiff = patternFromEvents(
+  'demo-riff',
+  'Demo Riff',
+  [
+    e('demo-riff', 0, 0, 0, 0, PPQ / 2),
+    e('demo-riff', 1, 0, 3, PPQ / 2, PPQ / 2),
+    e('demo-riff', 2, 0, 5, PPQ, PPQ / 2),
+    e('demo-riff', 3, 1, 3, PPQ * 1.5, PPQ / 2),
+    e('demo-riff', 4, 0, 5, PPQ * 2, PPQ / 2),
+    e('demo-riff', 5, 0, 3, PPQ * 2.5, PPQ / 2),
+    e('demo-riff', 6, 0, 0, PPQ * 3, PPQ),
+  ],
+  COL.riffs,
+);
 
 // A steady eighth-note bass walk on the A string. Original.
-const demoBass = patternFromEvents('demo-bass', 'Demo Bass Walk', [
-  e('demo-bass', 0, 1, 3, 0, PPQ / 2),
-  e('demo-bass', 1, 1, 3, PPQ / 2, PPQ / 2),
-  e('demo-bass', 2, 1, 5, PPQ, PPQ / 2),
-  e('demo-bass', 3, 1, 5, PPQ * 1.5, PPQ / 2),
-  e('demo-bass', 4, 1, 7, PPQ * 2, PPQ / 2),
-  e('demo-bass', 5, 1, 5, PPQ * 2.5, PPQ / 2),
-  e('demo-bass', 6, 1, 3, PPQ * 3, PPQ),
-]);
+const demoBass = patternFromEvents(
+  'demo-bass',
+  'Demo Bass Walk',
+  [
+    e('demo-bass', 0, 1, 3, 0, PPQ / 2),
+    e('demo-bass', 1, 1, 3, PPQ / 2, PPQ / 2),
+    e('demo-bass', 2, 1, 5, PPQ, PPQ / 2),
+    e('demo-bass', 3, 1, 5, PPQ * 1.5, PPQ / 2),
+    e('demo-bass', 4, 1, 7, PPQ * 2, PPQ / 2),
+    e('demo-bass', 5, 1, 5, PPQ * 2.5, PPQ / 2),
+    e('demo-bass', 6, 1, 3, PPQ * 3, PPQ),
+  ],
+  COL.riffs,
+);
 
-/** Built-in patterns grouped for display (e.g. the picker's pinned section). */
+/** Built-in patterns grouped by category. Kept for any non-tree display; the
+ *  folder surfaces now render the `BUILTIN_COLLECTIONS` tree instead. */
 export const BUILTIN_PATTERN_GROUPS: { label: string; patterns: Pattern[] }[] = [
   { label: 'Chords', patterns: chordPatterns },
   { label: 'Scales', patterns: scaleRuns },
@@ -186,7 +250,7 @@ function demoComposition(): Composition {
   let comp = addPlacementToTrack(base, trackId, demoRiff).composition;
   comp = addPlacementToTrack(comp, trackId, demoRiff).composition;
   comp = addPlacementToTrack(comp, trackId, chordPatterns[0]).composition; // C major
-  return { ...comp, id: 'builtin-comp-demo', name: 'Demo Composition', collectionId: BUILTIN_COLLECTION_ID };
+  return { ...comp, id: 'builtin-comp-demo', name: 'Demo Composition', collectionId: COL.riffs };
 }
 
 export const BUILTIN_COMPOSITIONS: Composition[] = [demoComposition()];
