@@ -1,3 +1,5 @@
 packages:
   - lib
   - example
+  - metronome
+  - adkit
