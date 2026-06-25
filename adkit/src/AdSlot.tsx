@@ -14,11 +14,10 @@ export interface AdSlotProps {
 }
 
 function isDev(): boolean {
-  try {
-    return typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production';
-  } catch {
-    return false;
-  }
+  // Read process.env via globalThis so the package needs no @types/node and stays
+  // safe in the browser (where `process` simply doesn't exist → not dev → no warn).
+  const env = (globalThis as { process?: { env?: { NODE_ENV?: string } } }).process?.env;
+  return env != null && env.NODE_ENV !== 'production';
 }
 
 /**
