@@ -3,12 +3,13 @@ import animate from 'tailwindcss-animate';
 
 const config: Config = {
   darkMode: 'class',
-  // Scan both this app's source AND the workspace lib's source so all Tailwind
-  // classes used by lib components/tokens are present in the final CSS bundle.
+  // Scan this app's source AND the @fretwork/lib BUILT output (it's now a git
+  // dependency, not a workspace package), so Tailwind classes used by lib's
+  // components are present in the final CSS bundle.
   content: [
     './index.html',
     './src/**/*.{ts,tsx}',
-    '../lib/src/**/*.{ts,tsx}',
+    './node_modules/@fretwork/lib/dist/**/*.js',
   ],
   theme: {
     extend: {
@@ -60,15 +61,14 @@ const config: Config = {
       },
       keyframes: {
         'fade-in': { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
-        'beat-pop': {
-          '0%': { transform: 'scale(0.82)' },
-          '60%': { transform: 'scale(1.06)' },
-          '100%': { transform: 'scale(1)' },
+        'marker-pop': {
+          '0%': { transform: 'scale(0.7)', opacity: '0' },
+          '100%': { transform: 'scale(1)', opacity: '1' },
         },
       },
       animation: {
         'fade-in': 'fade-in 120ms ease-out',
-        'beat-pop': 'beat-pop 140ms cubic-bezier(0.34, 1.56, 0.64, 1)',
+        'marker-pop': 'marker-pop 160ms cubic-bezier(0.34, 1.56, 0.64, 1)',
       },
     },
   },
