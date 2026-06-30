@@ -7,7 +7,8 @@
  * needing to know about it.
  */
 import { Play, Square, Loader2 } from 'lucide-react';
-import { Button, useMetronomeStore } from '@fretwork/lib';
+import { Button } from '@/components/ui';
+import { useMetronomeStore } from '@fretwork/lib';
 
 interface PlayStopButtonProps {
   /** Called when the button is pressed while stopped. */

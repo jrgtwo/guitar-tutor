@@ -15,7 +15,8 @@
  * use the metronome, so the lab is self-contained.
  */
 import { useEffect, useRef, useState } from 'react';
-import { Button, startAudio, audioNow, MasterBus, type Voice } from '@fretwork/lib';
+import { Button } from '@/components/ui';
+import { startAudio, audioNow, MasterBus, type Voice } from '@fretwork/lib';
 
 const NOTE_OPTIONS = ['E2', 'A2', 'D3', 'G3', 'B3', 'E4', 'A4', 'C4', 'E5'];
 

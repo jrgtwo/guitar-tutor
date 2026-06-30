@@ -1,14 +1,5 @@
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  Button,
-  usePatternsStore,
-  useVoiceStore,
-  type Collection,
-} from '@fretwork/lib';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Button } from '@/components/ui';
+import { usePatternsStore, useVoiceStore, type Collection } from '@fretwork/lib';
 import { buildFolderCounter } from './folder-helpers';
 
 interface Props {

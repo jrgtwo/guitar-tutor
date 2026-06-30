@@ -1,17 +1,6 @@
 import { useState } from 'react';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  Button,
-  Label,
-  useVoiceStore,
-  usePatternsStore,
-  type FretInstrumentId,
-  type VoicePreset,
-} from '@fretwork/lib';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Button, Label } from '@/components/ui';
+import { useVoiceStore, usePatternsStore, type FretInstrumentId, type VoicePreset } from '@fretwork/lib';
 import { Plus } from 'lucide-react';
 
 interface Props {

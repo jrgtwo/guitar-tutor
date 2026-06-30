@@ -10,15 +10,8 @@
  * acknowledging that.
  */
 import { Sparkles } from 'lucide-react';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  KIND_LABELS,
-  useAuthStore,
-} from '@fretwork/lib';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui';
+import { KIND_LABELS, useAuthStore } from '@fretwork/lib';
 
 export function UpgradePrompt() {
   const open = useAuthStore((s) => s.upgradePromptOpen);

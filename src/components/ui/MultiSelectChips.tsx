@@ -9,7 +9,7 @@
  */
 import { useState } from 'react';
 import { Plus, X } from 'lucide-react';
-import { ControlGroup } from '@fretwork/lib';
+import { ControlGroup } from '@/components/controls/ControlGroup';
 import { SimplePopover } from './SimplePopover';
 
 interface Option {

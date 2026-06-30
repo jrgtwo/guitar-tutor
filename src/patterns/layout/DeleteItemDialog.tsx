@@ -10,7 +10,8 @@
  * Closes itself + the metadata popover on confirm via the `onConfirmed`
  * callback. Cancellation just closes the dialog.
  */
-import { Dialog, DialogContent, DialogTitle, usePatternsStore } from '@fretwork/lib';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui';
+import { usePatternsStore } from '@fretwork/lib';
 import { AlertTriangle } from 'lucide-react';
 
 interface Props {

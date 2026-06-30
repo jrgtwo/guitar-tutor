@@ -5,12 +5,8 @@
  * is the on/off + loudness control, and note density now follows the metronome
  * subdivision set via the Feel picker.)
  */
-import {
-  Button,
-  Label,
-  CUSTOM_PATTERN_ID,
-  usePlayback,
-} from '@fretwork/lib';
+import { Button, Label } from '@/components/ui';
+import { CUSTOM_PATTERN_ID, usePlayback } from '@fretwork/lib';
 import { PatternSelect } from './PatternSelect';
 
 export function PlaybackPatternControls() {

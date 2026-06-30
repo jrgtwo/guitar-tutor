@@ -9,48 +9,8 @@
  * Reach this page via `?lab=1` (handled in `main.tsx`).
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  Button,
-  Switch,
-  Label,
-  Voice,
-  MasterBus,
-  DEFAULT_REVERB_SETTINGS,
-  startAudio,
-  resolveActiveVoice,
-  useVoiceStore,
-  type FretInstrumentId,
-  type AutoWahParams,
-  type BodyFilterEnvelope,
-  type BodyFilterParams,
-  type ChorusParams,
-  type ChorusType,
-  type CompressorParams,
-  type DelayParams,
-  type DistortionParams,
-  type DistortionOversample,
-  type AmpParams,
-  type CabIRParams,
-  AMP_MODELS,
-  getAmpModel,
-  DEFAULT_AMP_MODEL_ID,
-  type VoiceReverbParams,
-  type GraphicEqParams,
-  type EQParams,
-  type EffectsConfig,
-  type FMSynthParams,
-  type OscillatorType,
-  type PluckSynthParams,
-  type ReverbSettings,
-  type VoiceLayer,
-  type VoiceLevel,
-  type VoicePreset,
-  type VoiceSource,
-  SAMPLE_PACKS,
-  detectSamplePack,
-  CABINET_IRS,
-  detectCabinetIR,
-} from '@fretwork/lib';
+import { Button, Switch, Label } from '@/components/ui';
+import { Voice, MasterBus, DEFAULT_REVERB_SETTINGS, startAudio, resolveActiveVoice, useVoiceStore, type FretInstrumentId, type AutoWahParams, type BodyFilterEnvelope, type BodyFilterParams, type ChorusParams, type ChorusType, type CompressorParams, type DelayParams, type DistortionParams, type DistortionOversample, type AmpParams, type CabIRParams, AMP_MODELS, getAmpModel, DEFAULT_AMP_MODEL_ID, type VoiceReverbParams, type GraphicEqParams, type EQParams, type EffectsConfig, type FMSynthParams, type OscillatorType, type PluckSynthParams, type ReverbSettings, type VoiceLayer, type VoiceLevel, type VoicePreset, type VoiceSource, SAMPLE_PACKS, detectSamplePack, CABINET_IRS, detectCabinetIR } from '@fretwork/lib';
 import { ParameterSlider } from './ParameterSlider';
 import { AuditionDeck } from './AuditionDeck';
 import { Link } from '../router';

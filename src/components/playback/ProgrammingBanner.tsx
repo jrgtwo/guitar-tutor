@@ -3,7 +3,8 @@
  * inline Done/Clear actions so the user doesn't have to scroll back up to the
  * playback panel mid-program.
  */
-import { Button, usePlayback } from '@fretwork/lib';
+import { Button } from '@/components/ui';
+import { usePlayback } from '@fretwork/lib';
 import { MousePointerClick } from 'lucide-react';
 
 export function ProgrammingBanner() {

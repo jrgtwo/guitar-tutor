@@ -1,18 +1,6 @@
 import { useMemo, useState } from 'react';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  Button,
-  Label,
-  usePatternsStore,
-  wouldCreateCycle,
-  getCollectionDepth,
-  MAX_FOLDER_DEPTH,
-  type Collection,
-} from '@fretwork/lib';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Button, Label } from '@/components/ui';
+import { usePatternsStore, wouldCreateCycle, getCollectionDepth, MAX_FOLDER_DEPTH, type Collection } from '@fretwork/lib';
 
 interface Props {
   folder: Collection;

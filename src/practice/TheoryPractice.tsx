@@ -1,4 +1,6 @@
-import { Fretboard, InfoCard, Legend } from '@fretwork/lib';
+import { Fretboard } from '@fretwork/lib';
+import { InfoCard } from '@/components/InfoCard';
+import { Legend } from '@/components/Legend';
 import { PlaybackRibbon } from '@/components/playback/PlaybackRibbon';
 import { PracticeLookaheadBar } from '@/lookahead/PracticeLookaheadBar';
 import { usePracticeRibbonSections } from '@/components/playback/practiceRibbonSections';

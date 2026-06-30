@@ -1,13 +1,6 @@
 import { useState } from 'react';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  Button,
-  useVoiceStore,
-  type Variant,
-} from '@fretwork/lib';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, Button } from '@/components/ui';
+import { useVoiceStore, type Variant } from '@fretwork/lib';
 
 interface Props {
   variant: Variant;

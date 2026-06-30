@@ -11,21 +11,8 @@
  */
 import { useState, useEffect } from 'react';
 import { Music2, ListMusic, Loader2, Sliders } from 'lucide-react';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  countSessionContent,
-  uploadSessionContent,
-  clearSessionContent,
-  markMigrationResolved,
-  usePatternsStore,
-  useAuthStore,
-  DEFAULT_PATTERNS_STATE,
-  type MigrationCounts,
-} from '@fretwork/lib';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui';
+import { countSessionContent, uploadSessionContent, clearSessionContent, markMigrationResolved, usePatternsStore, useAuthStore, DEFAULT_PATTERNS_STATE, type MigrationCounts } from '@fretwork/lib';
 
 interface Props {
   open: boolean;

@@ -1,13 +1,5 @@
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  Button,
-  useVoiceStore,
-  type Variant,
-} from '@fretwork/lib';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Button } from '@/components/ui';
+import { useVoiceStore, type Variant } from '@fretwork/lib';
 
 interface Props {
   variant: Variant;

@@ -1,8 +1,5 @@
-import {
-  SettingsDialog,
-  INSTRUMENTS,
-  useFretworkStore,
-} from '@fretwork/lib';
+import { INSTRUMENTS, useFretworkStore } from '@fretwork/lib';
+import { SettingsDialog } from '@/components/SettingsDialog';
 import { SignInButton } from '@/auth/SignInButton';
 import { Link, useLocation } from '@/router';
 import { MasterGainControl } from '@/components/MasterGainControl';

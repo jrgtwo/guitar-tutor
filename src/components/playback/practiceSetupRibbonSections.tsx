@@ -1,11 +1,9 @@
 import type { ReactNode } from 'react';
-import {
-  ModeSelect,
-  KeySelect,
-  TypeSelect,
-  ShapeSelect,
-  CapoSelect,
-} from '@fretwork/lib';
+import { ModeSelect } from '@/components/controls/ModeSelect';
+import { KeySelect } from '@/components/controls/KeySelect';
+import { TypeSelect } from '@/components/controls/TypeSelect';
+import { ShapeSelect } from '@/components/controls/ShapeSelect';
+import { CapoSelect } from '@/components/controls/CapoSelect';
 import type { RibbonSection } from './PlaybackRibbon';
 import { PlaybackPatternControls } from './PlaybackControls';
 

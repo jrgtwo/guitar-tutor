@@ -5,13 +5,8 @@
  * place). Both the chip popover and the strip's `⋯` popover read/write the same
  * Zustand store, so a toggle in one surface updates the other immediately.
  */
-import {
-  Label,
-  Switch,
-  useMetronome,
-  subdivisionSupportsSwing,
-  type SubdivisionId,
-} from '@fretwork/lib';
+import { Label, Switch } from '@/components/ui';
+import { useMetronome, subdivisionSupportsSwing, type SubdivisionId } from '@fretwork/lib';
 
 export function AccentSwitch() {
   const m = useMetronome();

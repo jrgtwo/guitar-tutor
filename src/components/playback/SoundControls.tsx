@@ -10,7 +10,8 @@
  * is now a property of the active variant, not a separate toggle, so the old
  * acoustic/electric radio + segmented control is gone.
  */
-import { Label, useFretworkStore, type FretInstrumentId } from '@fretwork/lib';
+import { Label } from '@/components/ui';
+import { useFretworkStore, type FretInstrumentId } from '@fretwork/lib';
 import { VoicePickerChip } from '../../voices/VoicePickerChip';
 
 /** Coerce the loosely-typed `instrumentId: string` from the fretwork store down

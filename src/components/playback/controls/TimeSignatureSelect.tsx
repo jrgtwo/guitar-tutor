@@ -8,17 +8,8 @@
  * the choice (typically writing to a composition or pattern entity AND
  * the metronome store). Mirrors the BpmStepper wiring pattern.
  */
-import {
-  getTimeSignature,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-  TIME_SIGNATURES,
-  useMetronomeStore,
-  type TimeSignature,
-} from '@fretwork/lib';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui';
+import { getTimeSignature, TIME_SIGNATURES, useMetronomeStore, type TimeSignature } from '@fretwork/lib';
 
 interface Props {
   value?: string;

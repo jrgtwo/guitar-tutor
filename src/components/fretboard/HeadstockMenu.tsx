@@ -1,4 +1,6 @@
-import { TuningSelect, LabelsSelect, useFretworkStore, getTuning } from '@fretwork/lib';
+import { useFretworkStore, getTuning } from '@fretwork/lib';
+import { TuningSelect } from '@/components/controls/TuningSelect';
+import { LabelsSelect } from '@/components/controls/LabelsSelect';
 import { SimplePopover } from '../ui/SimplePopover';
 
 /**

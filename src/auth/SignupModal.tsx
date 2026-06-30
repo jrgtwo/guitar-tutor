@@ -10,15 +10,8 @@
  * providers are added, this becomes a list of provider buttons rather than a
  * provider rewrite.
  */
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  useAuthStore,
-  useAuth,
-} from '@fretwork/lib';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui';
+import { useAuthStore, useAuth } from '@fretwork/lib';
 
 export function SignupModal() {
   const open = useAuthStore((s) => s.signupModalOpen);

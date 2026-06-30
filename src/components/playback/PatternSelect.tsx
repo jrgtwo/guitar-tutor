@@ -4,27 +4,8 @@
  * whichever highlights are active (full scale or the selected CAGED position).
  * Patterns whose `isApplicable()` returns false are rendered grayed-out and disabled.
  */
-import {
-  PLAYBACK_PATTERNS,
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
-  buildGrid,
-  computeHighlights,
-  getInstrument,
-  getScale,
-  getArpeggio,
-  getTuning,
-  useFretworkStore,
-  usePlayback,
-  type PlaybackPattern,
-  type ResolveInput,
-  type IntervalSet,
-} from '@fretwork/lib';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui';
+import { PLAYBACK_PATTERNS, buildGrid, computeHighlights, getInstrument, getScale, getArpeggio, getTuning, useFretworkStore, usePlayback, type PlaybackPattern, type ResolveInput, type IntervalSet } from '@fretwork/lib';
 import { useMemo } from 'react';
 
 export function PatternSelect() {
